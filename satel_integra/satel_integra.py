@@ -44,31 +44,9 @@ hence the poor man debugging inside
 '''
 
 
-def send_command(sock, command):
-    data = generate_query(command)
-
-    if DEBUG:
-        print("-- Sending data --", file=sys.stderr)
-        print_hex(data)
-        print("-- ------------- --", file=sys.stderr)
-        print("Sent %d bytes" % len(data), file=sys.stderr)
-
-    failcount = 0
-    while True:
-        if not sock.send(data):
-            raise Exception("Error Sending message.")
-        resp = receive_data(sock)
-        # integra will respond "Busy!" if it gets next message too early
-        if (resp[0:8] == b'\x10\x42\x75\x73\x79\x21\x0D\x0A'):
-            failcount = failcount + 1
-            if failcount < MAX_ATTEMPTS:
-                time.sleep(DELAY * failcount)
-            else:
-                break
-        else:
-            break
-
-    return verify_and_strip(resp)
+def response_busy(resp):
+    """Verifies if te response received indicated busy"""
+    return resp[0:8] == b'\x10\x42\x75\x73\x79\x21\x0D\x0A'
 
 
 def receive_data(sock):
@@ -117,7 +95,8 @@ def list_set_bits(r, expected_length):
             bit_index += 1
     print("Bits set:")
     msg = ""
-    for p in set_bit_numbers: msg += format(p, "#04X") + " "
+    for p in set_bit_numbers:
+        msg += format(p, "#04X") + " "
     print(msg)
     return set_bit_numbers
 
@@ -141,19 +120,6 @@ def outputAsString(output):
         string += "0"
     return string
 
-
-''' Switches the state of a given output
-'''
-
-
-def iSwitchOutput(code, output):
-    while len(code) < 16:
-        code += b'\x0F'
-    output = outputAsString(output)
-    cmd = "91" + code + output
-    r = send_command(sock, cmd)
-
-
 def generate_query(command):
     data = bytearray(command)
     c = checksum(data)
@@ -163,16 +129,6 @@ def generate_query(command):
 
     data = bytearray.fromhex("FEFE") + data + bytearray.fromhex("FE0D")
     return data
-
-
-def iArmInMode0(sock, code):
-    while len(code) < 16:
-        code += 'F'
-
-    code_bytes = bytearray.fromhex(code)
-
-    r = send_command(sock, b'\x80' + code_bytes + b'\x01\x00\x00\x00')
-
 
 #### BASIC DEMO
 ''' ... and now it is the time to demonstrate what have we learnt today
@@ -221,11 +177,11 @@ class SatelEthm():
 
     def __init__(self, socket):
         """Init the Satel alarm panel."""
-        self._socket = socket
         self._status = AlarmState.DISARMED
         self._partitions = {}
-        self._host = socket.host
-        self._port = socket.port
+        #self._host = host
+        #self._port = port
+        self._socket = socket
 
         # Dictionary: command => ( name of the information, how many bytes in an answer)
         self._update_commands = [
@@ -266,6 +222,10 @@ class SatelEthm():
         self._current_status = {}
         self._device_name_cache = {}
 
+#    def connect(self):
+#        self._socket = socket(AF_INET, SOCK_STREAM)
+#        self._socket.connect((self._host,self._port))
+
     @staticmethod
     def _hardware_model(code):
         model_strings = {
@@ -284,10 +244,37 @@ class SatelEthm():
         else:
             return "INTEGRA " + model_strings[code]
 
+    def send_command(self, command):
+
+        data = generate_query(command)
+
+        if DEBUG:
+            print("-- Sending data --", file=sys.stderr)
+            print_hex(data)
+            print("-- ------------- --", file=sys.stderr)
+            print("Sent %d bytes" % len(data), file=sys.stderr)
+
+        fail_count = 0
+        while True:
+            if not self._socket.send(data):
+                raise Exception("Error Sending message.")
+            resp = receive_data(self._socket)
+
+            if response_busy(resp):
+                fail_count += 1
+                if fail_count < MAX_ATTEMPTS:
+                    time.sleep(DELAY * fail_count)
+                else:
+                    break
+            else:
+                break
+
+        return verify_and_strip(resp)
+
     def get_version(self):
         """ Return version string of SATEL Integra"""
 
-        resp = send_command(self._socket, b'\x7E')
+        resp = self.send_command( b'\x7E')
         model = self._hardware_model(resp[0])
         version = format("%c.%c%c %c%c%c%c-%c%c-%c%c" % tuple([chr(x) for x in resp[1:12]]))
         if resp[12] == 1:
@@ -302,7 +289,7 @@ class SatelEthm():
         return model + " " + version + " LANG: " + language + " SETTINGS " + settings + " in flash"
 
     def get_name(self, devicenumber, devicetype):
-        r = send_command(self._socket, b'\xEE' + devicetype + devicenumber.to_bytes(1, 'big'))
+        r = self.send_command( b'\xEE' + devicetype + devicenumber.to_bytes(1, 'big'))
         return r[3:].decode(encoding).strip()
 
     def get_status(self):
@@ -310,7 +297,8 @@ class SatelEthm():
 
     def update_arming_status(self):
         """ Check which partitions are armed"""
-        r = send_command(self._socket, b'\x0A')
+        r = self.send_command( b'\x0A')
+
         armed_partitions_indexes = list_set_bits(r, 4)
 
         if len(armed_partitions_indexes) > 0:
@@ -318,11 +306,13 @@ class SatelEthm():
         else:
             self._status = AlarmState.DISARMED
 
+#        self.debug_print_armed_partitions(armed_partitions_indexes)
+
         return self._status
 
-    def debug_print_armed_partitions(self):
+    def debug_print_armed_partitions(self,partitions):
         print("Armed partitions:")
-        for partition_id in [1]:
+        for partition_id in [partitions]:
             print(self.get_device_name(DeviceType.PARTITION.value, partition_id))
 
     def arm(self, code):
@@ -331,26 +321,26 @@ class SatelEthm():
 
         code_bytes = bytearray.fromhex(code)
 
-        r = send_command(self._socket, b'\x80' + code_bytes + b'\x01\x00\x00\x00')
+        r = self.send_command( b'\x80' + code_bytes + b'\x01\x00\x00\x00')
         res = ArmingResult(r[0])
         if res == ArmingResult.OK:
             self._status = AlarmState.ARMED_MODE0
         return res
 
     def get_active_outputs(self):
-        r = send_command(self._socket, b'\x17')
+        r = self.send_command( b'\x17')
         return list_set_bits(r, 16)
 
     def get_new_data_in_commands(self):
         """  List of new data in returned cmds. Used to monitor "what's changed since last check?" """
-        r = send_command(self._socket, b'\x7F')
+        r = self.send_command( b'\x7F')
 
         return list_set_bits(r, 5)
 
     def update_full_state(self):
         for command_code, name, bytes in self._update_commands:
             print("Getting status for: ", name)
-            r = send_command(self._socket, command_code)
+            r = self.send_command( command_code)
             self._current_status[name] = list_set_bits(r, bytes)
 
         self.print_violated_zones()
@@ -362,14 +352,14 @@ class SatelEthm():
 
     def get_time(self):
         """Return string with clock time of the system."""
-        r = send_command(self._socket, b'\x1A')
+        r = self.send_command( b'\x1A')
         itime = r[0:2].hex() + "-" + r[2:3].hex() + "-" + r[3:4].hex() + " " + \
                 r[4:5].hex() + ":" + r[5:6].hex() + ":" + r[6:7].hex()
         return itime
 
     def update_device_name(self, device_type, device_number):
         byte_device_number = device_number.to_bytes(1, 'big')
-        r = send_command(self._socket, b'\xEE' + device_type + byte_device_number)
+        r = self.send_command( b'\xEE' + device_type + byte_device_number)
 
         device_name = ""
 
@@ -402,35 +392,35 @@ class SatelEthm():
             return self.update_device_name(device_type, device_number)
 
     def start_monitoring_zones(self):
+        r = self.send_command(b'\x7F\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00')
+
+        if r != b'\xFF':
+            raise Exception("Monitoring not accepted.")
+
         while True:
-            r = send_command(self._socket, b'\x7F\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00')
+            print("Receiving...")
 
-            if r != b'\xFF': raise Exception("Monitoring not accepted.")
+            resp = receive_data(self._socket)
+            r = verify_and_strip(resp)
+            if not resp:
+                print("Empty response - reconnecting!")
+                self._socket = socket(AF_INET, SOCK_STREAM)
+                self._socket.connect((config.host, config.port))
 
-            while True:
+                break
 
-                print("Receiving...")
+            print("Updating...")
+            self._current_status["zones violation"] = list_set_bits(r, 32)
 
-                resp = receive_data(self._socket)
-                r = verify_and_strip(resp)
-                if not resp:
-                    print("Empty response - reconnecting!")
-                    self._socket = socket(AF_INET, SOCK_STREAM)
-                    self._socket.connect((self._host, self._port))
-
-                    break
-
-                print("Updating...")
-                self._current_status["zones violation"] = list_set_bits(r, 32)
-
-                self.print_violated_zones()
+            self.print_violated_zones()
 
 
 def demo(host,port):
-    sock_main = socket(AF_INET, SOCK_STREAM)
-    sock_main.connect((host,port))
-
-    stl = SatelEthm(sock_main)
+    #stl = SatelEthm(host,port)
+    #stl.connect()
+    sock = socket(AF_INET, SOCK_STREAM)
+    sock.connect((host,port))
+    stl = SatelEthm(sock)
 
     print("Connected, the version is...")
     print(stl.get_version())
@@ -438,7 +428,7 @@ def demo(host,port):
     print("Integra time: " + stl.get_time())
 
     stl.update_arming_status()
-    exit(0)
+    #exit(0)
 
     print("Updating names...")
     stl.update_device_names()
@@ -448,4 +438,5 @@ def demo(host,port):
 
     print("Starting monitoring ...")
     stl.start_monitoring_zones()
+
     print("Thanks for watching.")

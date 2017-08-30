@@ -66,8 +66,8 @@ def print_hex(data):
 
 def verify_and_strip(resp):
     if (resp[0:2] != b'\xFE\xFE'):
-        for c in resp:
-            print("0x%X" % c)
+        print("Houston, we got problem:")
+        print_hex(resp)
         raise Exception("Wrong header - got %X%X" % (resp[0], resp[1]))
     if (resp[-2:] != b'\xFE\x0D'):
         raise Exception("Wrong footer - got %X%X" % (resp[-2], resp[-1]))
@@ -163,13 +163,6 @@ class ArmingResult(Enum):
     USER_CODE_NOT_FOUND = 0x01
     CANT_ARM_USE_FORCE_ARM = 0x11
     CANT_ARM = 0x12
-
-
-class Partition():
-    def __init__(self, name="Partition", status=AlarmState.DISARMED):
-        """Init the Satel alarm panel."""
-        self._name = name
-        self._status = status
 
 
 class SatelEthm():
@@ -440,3 +433,107 @@ def demo(host,port):
     stl.start_monitoring_zones()
 
     print("Thanks for watching.")
+
+import asyncio
+
+class AsyncSatel():
+    def __init__(self, host, port):
+        """Init the Satel alarm panel."""
+        self._host = host
+        self._port = port
+        self._response_handle_futures = {}
+        self._current_status = {}
+
+    @asyncio.coroutine
+    def connect(self,loop):
+        self._reader, self._writer = yield from asyncio.open_connection(self._host, self._port,loop=loop)
+
+    @asyncio.coroutine
+    def read_data(self):
+        print("Starting reading...##", file=sys.stderr)
+        while True:
+            print("Wait...", file=sys.stderr)
+            data = yield from self._reader.read(100)
+            print("-- Receving data --", file=sys.stderr)
+            print_hex(data)
+            print("-- ------------- --", file=sys.stderr)
+
+            resp = verify_and_strip(data)
+            id = data[2:3]
+            if id in self._response_handle_futures:
+                print("Setting result on : ", id, file=sys.stderr)
+                self._response_handle_futures[id].set_result((resp))
+            else:
+                print("Not there!...", id )
+                print(self._response_handle_futures)
+
+    @asyncio.coroutine
+    def get_name(self, device_number, device_type):
+        #r = yield from self.send_command( b'\xEE' + device_type + device_number.to_bytes(1, 'big'))
+        r = yield from self.send_command(b'\xEE' + device_type + device_number)
+        device_name = r[3:19].decode(encoding).strip()
+        print("Number: ", device_number, ", name: ", device_name)
+        return device_name
+
+    def send_command(self, command, expected_response_id = None):
+        if not expected_response_id:
+            expected_response_id = command[0:1]
+        self._response_handle_futures[expected_response_id] = asyncio.Future()
+
+        data = generate_query(command)
+
+        if DEBUG:
+            print("-- Sending data --", file=sys.stderr)
+            print_hex(data)
+            print("-- ------------- --", file=sys.stderr)
+            print("Sent %d bytes" % len(data), file=sys.stderr)
+
+        self._writer.write(data)
+
+        result = yield from asyncio.wait_for( self._response_handle_futures[expected_response_id],10 )
+        print("Got result, removing epected reponse id: ",expected_response_id, file=sys.stderr)
+        del self._response_handle_futures[expected_response_id]
+        return result
+
+    @asyncio.coroutine
+    def start_monitoring_zones(self):
+        self._response_handle_futures[b'\x00'] = asyncio.Future()
+        r = yield from self.send_command(b'\x7F\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00',b'\xEF')
+        print("OK, now going further!")
+        if r != b'\xFF':
+            raise Exception("Monitoring not accepted.")
+
+        while True:
+            print("?@?@?@?@?@?@? Receiving...")
+            resp = yield from asyncio.wait_for(self._response_handle_futures[b'\x00'], 10)
+
+            print("Updating...")
+            self._current_status["zones violation"] = list_set_bits(resp, 32)
+
+            #Re-set future
+            self._response_handle_futures[b'\x00'] = asyncio.Future()
+
+
+
+def demo2(host, port):
+    # stl = SatelEthm(host,port)
+    # stl.connect()
+    sock = socket(AF_INET, SOCK_STREAM)
+
+    stl = AsyncSatel(host, port)
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(stl.connect(loop))
+
+    tasks = [
+              loop.create_task(stl.read_data()),
+              loop.create_task(stl.get_name(ZONE, b'\x01')),
+              loop.create_task(stl.start_monitoring_zones()),
+              loop.create_task(stl.get_name(ZONE, b'\x01')),
+
+              #loop.create_task(stl.read_data()),
+        #            loop.create_task(stl.get_name(ZONE, b'\x01')),
+ #             loop.create_task(stl.get_name(ZONE, b'\x01')),
+#              loop.create_task(stl.get_name(ZONE, b'\x01')),
+              ]
+    loop.run_until_complete(asyncio.wait(tasks))
+    loop.close()

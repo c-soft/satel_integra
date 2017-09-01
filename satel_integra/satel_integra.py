@@ -5,9 +5,13 @@
 from socket import *
 import time
 import sys
+import logging
 
 
 from enum import Enum, unique
+
+_LOGGER = logging.getLogger(__name__)
+_LOGGER.setLevel(logging.DEBUG)
 
 # Extra debugging
 DEBUG = 1
@@ -52,21 +56,21 @@ def response_busy(resp):
 def receive_data(sock):
     resp = sock.recv(100)
     if DEBUG:
-        print("-- Receving data --", file=sys.stderr)
+        _LOGGER.debug("-- Receving data --", file=sys.stderr)
         print_hex(resp)
-        print("-- ------------- --", file=sys.stderr)
+        _LOGGER.debug("-- ------------- --", file=sys.stderr)
     return resp
 
 
 def print_hex(data):
     hex_msg = ""
     for c in data: hex_msg += "\\x" + format(c, "02x")
-    print(hex_msg, file=sys.stderr)
+    _LOGGER.info(hex_msg)
 
 
 def verify_and_strip(resp):
     if (resp[0:2] != b'\xFE\xFE'):
-        print("Houston, we got problem:")
+        _LOGGER.error("Houston, we got problem:")
         print_hex(resp)
         raise Exception("Wrong header - got %X%X" % (resp[0], resp[1]))
     if (resp[-2:] != b'\xFE\x0D'):
@@ -78,17 +82,15 @@ def verify_and_strip(resp):
     if (256 * output[-2:-1][0] + output[-1:][0]) != c:
         raise Exception("Wrong checksum - got %d expected %d" % ((256 * output[-2:-1][0] + output[-1:][0]), c))
 
-    return output[1:-2]
+    return output[0:-2]
 
 
 def list_set_bits(r, expected_length):
     set_bit_numbers = []
     bit_index = 0x1
-    if (len(r) != expected_length):
-        print("Expected: ", expected_length, "got ", len(r))
-    assert (len(r) == expected_length)
+    assert (len(r) == expected_length+1)
 
-    for b in r:
+    for b in r[1:]:
         for i in range(8):
             if ((b >> i) & 1) == 1:
                 set_bit_numbers.append(bit_index)
@@ -129,13 +131,6 @@ def generate_query(command):
 
     data = bytearray.fromhex("FEFE") + data + bytearray.fromhex("FE0D")
     return data
-
-#### BASIC DEMO
-''' ... and now it is the time to demonstrate what have we learnt today
-'''
-if len(sys.argv) < 1:
-    print("Execution: %s IP_ADDRESS_OF_THE_ETHM1_MODULE" % sys.argv[0], file=sys.stderr)
-    sys.exit(1)
 
 
 ################# CLASS #######################
@@ -437,43 +432,115 @@ def demo(host,port):
 import asyncio
 
 class AsyncSatel():
-    def __init__(self, host, port):
+    def __init__(self, host, port, monitored_zones, loop):
         """Init the Satel alarm panel."""
         self._host = host
         self._port = port
-        self._response_handle_futures = {}
+        self._loop = loop
         self._current_status = {}
+        self._message_handlers = {}
+        self._monitored_zones = monitored_zones
+
+        self._update_commands = {
+            b'\x00': ("zones violation", 16, self.zone_violation ),
+            b'\x0A': ("armed partitions (really)", 4, lambda msg: self.armed(1,msg)),
+            b'\x0B': ("partitions armed in mode 2", 4, lambda msg: self.armed(2,msg)),
+            b'\x0C': ("partitions armed in mode 3", 4, lambda msg: self.armed(3,msg)),
+            b'\x13': ("partitions alarm", 4, lambda msg: self.alarm(3,msg)),
+            b'\x14': ("partitions fire alarm", 4, lambda msg: self.alarm(3,True,msg)),
+        }
+        # Assign handler
+        self._message_handlers[b'\x00'] = self._update_commands[b'\x00'][2]
+
 
     @asyncio.coroutine
-    def connect(self,loop):
-        self._reader, self._writer = yield from asyncio.open_connection(self._host, self._port,loop=loop)
+    def connect(self):
+        self._reader, self._writer = yield from asyncio.open_connection(self._host, self._port,loop=self._loop)
+        yield from self._start_monitoring()
 
     @asyncio.coroutine
-    def read_data(self):
-        print("Starting reading...##", file=sys.stderr)
-        while True:
-            print("Wait...", file=sys.stderr)
-            data = yield from self._reader.read(100)
-            print("-- Receving data --", file=sys.stderr)
+    def _start_monitoring(self):
+
+        data = generate_query(b'\x7F\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00')
+
+        yield from self._send_data(data)
+        resp = yield from self._read_data()
+
+        if resp[1:2] != b'\xFF':
+            raise Exception("Monitoring not accepted.")
+
+    def zone_violation(self, msg):
+
+        status = {"zones":{}}
+
+        violated_zones = list_set_bits(msg, 32)
+        _LOGGER.debug("Violated zones: %s, monitored zones: %s", violated_zones, self._monitored_zones )
+        for zone in self._monitored_zones:
+            status["zones"][zone] = \
+                1 if zone in violated_zones else 0
+
+        _LOGGER.debug("Returning status: %s",status)
+        return status
+
+    @asyncio.coroutine
+    def _send_data(self, data):
+        if DEBUG:
+            print("-- Sending data --", file=sys.stderr)
             print_hex(data)
             print("-- ------------- --", file=sys.stderr)
+            print("Sent %d bytes" % len(data), file=sys.stderr)
 
-            resp = verify_and_strip(data)
-            id = data[2:3]
-            if id in self._response_handle_futures:
-                print("Setting result on : ", id, file=sys.stderr)
-                self._response_handle_futures[id].set_result((resp))
-            else:
-                print("Not there!...", id )
-                print(self._response_handle_futures)
+        self._writer.write(data)
+        yield from self._writer.drain()
 
     @asyncio.coroutine
-    def get_name(self, device_number, device_type):
-        #r = yield from self.send_command( b'\xEE' + device_type + device_number.to_bytes(1, 'big'))
-        r = yield from self.send_command(b'\xEE' + device_type + device_number)
-        device_name = r[3:19].decode(encoding).strip()
-        print("Number: ", device_number, ", name: ", device_name)
-        return device_name
+    def arm(self, code):
+        yield from asyncio.sleep(1)
+
+        while len(code) < 16:
+            code += 'F'
+
+        code_bytes = bytearray.fromhex(code)
+
+        data = generate_query(b'\x80' + code_bytes + b'\x01\x00\x00\x00')
+
+        yield from self._send_data(data)
+        #resp = yield from self._read_data()
+
+        #res = ArmingResult(resp[1])
+        #if res == ArmingResult.OK:
+        #    _LOGGER.debug("Armed OK")
+        #    self._status = AlarmState.ARMED_MODE0
+        #else:
+        #    _LOGGER.debug("Not armed - error: %s",res)
+
+    def armed(self, mode, msg):
+        _LOGGER.debug("Alarm update!")
+        message = {"alarm_status": "armed"}
+
+    def alarm(self, msg, fire=False ):
+        pass
+
+    def _read_data(self):
+        #data = yield from self._reader.read(100)
+        data = yield from self._reader.readuntil(b'\xFE\x0D')
+        _LOGGER.debug("-- Receving data --")
+        print_hex(data)
+        _LOGGER.debug("-- ------------- --")
+        return verify_and_strip(data)
+
+    def get_status(self):
+        _LOGGER.debug("Wait...")
+
+        resp = yield from self._read_data()
+
+        id = resp[0:1]
+        if id in self._message_handlers:
+            _LOGGER.info("Setting result on :%s", id)
+            return self._message_handlers[id](resp)
+        else:
+            _LOGGER.info("Ignoring message: %s", id )
+            return None
 
     def send_command(self, command, expected_response_id = None):
         if not expected_response_id:
@@ -490,50 +557,43 @@ class AsyncSatel():
 
         self._writer.write(data)
 
-        result = yield from asyncio.wait_for( self._response_handle_futures[expected_response_id],10 )
-        print("Got result, removing epected reponse id: ",expected_response_id, file=sys.stderr)
-        del self._response_handle_futures[expected_response_id]
-        return result
-
-    @asyncio.coroutine
-    def start_monitoring_zones(self):
-        self._response_handle_futures[b'\x00'] = asyncio.Future()
-        r = yield from self.send_command(b'\x7F\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00',b'\xEF')
-        print("OK, now going further!")
-        if r != b'\xFF':
-            raise Exception("Monitoring not accepted.")
-
-        while True:
-            print("?@?@?@?@?@?@? Receiving...")
-            resp = yield from asyncio.wait_for(self._response_handle_futures[b'\x00'], 10)
-
-            print("Updating...")
-            self._current_status["zones violation"] = list_set_bits(resp, 32)
-
-            #Re-set future
-            self._response_handle_futures[b'\x00'] = asyncio.Future()
+        return True
 
 
 
 def demo2(host, port):
+    logging.basicConfig(level=logging.DEBUG)
+
     # stl = SatelEthm(host,port)
     # stl.connect()
     sock = socket(AF_INET, SOCK_STREAM)
 
-    stl = AsyncSatel(host, port)
     loop = asyncio.get_event_loop()
-    loop.run_until_complete(stl.connect(loop))
+    stl = AsyncSatel(host, port, [1,2,3], loop)
 
-    tasks = [
-              loop.create_task(stl.read_data()),
-              loop.create_task(stl.get_name(ZONE, b'\x01')),
-              loop.create_task(stl.start_monitoring_zones()),
-              loop.create_task(stl.get_name(ZONE, b'\x01')),
+    @asyncio.coroutine
+    def update_satel_status():
+        while (True):
+            status = yield from stl.get_status()
+
+
+    loop.run_until_complete(
+        stl.connect())
+
+    loop.run_until_complete(
+        stl.arm("3333"))
+
+    loop.run_until_complete(asyncio.ensure_future(update_satel_status()))
+    loop.close()
+
+    #tasks = [
+    #          loop.create_task(stl.read_data()),
+    #          loop.create_task(stl.get_name(ZONE, b'\x01')),
+    #          loop.create_task(stl.start_monitoring_zones()),
+    #          loop.create_task(stl.get_name(ZONE, b'\x01')),
 
               #loop.create_task(stl.read_data()),
         #            loop.create_task(stl.get_name(ZONE, b'\x01')),
  #             loop.create_task(stl.get_name(ZONE, b'\x01')),
 #              loop.create_task(stl.get_name(ZONE, b'\x01')),
-              ]
-    loop.run_until_complete(asyncio.wait(tasks))
-    loop.close()
+#              ]

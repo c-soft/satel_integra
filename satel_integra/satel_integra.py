@@ -141,6 +141,10 @@ class AsyncSatel():
         self._keep_alive_timeout = 10
         self._reader = None
         self._writer = None
+        self.closed = False
+        self._alarm_status_callback = None
+        self._zone_changed_callback = None
+
         # self._update_commands = {
         #     b'\x00': ("zones violation", 16, self.zone_violation ),
         #     b'\x0A': ("armed partitions (really)", 4, lambda msg: self.armed(1,msg)),
@@ -193,6 +197,10 @@ class AsyncSatel():
                 1 if zone in violated_zones else 0
 
         _LOGGER.debug("Returning status: %s",status)
+
+        if self._zone_changed_callback:
+            self._zone_changed_callback(status)
+
         return status
 
     def _error_occured(self, msg):
@@ -231,11 +239,17 @@ class AsyncSatel():
     def _armed(self, mode, msg):
         _LOGGER.debug("Alarm update!")
         status = {"alarm_status": "armed", "mode": mode }
+        if self._alarm_status_callback:
+            self._alarm_status_callback(status)
+
         return status
 
     def _alarm_triggered(self, msg, type="violation"):
         _LOGGER.debug("Alarm triggered, type: %s", type)
-        status = {"alarm_status": "ringing", "type": type}
+        status = {"alarm_status": "triggered", "type": type}
+        if self._alarm_status_callback:
+            self._alarm_status_callback(status)
+
         return status
 
     def _read_data(self):
@@ -282,8 +296,29 @@ class AsyncSatel():
             _LOGGER.info("Ignoring message: %s", id )
             return None
 
+    @asyncio.coroutine
+    def monitor_status(self,alarm_status_callback = None, zone_changed_callback = None):
+        self._alarm_status_callback = alarm_status_callback
+        self._zone_changed_callback = zone_changed_callback
+
+        _LOGGER.info("Starting monitor_status loop")
+
+        while not self.closed:
+            _LOGGER.debug("Iteration... ")
+            if not self.connected:
+                _LOGGER.info("Not connected, re-connecting... ")
+                yield from self.connect()
+            while (True):
+                status = yield from self.get_status()
+                _LOGGER.debug("Got status!")
+                if status and "connected" in status:
+                    _LOGGER.info("Got connection broken, reconnecting!")
+                    break
+        _LOGGER.info("Closed, quit monitoring.")
+
     def close(self):
         _LOGGER.debug("Closing...")
+        self.closed = True
         if self.connected:
             self._writer.close()
 
@@ -311,7 +346,7 @@ def demo2(host, port):
     loop.create_task(stl.arm("3333"))
     #loop.create_task(stl.disarm("3333"))
     loop.create_task(stl.keep_alive())
-    loop.create_task(update_satel_status())
+    loop.create_task(stl.monitor_status())
 
     loop.run_forever()
     loop.close()

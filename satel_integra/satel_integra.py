@@ -4,22 +4,14 @@
 
 import asyncio
 import logging
-import sys
 from asyncio import IncompleteReadError
 from enum import Enum, unique
 
 _LOGGER = logging.getLogger(__name__)
 
 
-# device types as defined by satel manual
-# PARTITION = b'\x00'
-# ZONE = b'\x01'
-# OUTPUT = b'\x04'
-
-
 def checksum(command):
-    """ Function to calculate checksum as per Satel manual """
-
+    """Function to calculate checksum as per Satel manual."""
     crc = 0x147A
     for b in command:
         # rotate (crc 1 bit left)
@@ -29,26 +21,21 @@ def checksum(command):
     return crc
 
 
-def receive_data(sock):
-    resp = sock.recv(100)
-    _LOGGER.debug("-- Receving data --", file=sys.stderr)
-    print_hex(resp)
-    _LOGGER.debug("-- ------------- --", file=sys.stderr)
-    return resp
-
-
 def print_hex(data):
+    """Debugging method to print out frames in hex."""
     hex_msg = ""
-    for c in data: hex_msg += "\\x" + format(c, "02x")
+    for c in data:
+        hex_msg += "\\x" + format(c, "02x")
     _LOGGER.debug(hex_msg)
 
 
 def verify_and_strip(resp):
-    if (resp[0:2] != b'\xFE\xFE'):
+    """Verify checksum and strip header and footer of received frame."""
+    if resp[0:2] != b'\xFE\xFE':
         _LOGGER.error("Houston, we got problem:")
         print_hex(resp)
         raise Exception("Wrong header - got %X%X" % (resp[0], resp[1]))
-    if (resp[-2:] != b'\xFE\x0D'):
+    if resp[-2:] != b'\xFE\x0D':
         raise Exception("Wrong footer - got %X%X" % (resp[-2], resp[-1]))
     output = resp[2:-2].replace(b'\xFE\xF0', b'\xFE')
 
@@ -62,6 +49,11 @@ def verify_and_strip(resp):
 
 
 def list_set_bits(r, expected_length):
+    """Return list of positions of bits set to one in given data.
+
+    This method is used to read e.g. violated zones. They are marked by ones
+    on respective bit positions - as per satel manual.
+    """
     set_bit_numbers = []
     bit_index = 0x1
     assert (len(r) == expected_length + 1)
@@ -76,6 +68,7 @@ def list_set_bits(r, expected_length):
 
 
 def generate_query(command):
+    """Add header, checksum and footer to command data."""
     data = bytearray(command)
     c = checksum(data)
     data.append(c >> 8)
@@ -88,6 +81,8 @@ def generate_query(command):
 
 @unique
 class AlarmState(Enum):
+    """Represents status of the alarm."""
+
     ARMED_MODE0 = 0
     ARMED_MODE1 = 1
     ARMED_MODE2 = 2
@@ -98,9 +93,11 @@ class AlarmState(Enum):
     DISCONNECTED = 7
 
 
-class AsyncSatel():
+class AsyncSatel:
+    """Asynchronous interface to talk to Satel Integra alarm system."""
+
     def __init__(self, host, port, monitored_zones, loop, partition_id=1):
-        """Init the Satel alarm panel."""
+        """Init the Satel alarm data."""
         self._host = host
         self._port = port
         self._loop = loop
@@ -138,7 +135,7 @@ class AsyncSatel():
             AlarmState.ARMED_MODE2, msg)
         self._message_handlers[b'\x0C'] = lambda msg: self._armed(
             AlarmState.ARMED_MODE3, msg)
-        self._message_handlers[b'\xEF'] = self._error_occured
+        self._message_handlers[b'\xEF'] = self._error_occurred
         self._message_handlers[b'\x13'] = lambda msg: self._armed(
             AlarmState.TRIGGERED, msg)
         self._message_handlers[b'\x14'] = lambda msg: self._armed(
@@ -146,19 +143,19 @@ class AsyncSatel():
 
     @property
     def connected(self):
+        """Return true if there is connection to the alarm."""
         return self._writer and self._reader
 
     @asyncio.coroutine
     def connect(self):
-        # self._armed_partitions = {}
+        """Make a TCP connection to the alarm system."""
         self._reader, self._writer = yield from asyncio.open_connection(
             self._host, self._port, loop=self._loop)
         return True
 
     @asyncio.coroutine
     def start_monitoring(self):
-        """Starts monitoring for interesting events"""
-
+        """Start monitoring for interesting events."""
         data = generate_query(
             b'\x7F\x01\x0E\x08\x00\x00\x04\x00\x00\x00\x00\x00\x00')
 
@@ -186,7 +183,8 @@ class AsyncSatel():
 
         return status
 
-    def _error_occured(self, msg):
+    @staticmethod
+    def _error_occurred(msg):
         status = {"error": "Some problem!"}
         error_code = msg[1:2]
 
@@ -215,6 +213,7 @@ class AsyncSatel():
 
     @asyncio.coroutine
     def arm(self, code, mode=0):
+        """Send arming command to the alarm. Modes allowed: from 0 till 3."""
         _LOGGER.debug("Alarm arm, mode: %s!", mode)
         while len(code) < 16:
             code += 'F'
@@ -229,6 +228,7 @@ class AsyncSatel():
 
     @asyncio.coroutine
     def disarm(self, code):
+        """Send command to disarm."""
         _LOGGER.debug("Alarm disarm, code: %s")
         while len(code) < 16:
             code += 'F'
@@ -256,26 +256,17 @@ class AsyncSatel():
 
         return self._state
 
-    def _alarm_triggered(self, msg, type="violation"):
-        _LOGGER.debug("Alarm triggered, type: %s", type)
-        status = {"alarm_status": "triggered", "type": type}
-        if self._alarm_status_callback:
-            self._alarm_status_callback(status)
-
-        return status
-
     def _read_data(self):
         # data = yield from self._reader.read(100)
         data = yield from self._reader.readuntil(b'\xFE\x0D')
-        _LOGGER.debug("-- Receving data --")
+        _LOGGER.debug("-- Receiving data --")
         print_hex(data)
         _LOGGER.debug("-- ------------- --")
         return verify_and_strip(data)
 
     @asyncio.coroutine
     def keep_alive(self):
-        """This method is a workaround for Satel Integra disconnecting after
-        25s.
+        """A workaround for Satel Integra disconnecting after 25s.
 
         Every interval it sends some random question to the device, ignoring
         answer - just to keep connection alive.
@@ -287,7 +278,7 @@ class AsyncSatel():
             data = generate_query(b'\xEE\x01\x01')
             yield from self._send_data(data)
 
-    def update_status(self):
+    def _update_status(self):
         _LOGGER.debug("Wait...")
 
         try:
@@ -298,7 +289,6 @@ class AsyncSatel():
                 "disconnected!", e)
             self._writer = None
             self._reader = None
-            # self._armed_partitions = {}
             self._state = AlarmState.DISCONNECTED
             return self._state
 
@@ -309,17 +299,22 @@ class AsyncSatel():
             self._state = AlarmState.DISCONNECTED
             return self._state
 
-        id = resp[0:1]
-        if id in self._message_handlers:
-            _LOGGER.info("Calling handler for id: %s", id)
-            return self._message_handlers[id](resp)
+        msg_id = resp[0:1]
+        if msg_id in self._message_handlers:
+            _LOGGER.info("Calling handler for id: %s", msg_id)
+            return self._message_handlers[msg_id](resp)
         else:
-            _LOGGER.info("Ignoring message: %s", id)
+            _LOGGER.info("Ignoring message: %s", msg_id)
             return None
 
     @asyncio.coroutine
     def monitor_status(self, alarm_status_callback=None,
                        zone_changed_callback=None):
+        """Start monitoring of the alarm status.
+
+        Send command to satel integra to start sending updates. Read in a
+        loop and call respective callbacks when received messages.
+        """
         self._alarm_status_callback = alarm_status_callback
         self._zone_changed_callback = zone_changed_callback
 
@@ -333,8 +328,8 @@ class AsyncSatel():
                 yield from self.connect()
                 yield from self.start_monitoring()
 
-            while (True):
-                status = yield from self.update_status()
+            while True:
+                status = yield from self._update_status()
                 _LOGGER.debug("Got status!")
                 if status and status == AlarmState.DISCONNECTED:
                     _LOGGER.info("Got connection broken, reconnecting!")
@@ -342,13 +337,15 @@ class AsyncSatel():
         _LOGGER.info("Closed, quit monitoring.")
 
     def close(self):
+        """Stop monitoring and close connection."""
         _LOGGER.debug("Closing...")
         self.closed = True
         if self.connected:
             self._writer.close()
 
 
-def demo2(host, port):
+def demo(host, port):
+    """Basic demo of the monitoring capabilities."""
     logging.basicConfig(level=logging.DEBUG)
 
     loop = asyncio.get_event_loop()

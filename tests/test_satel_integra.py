@@ -101,73 +101,73 @@ class TestSatel(TestCase):
         for data in test_frames.values():
             verify_and_strip(data)
 
-    def test_get_version(self):
-        """Connect and retreive Satel Integra Version. Test bases on captured frames."""
-        sock = MagicMock()
-        sock.send = MagicMock(return_value=True)
-        sock.recv = MagicMock(return_value=test_frames["Version response"])
-
-        satel = SatelEthm(sock)
-        self.assertEqual(satel.get_version(),"INTEGRA 128 1.16 2016-07-15 LANG: Other SETTINGS NOT STORED in flash")
-        sock.send.assert_called_with(test_frames["Version query"])
-
-    def test_get_name(self):
-        """Connect and retreive Satel Integra Name. Test bases on captured frames."""
-        sock = MagicMock()
-        sock.send = MagicMock(return_value=True)
-        sock.recv = MagicMock(return_value=test_frames["Name response"])
-
-        satel = SatelEthm(sock)
-        self.assertEqual(satel.get_name(1, PARTITION),"Strefa  1")
-        sock.send.assert_called_with(test_frames["Name query"])
-
-    def test_arm_mode0(self):
-        """Arm in mode zero."""
-        sock = MagicMock()
-        sock.send = MagicMock(return_value=True)
-        sock.recv = MagicMock(return_value=test_frames["Arm0 response"])
-
-        satel = SatelEthm(sock)
-        satel.arm("1111")
-        self.assertEqual(satel.get_status(),AlarmState.ARMED_MODE0)
-        sock.send.assert_called_with(test_frames["Arm0 query"])
-
-    def test_update_arming_status(self):
-        """Arm in mode zero."""
-        sock = MagicMock()
-        sock.send = MagicMock(return_value=True)
-        sock.recv = MagicMock(return_value=test_frames["Armed partitions response"])
-
-        satel = SatelEthm(sock)
-        satel.update_arming_status()
-        self.assertEqual(satel.get_status(),AlarmState.ARMED_MODE0)
-        sock.send.assert_called_with(test_frames["Armed partitions query"])
-
-    def test_get_triggered_outputs(self):
-        """Return the list of outputs that are currently active."""
-        sock = MagicMock()
-        sock.send = MagicMock(return_value=True)
-        sock.recv = MagicMock(return_value=test_frames["Active outputs response"])
-
-        satel = SatelEthm(sock)
-        outputs = satel.get_active_outputs()
-        self.assertEqual(outputs,[0X10,0X80])
-        sock.send.assert_called_with(test_frames["Active outputs query"])
-
-    def test_get_new_data_in_commands(self):
-        """Return the list of outputs that are currently active."""
-        sock = MagicMock()
-        sock.send = MagicMock(return_value=True)
-        sock.recv = MagicMock(return_value=test_frames["New data response"])
-
-        satel = SatelEthm(sock)
-        commands = satel.get_new_data_in_commands()
-        self.assertEqual(commands, [0X02,0X03,0X04,0X05,0X06,0X07,0X08,
-                                    0X09,0X0A,0X0C,0X0D,0X0E,0X0F,0X10,0X11,
-                                    0X12,0X13,0X14,0X15,0X16,0x17,0X19,0X1A,
-                                    0X1C,0X1D,0X1E,0X1F,0X20,0X21,0X22,0X23,
-                                    0X24,0X25,0X26,0X27,0x28])
-        sock.send.assert_called_with(test_frames["New data query"])
+    # def test_get_version(self):
+    #     """Connect and retreive Satel Integra Version. Test bases on captured frames."""
+    #     sock = MagicMock()
+    #     sock.send = MagicMock(return_value=True)
+    #     sock.recv = MagicMock(return_value=test_frames["Version response"])
+    #
+    #     satel = SatelEthm(sock)
+    #     self.assertEqual(satel.get_version(),"INTEGRA 128 1.16 2016-07-15 LANG: Other SETTINGS NOT STORED in flash")
+    #     sock.send.assert_called_with(test_frames["Version query"])
+    #
+    # def test_get_name(self):
+    #     """Connect and retreive Satel Integra Name. Test bases on captured frames."""
+    #     sock = MagicMock()
+    #     sock.send = MagicMock(return_value=True)
+    #     sock.recv = MagicMock(return_value=test_frames["Name response"])
+    #
+    #     satel = SatelEthm(sock)
+    #     self.assertEqual(satel.get_name(1, PARTITION),"Strefa  1")
+    #     sock.send.assert_called_with(test_frames["Name query"])
+    #
+    # def test_arm_mode0(self):
+    #     """Arm in mode zero."""
+    #     sock = MagicMock()
+    #     sock.send = MagicMock(return_value=True)
+    #     sock.recv = MagicMock(return_value=test_frames["Arm0 response"])
+    #
+    #     satel = SatelEthm(sock)
+    #     satel.arm("1111")
+    #     self.assertEqual(satel.get_status(),AlarmState.ARMED_MODE0)
+    #     sock.send.assert_called_with(test_frames["Arm0 query"])
+    #
+    # def test_update_arming_status(self):
+    #     """Arm in mode zero."""
+    #     sock = MagicMock()
+    #     sock.send = MagicMock(return_value=True)
+    #     sock.recv = MagicMock(return_value=test_frames["Armed partitions response"])
+    #
+    #     satel = SatelEthm(sock)
+    #     satel.update_arming_status()
+    #     self.assertEqual(satel.get_status(),AlarmState.ARMED_MODE0)
+    #     sock.send.assert_called_with(test_frames["Armed partitions query"])
+    #
+    # def test_get_triggered_outputs(self):
+    #     """Return the list of outputs that are currently active."""
+    #     sock = MagicMock()
+    #     sock.send = MagicMock(return_value=True)
+    #     sock.recv = MagicMock(return_value=test_frames["Active outputs response"])
+    #
+    #     satel = SatelEthm(sock)
+    #     outputs = satel.get_active_outputs()
+    #     self.assertEqual(outputs,[0X10,0X80])
+    #     sock.send.assert_called_with(test_frames["Active outputs query"])
+    #
+    # def test_get_new_data_in_commands(self):
+    #     """Return the list of outputs that are currently active."""
+    #     sock = MagicMock()
+    #     sock.send = MagicMock(return_value=True)
+    #     sock.recv = MagicMock(return_value=test_frames["New data response"])
+    #
+    #     satel = SatelEthm(sock)
+    #     commands = satel.get_new_data_in_commands()
+    #     self.assertEqual(commands, [0X02,0X03,0X04,0X05,0X06,0X07,0X08,
+    #                                 0X09,0X0A,0X0C,0X0D,0X0E,0X0F,0X10,0X11,
+    #                                 0X12,0X13,0X14,0X15,0X16,0x17,0X19,0X1A,
+    #                                 0X1C,0X1D,0X1E,0X1F,0X20,0X21,0X22,0X23,
+    #                                 0X24,0X25,0X26,0X27,0x28])
+    #     sock.send.assert_called_with(test_frames["New data query"])
 
 #    def test_update_full_state(self):
 #        """Update alarm state should connect and update configuration of the alarm."""

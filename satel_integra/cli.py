@@ -3,7 +3,7 @@
 """Console script for satel_integra."""
 
 import click
-from satel_integra import demo2
+from .satel_integra import demo2
 
 @click.command()
 @click.option('--command', default="demo2", help='Command on what to do.')

@@ -2,19 +2,19 @@
 
 """Main module."""
 
-from socket import *
-import sys
+import asyncio
 import logging
+import sys
 from asyncio import IncompleteReadError
-
 from enum import Enum, unique
 
 _LOGGER = logging.getLogger(__name__)
 
+
 # device types as defined by satel manual
-PARTITION = b'\x00'
-ZONE = b'\x01'
-OUTPUT = b'\x04'
+# PARTITION = b'\x00'
+# ZONE = b'\x01'
+# OUTPUT = b'\x04'
 
 
 def checksum(command):
@@ -71,11 +71,7 @@ def list_set_bits(r, expected_length):
             if ((b >> i) & 1) == 1:
                 set_bit_numbers.append(bit_index)
             bit_index += 1
-    print("Bits set:")
-    msg = ""
-    for p in set_bit_numbers:
-        msg += format(p, "#04X") + " "
-    print(msg)
+
     return set_bit_numbers
 
 
@@ -90,15 +86,6 @@ def generate_query(command):
     return data
 
 
-################# CLASS #######################
-@unique
-class DeviceType(Enum):
-    PARTITION = b'\x00'
-    ZONE = b'\x01'
-    USER = b'\x02'
-    OUTPUT = b'\x04'
-
-
 @unique
 class AlarmState(Enum):
     ARMED_MODE0 = 0
@@ -109,17 +96,6 @@ class AlarmState(Enum):
     TRIGGERED_FIRE = 5
     DISARMED = 6
     DISCONNECTED = 7
-
-
-@unique
-class ArmingResult(Enum):
-    OK = 0x0
-    USER_CODE_NOT_FOUND = 0x01
-    CANT_ARM_USE_FORCE_ARM = 0x11
-    CANT_ARM = 0x12
-
-
-import asyncio
 
 
 class AsyncSatel():
@@ -243,7 +219,6 @@ class AsyncSatel():
         while len(code) < 16:
             code += 'F'
 
-
         code_bytes = bytearray.fromhex(code)
         mode_command = 0x80 + mode
         data = generate_query(mode_command.to_bytes(1, 'big') +
@@ -320,8 +295,7 @@ class AsyncSatel():
         except IncompleteReadError as e:
             _LOGGER.warning(
                 "Got exception: %s. Most likely the other side has "
-                "disconnected!",
-                e)
+                "disconnected!", e)
             self._writer = None
             self._reader = None
             # self._armed_partitions = {}

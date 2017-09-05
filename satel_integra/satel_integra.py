@@ -346,7 +346,7 @@ class AsyncSatel:
 
 def demo(host, port):
     """Basic demo of the monitoring capabilities."""
-    logging.basicConfig(level=logging.DEBUG)
+    # logging.basicConfig(level=logging.DEBUG)
 
     loop = asyncio.get_event_loop()
     stl = AsyncSatel(host,

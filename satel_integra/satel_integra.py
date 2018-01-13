@@ -194,7 +194,8 @@ class AsyncSatel:
         return status
 
     def _output_changed(self, msg):
-
+        """0x17   outputs state
+              0x17   + 16/32 bytes"""
         status = {"outputs": {}}
 
         output_states = list_set_bits(msg, 32)
@@ -275,6 +276,11 @@ class AsyncSatel:
     @asyncio.coroutine
     def set_output_on(self, code, output_id):
         """Send output turn on command to the alarm."""
+        """0x88   outputs on
+              + 8 bytes - user code
+              + 16/32 bytes - output list
+              If function is accepted, function result can be
+              checked by observe the system state """
         _LOGGER.debug("Turn on, output: %s, code: %s", output_id, code)
         while len(code) < 16:
             code += 'F'
@@ -289,6 +295,11 @@ class AsyncSatel:
     @asyncio.coroutine
     def set_output_off(self, code, output):
         """Send output turn off command to the alarm."""
+        """0x89   outputs on
+              + 8 bytes - user code
+              + 16/32 bytes - output list
+              If function is accepted, function result can be
+              checked by observe the system state """
         _LOGGER.debug("Turn off, output: %s", output)
         while len(code) < 16:
             code += 'F'

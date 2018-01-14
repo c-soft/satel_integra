@@ -240,11 +240,6 @@ class AsyncSatel:
         partition = 1 << self._partition_id - 1
         return partition.to_bytes(4, 'little')
 
-    @property
-    def _output_bytes(self, output_id):
-        output_no = 1
-        return output_no
-
     @asyncio.coroutine
     def arm(self, code, mode=0):
         """Send arming command to the alarm. Modes allowed: from 0 till 3."""

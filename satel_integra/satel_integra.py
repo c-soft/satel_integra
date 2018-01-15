@@ -102,8 +102,8 @@ class AlarmState(Enum):
 class AsyncSatel:
     """Asynchronous interface to talk to Satel Integra alarm system."""
 
-    def __init__(self, host, port, monitored_zones,
-                 monitored_outputs, loop, partition_id=1):
+    def __init__(self, host, port, monitored_zones, loop, partition_id=1,
+                 monitored_outputs={}):
         """Init the Satel alarm data."""
         self._host = host
         self._port = port
@@ -239,6 +239,7 @@ class AsyncSatel:
     def _partition_bytes(self):
         partition = 1 << self._partition_id - 1
         return partition.to_bytes(4, 'little')
+
 
     @asyncio.coroutine
     def arm(self, code, mode=0):

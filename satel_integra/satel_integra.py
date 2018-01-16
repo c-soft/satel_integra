@@ -79,6 +79,12 @@ def generate_query(command):
     return data
 
 
+def output_bytes(output):
+    _LOGGER.debug("output_bytes")
+    output_no = 1 << output - 1
+    return output_no.to_bytes(32, 'little')
+
+
 @unique
 class AlarmState(Enum):
     """Represents status of the alarm."""
@@ -96,19 +102,22 @@ class AlarmState(Enum):
 class AsyncSatel:
     """Asynchronous interface to talk to Satel Integra alarm system."""
 
-    def __init__(self, host, port, monitored_zones, loop, partition_id=1):
+    def __init__(self, host, port, monitored_zones, loop, partition_id=1,
+                 monitored_outputs={}):
         """Init the Satel alarm data."""
         self._host = host
         self._port = port
         self._loop = loop
         self._message_handlers = {}
         self._monitored_zones = monitored_zones
+        self._monitored_outputs = monitored_outputs
         self._keep_alive_timeout = 10
         self._reader = None
         self._writer = None
         self.closed = False
         self._alarm_status_callback = None
         self._zone_changed_callback = None
+        self._output_changed_callback = None
         self._partition_id = partition_id
         self._state = AlarmState.DISCONNECTED
 
@@ -127,6 +136,7 @@ class AsyncSatel:
         # Assign handler
         # self._message_handlers[b'\x00'] = self._update_commands[b'\x00'][2]
         self._message_handlers[b'\x00'] = self._zone_violated
+        self._message_handlers[b'\x17'] = self._output_changed
         self._message_handlers[b'\x0A'] = lambda msg: self._armed(
             AlarmState.ARMED_MODE0, msg)
         self._message_handlers[b'\x2A'] = lambda msg: self._armed(
@@ -157,7 +167,7 @@ class AsyncSatel:
     def start_monitoring(self):
         """Start monitoring for interesting events."""
         data = generate_query(
-            b'\x7F\x01\x0E\x08\x00\x00\x04\x00\x00\x00\x00\x00\x00')
+            b'\x7F\x01\x0E\x88\x00\x00\x04\x00\x00\x00\x00\x00\x00')
 
         yield from self._send_data(data)
         resp = yield from self._read_data()
@@ -180,6 +190,25 @@ class AsyncSatel:
 
         if self._zone_changed_callback:
             self._zone_changed_callback(status)
+
+        return status
+
+    def _output_changed(self, msg):
+        """0x17   outputs state
+              0x17   + 16/32 bytes"""
+        status = {"outputs": {}}
+
+        output_states = list_set_bits(msg, 32)
+        _LOGGER.debug("Output states: %s, monitored outputs: %s",
+                      output_states, self._monitored_outputs)
+        for output in self._monitored_outputs:
+            status["outputs"][output] = \
+                1 if output in output_states else 0
+
+        _LOGGER.debug("Returning status: %s", status)
+
+        if self._output_changed_callback:
+            self._output_changed_callback(status)
 
         return status
 
@@ -236,6 +265,44 @@ class AsyncSatel:
         code_bytes = bytearray.fromhex(code)
 
         data = generate_query(b'\x84' + code_bytes + self._partition_bytes)
+
+        yield from self._send_data(data)
+
+    @asyncio.coroutine
+    def set_output_on(self, code, output_id):
+        """Send output turn on command to the alarm."""
+        """0x88   outputs on
+              + 8 bytes - user code
+              + 16/32 bytes - output list
+              If function is accepted, function result can be
+              checked by observe the system state """
+        _LOGGER.debug("Turn on, output: %s, code: %s", output_id, code)
+        while len(code) < 16:
+            code += 'F'
+
+        code_bytes = bytearray.fromhex(code)
+        mode_command = 0x88
+        data = generate_query(mode_command.to_bytes(1, 'big') +
+                              code_bytes +
+                              output_bytes(output_id))
+        yield from self._send_data(data)
+
+    @asyncio.coroutine
+    def set_output_off(self, code, output):
+        """Send output turn off command to the alarm."""
+        """0x89   outputs on
+              + 8 bytes - user code
+              + 16/32 bytes - output list
+              If function is accepted, function result can be
+              checked by observe the system state """
+        _LOGGER.debug("Turn off, output: %s", output)
+        while len(code) < 16:
+            code += 'F'
+        code_bytes = bytearray.fromhex(code)
+        mode_command = 0x89
+        data = generate_query(mode_command.to_bytes(1, 'big') +
+                              code_bytes +
+                              output_bytes(output))
 
         yield from self._send_data(data)
 
@@ -309,7 +376,8 @@ class AsyncSatel:
 
     @asyncio.coroutine
     def monitor_status(self, alarm_status_callback=None,
-                       zone_changed_callback=None):
+                       zone_changed_callback=None,
+                       output_changed_callback=None):
         """Start monitoring of the alarm status.
 
         Send command to satel integra to start sending updates. Read in a
@@ -317,6 +385,7 @@ class AsyncSatel:
         """
         self._alarm_status_callback = alarm_status_callback
         self._zone_changed_callback = zone_changed_callback
+        self._output_changed_callback = output_changed_callback
 
         _LOGGER.info("Starting monitor_status loop")
         yield from self.start_monitoring()

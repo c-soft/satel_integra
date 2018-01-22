@@ -375,6 +375,12 @@ class AsyncSatel:
             return None
 
     @asyncio.coroutine
+    def initial_status(self):
+        _LOGGER.info("Ask for initial SATEL status")
+        data = generate_query(b'\x0A')
+        yield from self._send_data(data)
+
+    @asyncio.coroutine
     def monitor_status(self, alarm_status_callback=None,
                        zone_changed_callback=None,
                        output_changed_callback=None):
@@ -397,6 +403,7 @@ class AsyncSatel:
                 yield from self.connect()
                 yield from self.start_monitoring()
 
+            yield from self.initial_status()
             while True:
                 status = yield from self._update_status()
                 _LOGGER.debug("Got status!")

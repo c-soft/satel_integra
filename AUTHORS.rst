@@ -11,4 +11,5 @@ Contributors
 ------------
 
 * Grzegorz Wisniewski <grzeg.wisniewski@gmail.com>
+* Grzegorz Szostak <szostak.grzegorz@gmail.com>
 

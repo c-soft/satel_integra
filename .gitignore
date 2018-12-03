@@ -60,3 +60,9 @@ target/
 
 # pyenv python configuration file
 .python-version
+
+# Idea ide:
+.idea/
+
+# Visual Studio Code:
+.vscode/

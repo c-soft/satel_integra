@@ -102,8 +102,7 @@ class AlarmState(Enum):
 class AsyncSatel:
     """Asynchronous interface to talk to Satel Integra alarm system."""
 
-    def __init__(self, host, port, monitored_zones, loop, partition_id=1,
-                 monitored_outputs={}):
+    def __init__(self, host, port,loop, monitored_zones=[],monitored_outputs=[], partition_id=1):
         """Init the Satel alarm data."""
         self._host = host
         self._port = port
@@ -194,8 +193,8 @@ class AsyncSatel:
         return status
 
     def _output_changed(self, msg):
-        """0x17   outputs state
-              0x17   + 16/32 bytes"""
+        """0x17   outputs state 0x17   + 16/32 bytes"""
+        
         status = {"outputs": {}}
 
         output_states = list_set_bits(msg, 32)
@@ -307,9 +306,9 @@ class AsyncSatel:
         yield from self._send_data(data)
 
     def _armed(self, mode, msg):
-        _LOGGER.debug("Alarm update, mode: %s", mode)
-
         partitions = list_set_bits(msg, 4)
+
+        _LOGGER.debug("Update: list of armed partitions in mode %s: %s", mode, partitions)
 
         if self._state in [mode, AlarmState.DISCONNECTED]:
             if self._partition_id not in partitions:
@@ -368,11 +367,12 @@ class AsyncSatel:
             return self._state
 
         msg_id = resp[0:1]
+        str_msg_id = ''.join(format(x, '02x') for x in msg_id)
         if msg_id in self._message_handlers:
-            _LOGGER.info("Calling handler for id: %s", msg_id)
+            _LOGGER.info("Calling handler for id: 0x%s", str_msg_id)
             return self._message_handlers[msg_id](resp)
         else:
-            _LOGGER.info("Ignoring message: %s", msg_id)
+            _LOGGER.info("Ignoring message: 0x%s", str_msg_id)
             return None
 
     @asyncio.coroutine
@@ -401,7 +401,7 @@ class AsyncSatel:
             _LOGGER.debug("Iteration... ")
             if not self.connected:
                 _LOGGER.info("Not connected, re-connecting... ")
-                yield from self.connect()
+                yield from self.connect()                    
                 yield from self.start_monitoring()
 
             yield from self.initial_status()
@@ -428,13 +428,16 @@ def demo(host, port):
     loop = asyncio.get_event_loop()
     stl = AsyncSatel(host,
                      port,
+                     loop,
+#                      [],
                      [1, 2, 3, 4, 5, 6, 7, 8, 12, 13, 14, 15, 16, 17, 18, 19,
-                      20, 21, 22, 23, 25, 26, 27, 28, 29, 30],
-                     loop)
+                      20, 21, 22, 23, 25, 26, 27, 28, 29, 30], 
+                      [8,9,10]
+                     )
 
     loop.run_until_complete(stl.connect())
-    loop.create_task(stl.arm("3333", 1))
-    loop.create_task(stl.disarm("3333"))
+    #loop.create_task(stl.arm("3333", 1))
+    #loop.create_task(stl.disarm("3333"))
     loop.create_task(stl.keep_alive())
     loop.create_task(stl.monitor_status())
 

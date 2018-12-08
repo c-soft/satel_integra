@@ -243,7 +243,7 @@ class AsyncSatel:
     @asyncio.coroutine
     def arm(self, code, mode=0):
         """Send arming command to the alarm. Modes allowed: from 0 till 3."""
-        _LOGGER.debug("Alarm arm, mode: %s!", mode)
+        _LOGGER.debug("Sending arm command, mode: %s!", mode)
         while len(code) < 16:
             code += 'F'
 
@@ -258,7 +258,7 @@ class AsyncSatel:
     @asyncio.coroutine
     def disarm(self, code):
         """Send command to disarm."""
-        _LOGGER.debug("Alarm disarm, code: %s")
+        _LOGGER.info("Sending disarm command.")
         while len(code) < 16:
             code += 'F'
 
@@ -342,6 +342,7 @@ class AsyncSatel:
             yield from asyncio.sleep(self._keep_alive_timeout)
             if self.closed:
                 return
+            # Command to read device name of zone #1
             data = generate_query(b'\xEE\x01\x01')
             yield from self._send_data(data)
 

@@ -429,15 +429,14 @@ def demo(host, port):
     stl = AsyncSatel(host,
                      port,
                      loop,
-#                      [],
                      [1, 2, 3, 4, 5, 6, 7, 8, 12, 13, 14, 15, 16, 17, 18, 19,
                       20, 21, 22, 23, 25, 26, 27, 28, 29, 30], 
                       [8,9,10]
                      )
 
     loop.run_until_complete(stl.connect())
-    #loop.create_task(stl.arm("3333", 1))
-    #loop.create_task(stl.disarm("3333"))
+    loop.create_task(stl.arm("3333", 1))
+    loop.create_task(stl.disarm("3333"))
     loop.create_task(stl.keep_alive())
     loop.create_task(stl.monitor_status())
 

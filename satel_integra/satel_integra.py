@@ -4,7 +4,7 @@
 
 import asyncio
 import logging
-from asyncio import IncompleteReadError
+from asyncio import IncompleteReadError, sleep
 from enum import Enum, unique
 
 _LOGGER = logging.getLogger(__name__)
@@ -109,8 +109,12 @@ class AsyncSatel:
         self._loop = loop
         self._message_handlers = {}
         self._monitored_zones = monitored_zones
+        self.violated_zones = []
         self._monitored_outputs = monitored_outputs
+        self.violated_outputs = []
+        self.partition_states = {}
         self._keep_alive_timeout = 10
+        self._reconnection_timeout = 10
         self._reader = None
         self._writer = None
         self.closed = False
@@ -118,7 +122,7 @@ class AsyncSatel:
         self._zone_changed_callback = None
         self._output_changed_callback = None
         self._partition_id = partition_id
-        self._state = AlarmState.DISCONNECTED
+        #self._state = AlarmState.DISCONNECTED
 
         # self._update_commands = {
         #     b'\x00': ("zones violation", 16, self.zone_violation ),
@@ -155,16 +159,25 @@ class AsyncSatel:
         """Return true if there is connection to the alarm."""
         return self._writer and self._reader
     
-    @property
-    def status(self):
-        """Return status of the alarm - whether its connected, armed, pending or disarmed."""
-        return self._state
+    # @property
+    # def status(self):
+    #     """Return status of the alarm - whether its connected, armed, pending or disarmed."""
+    #     return self._state
 
     @asyncio.coroutine
     def connect(self):
         """Make a TCP connection to the alarm system."""
-        self._reader, self._writer = yield from asyncio.open_connection(
-            self._host, self._port, loop=self._loop)
+        try:
+            self._reader, self._writer = yield from asyncio.open_connection(
+                self._host, self._port, loop=self._loop)
+        except Exception as e:
+            _LOGGER.warning(
+                "Exception during connecting: %s.", e)
+            self._writer = None
+            self._reader = None
+            #self._state = AlarmState.DISCONNECTED
+            return False
+
         return True
 
     @asyncio.coroutine
@@ -184,6 +197,7 @@ class AsyncSatel:
         status = {"zones": {}}
 
         violated_zones = list_set_bits(msg, 32)
+        self.violated_zones = violated_zones
         _LOGGER.debug("Violated zones: %s, monitored zones: %s",
                       violated_zones, self._monitored_zones)
         for zone in self._monitored_zones:
@@ -203,6 +217,7 @@ class AsyncSatel:
         status = {"outputs": {}}
 
         output_states = list_set_bits(msg, 32)
+        self.violated_outputs = output_states
         _LOGGER.debug("Output states: %s, monitored outputs: %s",
                       output_states, self._monitored_outputs)
         for output in self._monitored_outputs:
@@ -235,7 +250,11 @@ class AsyncSatel:
         print_hex(data)
         _LOGGER.debug("-- ------------- --")
         _LOGGER.debug("Sent %d bytes", len(data))
-
+        
+        if not self._writer:
+            _LOGGER.warning("Ignoring data because we're disconnected!")
+            return
+        
         self._writer.write(data)
         yield from self._writer.drain()
 
@@ -313,22 +332,22 @@ class AsyncSatel:
     def _armed(self, mode, msg):
         partitions = list_set_bits(msg, 4)
 
-        _LOGGER.debug("Update: list of armed partitions in mode %s: %s", mode, partitions)
-
-        if self._state in [mode, AlarmState.DISCONNECTED]:
-            if self._partition_id not in partitions:
-                self._state = AlarmState.DISARMED
-        else:
-            if self._partition_id in partitions:
-                self._state = AlarmState(mode)
+        _LOGGER.debug("Update: list of partitions in mode %s: %s", mode, partitions)
+        
+        self.partition_states[mode] = partitions
+        # if self._state in [mode, AlarmState.DISCONNECTED]:
+        #     if self._partition_id not in partitions:
+        #         self._state = AlarmState.DISARMED
+        # else:
+        #     if self._partition_id in partitions:
+        #         self._state = AlarmState(mode)
 
         if self._alarm_status_callback:
-            self._alarm_status_callback(self._state)
-
-        return self._state
+            self._alarm_status_callback()
 
     def _read_data(self):
-        # data = yield from self._reader.read(100)
+        if not self._reader:
+            return []
         data = yield from self._reader.readuntil(b'\xFE\x0D')
         _LOGGER.debug("-- Receiving data --")
         print_hex(data)
@@ -346,7 +365,7 @@ class AsyncSatel:
             yield from asyncio.sleep(self._keep_alive_timeout)
             if self.closed:
                 return
-            # Command to read device name of zone #1
+            # Command to read status of the alarm
             data = generate_query(b'\xEE\x01\x01')
             yield from self._send_data(data)
 
@@ -361,24 +380,31 @@ class AsyncSatel:
                 "disconnected!", e)
             self._writer = None
             self._reader = None
-            self._state = AlarmState.DISCONNECTED
-            return self._state
+            
+            if self._alarm_status_callback:
+                self._alarm_status_callback()
+            #self._state = AlarmState.DISCONNECTED
+            #return self._state
+            return
 
         if not resp:
             _LOGGER.warning("Got empty response. We think it's disconnect.")
             self._writer = None
             self._reader = None
-            self._state = AlarmState.DISCONNECTED
-            return self._state
+            if self._alarm_status_callback:
+                self._alarm_status_callback()
 
+            #self._state = AlarmState.DISCONNECTED
+            #return self._state
+            return
+            
         msg_id = resp[0:1]
         str_msg_id = ''.join(format(x, '02x') for x in msg_id)
         if msg_id in self._message_handlers:
             _LOGGER.info("Calling handler for id: 0x%s", str_msg_id)
-            return self._message_handlers[msg_id](resp)
+            self._message_handlers[msg_id](resp)
         else:
             _LOGGER.info("Ignoring message: 0x%s", str_msg_id)
-            return None
 
     #@asyncio.coroutine
     #def initial_status(self):
@@ -404,20 +430,23 @@ class AsyncSatel:
 
         while not self.closed:
             _LOGGER.debug("Iteration... ")
-            if not self.connected:
+            while not self.connected:
                 _LOGGER.info("Not connected, re-connecting... ")
                 yield from self.connect()                    
+                if not self.connected: 
+                    _LOGGER.info("Not connected, sleeping for 10s... ")                
+                    yield from asyncio.sleep(self._reconnection_timeout)            
+                    continue
                 yield from self.start_monitoring()
 
-            #yield from self.initial_status()
             while True:
-                status = yield from self._update_status()
+                yield from self._update_status()
                 _LOGGER.debug("Got status!")
-                if status and status == AlarmState.DISCONNECTED:
+                if not self.connected:
                     _LOGGER.info("Got connection broken, reconnecting!")
                     break
         _LOGGER.info("Closed, quit monitoring.")
-
+    
     def close(self):
         """Stop monitoring and close connection."""
         _LOGGER.debug("Closing...")

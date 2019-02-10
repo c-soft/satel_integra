@@ -122,22 +122,7 @@ class AsyncSatel:
         self._zone_changed_callback = None
         self._output_changed_callback = None
         self._partition_id = partition_id
-        #self._state = AlarmState.DISCONNECTED
-
-        # self._update_commands = {
-        #     b'\x00': ("zones violation", 16, self.zone_violation ),
-        #     b'\x0A': ("armed partitions (really)", 4, lambda msg:
-        # self.armed(1,msg)),
-        #     b'\x0B': ("partitions armed in mode 2", 4, lambda msg:
-        # self.armed(2,msg)),
-        #     b'\x0C': ("partitions armed in mode 3", 4, lambda msg:
-        # self.armed(3,msg)),
-        #     b'\x13': ("partitions alarm", 4, lambda msg: self.alarm(3,msg)),
-        #     b'\x14': ("partitions fire alarm", 4, lambda msg: self.alarm(
-        # 3,True,msg)),
-        # }
-        # Assign handler
-        # self._message_handlers[b'\x00'] = self._update_commands[b'\x00'][2]
+        
         self._message_handlers[b'\x00'] = self._zone_violated
         self._message_handlers[b'\x17'] = self._output_changed
         self._message_handlers[b'\x0A'] = lambda msg: self._armed(
@@ -158,11 +143,6 @@ class AsyncSatel:
     def connected(self):
         """Return true if there is connection to the alarm."""
         return self._writer and self._reader
-    
-    # @property
-    # def status(self):
-    #     """Return status of the alarm - whether its connected, armed, pending or disarmed."""
-    #     return self._state
 
     @asyncio.coroutine
     def connect(self):
@@ -175,7 +155,6 @@ class AsyncSatel:
                 "Exception during connecting: %s.", e)
             self._writer = None
             self._reader = None
-            #self._state = AlarmState.DISCONNECTED
             return False
 
         return True
@@ -335,12 +314,6 @@ class AsyncSatel:
         _LOGGER.debug("Update: list of partitions in mode %s: %s", mode, partitions)
         
         self.partition_states[mode] = partitions
-        # if self._state in [mode, AlarmState.DISCONNECTED]:
-        #     if self._partition_id not in partitions:
-        #         self._state = AlarmState.DISARMED
-        # else:
-        #     if self._partition_id in partitions:
-        #         self._state = AlarmState(mode)
 
         if self._alarm_status_callback:
             self._alarm_status_callback()
@@ -383,8 +356,6 @@ class AsyncSatel:
             
             if self._alarm_status_callback:
                 self._alarm_status_callback()
-            #self._state = AlarmState.DISCONNECTED
-            #return self._state
             return
 
         if not resp:
@@ -393,9 +364,6 @@ class AsyncSatel:
             self._reader = None
             if self._alarm_status_callback:
                 self._alarm_status_callback()
-
-            #self._state = AlarmState.DISCONNECTED
-            #return self._state
             return
             
         msg_id = resp[0:1]
@@ -405,12 +373,6 @@ class AsyncSatel:
             self._message_handlers[msg_id](resp)
         else:
             _LOGGER.info("Ignoring message: 0x%s", str_msg_id)
-
-    #@asyncio.coroutine
-    #def initial_status(self):
-    #    _LOGGER.info("Ask for initial SATEL status")
-    #    data = generate_query(b'\x0A')
-    #    yield from self._send_data(data)
 
     @asyncio.coroutine
     def monitor_status(self, alarm_status_callback=None,

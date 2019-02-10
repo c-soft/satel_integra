@@ -154,6 +154,11 @@ class AsyncSatel:
     def connected(self):
         """Return true if there is connection to the alarm."""
         return self._writer and self._reader
+    
+    @property
+    def status(self):
+        """Return status of the alarm - whether its connected, armed, pending or disarmed."""
+        return self._state
 
     @asyncio.coroutine
     def connect(self):
@@ -375,11 +380,11 @@ class AsyncSatel:
             _LOGGER.info("Ignoring message: 0x%s", str_msg_id)
             return None
 
-    @asyncio.coroutine
-    def initial_status(self):
-        _LOGGER.info("Ask for initial SATEL status")
-        data = generate_query(b'\x0A')
-        yield from self._send_data(data)
+    #@asyncio.coroutine
+    #def initial_status(self):
+    #    _LOGGER.info("Ask for initial SATEL status")
+    #    data = generate_query(b'\x0A')
+    #    yield from self._send_data(data)
 
     @asyncio.coroutine
     def monitor_status(self, alarm_status_callback=None,
@@ -404,7 +409,7 @@ class AsyncSatel:
                 yield from self.connect()                    
                 yield from self.start_monitoring()
 
-            yield from self.initial_status()
+            #yield from self.initial_status()
             while True:
                 status = yield from self._update_status()
                 _LOGGER.debug("Got status!")

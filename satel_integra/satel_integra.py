@@ -147,9 +147,13 @@ class AsyncSatel:
     @asyncio.coroutine
     def connect(self):
         """Make a TCP connection to the alarm system."""
+        _LOGGER.debug("Connecting...")
+
         try:
             self._reader, self._writer = yield from asyncio.open_connection(
                 self._host, self._port, loop=self._loop)
+            _LOGGER.debug("sucess connecting...")
+
         except Exception as e:
             _LOGGER.warning(
                 "Exception during connecting: %s.", e)
@@ -168,8 +172,12 @@ class AsyncSatel:
         yield from self._send_data(data)
         resp = yield from self._read_data()
 
+        if resp is None:
+            _LOGGER.warning("Start monitoring - no data!")
+            return 
+
         if resp[1:2] != b'\xFF':
-            raise Exception("Monitoring not accepted.")
+            _LOGGER.warning("Monitoring not accepted.")
 
     def _zone_violated(self, msg):
 
@@ -228,14 +236,21 @@ class AsyncSatel:
         _LOGGER.debug("-- Sending data --")
         print_hex(data)
         _LOGGER.debug("-- ------------- --")
-        _LOGGER.debug("Sent %d bytes", len(data))
+        _LOGGER.debug("Sending %d bytes...", len(data))
         
         if not self._writer:
             _LOGGER.warning("Ignoring data because we're disconnected!")
             return
-        
-        self._writer.write(data)
-        yield from self._writer.drain()
+        try:            
+            self._writer.write(data)
+            yield from self._writer.drain()
+        except Exception as e:
+            _LOGGER.warning(
+                "Exception during sending data: %s.", e)
+            self._writer = None
+            self._reader = None
+            return False
+
 
     @property
     def _partition_bytes(self):
@@ -321,12 +336,25 @@ class AsyncSatel:
     def _read_data(self):
         if not self._reader:
             return []
-        data = yield from self._reader.readuntil(b'\xFE\x0D')
-        _LOGGER.debug("-- Receiving data --")
-        print_hex(data)
-        _LOGGER.debug("-- ------------- --")
-        return verify_and_strip(data)
+        
+        try:
+            data = yield from self._reader.readuntil(b'\xFE\x0D')
+            _LOGGER.debug("-- Receiving data --")
+            print_hex(data)
+            _LOGGER.debug("-- ------------- --")
+            return verify_and_strip(data)
 
+        except IncompleteReadError as e:
+            _LOGGER.warning(
+                "Got exception: %s. Most likely the other side has "
+                "disconnected!", e)
+            self._writer = None
+            self._reader = None
+            
+            if self._alarm_status_callback:
+                self._alarm_status_callback()
+        
+        
     @asyncio.coroutine
     def keep_alive(self):
         """A workaround for Satel Integra disconnecting after 25s.
@@ -345,19 +373,8 @@ class AsyncSatel:
     def _update_status(self):
         _LOGGER.debug("Wait...")
 
-        try:
-            resp = yield from self._read_data()
-        except IncompleteReadError as e:
-            _LOGGER.warning(
-                "Got exception: %s. Most likely the other side has "
-                "disconnected!", e)
-            self._writer = None
-            self._reader = None
-            
-            if self._alarm_status_callback:
-                self._alarm_status_callback()
-            return
-
+        resp = yield from self._read_data()
+        
         if not resp:
             _LOGGER.warning("Got empty response. We think it's disconnect.")
             self._writer = None
@@ -388,7 +405,6 @@ class AsyncSatel:
         self._output_changed_callback = output_changed_callback
 
         _LOGGER.info("Starting monitor_status loop")
-        yield from self.start_monitoring()
 
         while not self.closed:
             _LOGGER.debug("Iteration... ")
@@ -396,11 +412,14 @@ class AsyncSatel:
                 _LOGGER.info("Not connected, re-connecting... ")
                 yield from self.connect()                    
                 if not self.connected: 
-                    _LOGGER.info("Not connected, sleeping for 10s... ")                
+                    _LOGGER.warning("Not connected, sleeping for 10s... ")                
                     yield from asyncio.sleep(self._reconnection_timeout)            
                     continue
-                yield from self.start_monitoring()
-
+            yield from self.start_monitoring()
+            if not self.connected: 
+                _LOGGER.warning("Start monitoring failed, sleeping for 10s... ")                
+                yield from asyncio.sleep(self._reconnection_timeout)            
+                continue
             while True:
                 yield from self._update_status()
                 _LOGGER.debug("Got status!")

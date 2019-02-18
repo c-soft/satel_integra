@@ -93,10 +93,12 @@ class AlarmState(Enum):
     ARMED_MODE1 = 1
     ARMED_MODE2 = 2
     ARMED_MODE3 = 3
-    TRIGGERED = 4
-    TRIGGERED_FIRE = 5
-    DISARMED = 6
-    DISCONNECTED = 7
+    ARMED_SUPPRESSED = 4
+    EXIT_COUNTDOWN_OVER_10 = 5
+    EXIT_COUNTDOWN_UNDER_10 = 6
+    TRIGGERED = 7
+    TRIGGERED_FIRE = 8
+    DISARMED = 9
 
 
 class AsyncSatel:
@@ -114,8 +116,8 @@ class AsyncSatel:
         self._monitored_outputs = monitored_outputs
         self.violated_outputs = []
         self.partition_states = {}
-        self._keep_alive_timeout = 10
-        self._reconnection_timeout = 10
+        self._keep_alive_timeout = 20
+        self._reconnection_timeout = 15
         self._reader = None
         self._writer = None
         self.closed = False
@@ -134,6 +136,12 @@ class AsyncSatel:
             AlarmState.ARMED_MODE2, msg)
         self._message_handlers[b'\x0C'] = lambda msg: self._armed(
             AlarmState.ARMED_MODE3, msg)
+        self._message_handlers[b'\x09'] = lambda msg: self._armed(
+            AlarmState.ARMED_SUPPRESSED, msg)
+        self._message_handlers[b'\x0F'] = lambda msg: self._armed(
+            AlarmState.EXIT_COUNTDOWN_OVER_10, msg)
+        self._message_handlers[b'\x10'] = lambda msg: self._armed(
+            AlarmState.EXIT_COUNTDOWN_UNDER_10, msg)
         self._message_handlers[b'\xEF'] = self._error_occurred
         self._message_handlers[b'\x13'] = lambda msg: self._armed(
             AlarmState.TRIGGERED, msg)
@@ -166,7 +174,7 @@ class AsyncSatel:
     async def start_monitoring(self):
         """Start monitoring for interesting events."""
         data = generate_query(
-            b'\x7F\x01\x0E\x88\x00\x00\x04\x00\x00\x00\x00\x00\x00')
+            b'\x7F\x01\x0E\x89\x80\x00\x04\x00\x00\x00\x00\x00\x00')
 
         await self._send_data(data)
         resp = await self._read_data()
@@ -184,8 +192,7 @@ class AsyncSatel:
 
         violated_zones = list_set_bits(msg, 32)
         self.violated_zones = violated_zones
-        _LOGGER.debug("Violated zones: %s, monitored zones: %s",
-                      violated_zones, self._monitored_zones)
+        _LOGGER.debug("Violated zones: %s", violated_zones)
         for zone in self._monitored_zones:
             status["zones"][zone] = \
                 1 if zone in violated_zones else 0
@@ -251,7 +258,9 @@ class AsyncSatel:
 
     @property
     def _partition_bytes(self):
-        partition = 1 << self._partition_id - 1
+        partition = self._partition_id
+        if self._partition_id > 0:
+            partition = 1 << self._partition_id - 1
         return partition.to_bytes(4, 'little')
 
     async def arm(self, code, mode=0):
@@ -277,6 +286,18 @@ class AsyncSatel:
         code_bytes = bytearray.fromhex(code)
 
         data = generate_query(b'\x84' + code_bytes + self._partition_bytes)
+
+        await self._send_data(data)
+
+    async def clear_alarm(self, code):
+        """Send command to clear the alarm."""
+        _LOGGER.info("Sending clear the alarm command.")
+        while len(code) < 16:
+            code += 'F'
+
+        code_bytes = bytearray.fromhex(code)
+
+        data = generate_query(b'\x85' + code_bytes + self._partition_bytes)
 
         await self._send_data(data)
 

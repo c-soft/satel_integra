@@ -359,7 +359,7 @@ class AsyncSatel:
             _LOGGER.debug("-- ------------- --")
             return verify_and_strip(data)
 
-        except IncompleteReadError as e:
+        except Exception as e:
             _LOGGER.warning(
                 "Got exception: %s. Most likely the other side has "
                 "disconnected!", e)

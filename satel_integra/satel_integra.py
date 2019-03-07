@@ -93,11 +93,12 @@ class AlarmState(Enum):
     ARMED_MODE2 = 2
     ARMED_MODE3 = 3
     ARMED_SUPPRESSED = 4
-    EXIT_COUNTDOWN_OVER_10 = 5
-    EXIT_COUNTDOWN_UNDER_10 = 6
-    TRIGGERED = 7
-    TRIGGERED_FIRE = 8
-    DISARMED = 9
+    ENTRY_TIME = 5
+    EXIT_COUNTDOWN_OVER_10 = 6
+    EXIT_COUNTDOWN_UNDER_10 = 7
+    TRIGGERED = 8
+    TRIGGERED_FIRE = 9
+    DISARMED = 10
 
 
 class AsyncSatel:
@@ -137,6 +138,8 @@ class AsyncSatel:
             AlarmState.ARMED_MODE3, msg)
         self._message_handlers[b'\x09'] = lambda msg: self._armed(
             AlarmState.ARMED_SUPPRESSED, msg)
+        self._message_handlers[b'\x0E'] = lambda msg: self._armed(
+            AlarmState.ENTRY_TIME, msg)
         self._message_handlers[b'\x0F'] = lambda msg: self._armed(
             AlarmState.EXIT_COUNTDOWN_OVER_10, msg)
         self._message_handlers[b'\x10'] = lambda msg: self._armed(
@@ -173,7 +176,7 @@ class AsyncSatel:
     async def start_monitoring(self):
         """Start monitoring for interesting events."""
         data = generate_query(
-            b'\x7F\x01\x0E\x89\x80\x00\x04\x00\x00\x00\x00\x00\x00')
+            b'\x7F\x01\xDC\x99\x80\x00\x04\x00\x00\x00\x00\x00\x00')
 
         await self._send_data(data)
         resp = await self._read_data()

@@ -4,7 +4,6 @@
 
 import asyncio
 import logging
-from asyncio import IncompleteReadError
 from enum import Enum, unique
 
 _LOGGER = logging.getLogger(__name__)

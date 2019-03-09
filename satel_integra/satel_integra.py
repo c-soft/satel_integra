@@ -51,7 +51,7 @@ def list_set_bits(r, expected_length):
     """Return list of positions of bits set to one in given data.
 
     This method is used to read e.g. violated zones. They are marked by ones
-    on respective bit positions - as per satel manual.
+    on respective bit positions - as per Satel manual.
     """
     set_bit_numbers = []
     bit_index = 0x1
@@ -84,6 +84,16 @@ def output_bytes(output):
     return output_no.to_bytes(32, 'little')
 
 
+def partition_bytes(partition_list):
+        ret_val = 0
+        for position in partition_list:
+            if position >= 32:
+                raise IndexError()
+            ret_val = ret_val | (1 << (position - 1))
+
+        return ret_val.to_bytes(4, 'little')
+
+
 @unique
 class AlarmState(Enum):
     """Represents status of the alarm."""
@@ -105,7 +115,7 @@ class AsyncSatel:
     """Asynchronous interface to talk to Satel Integra alarm system."""
 
     def __init__(self, host, port, loop, monitored_zones=[],
-                 monitored_outputs=[], partition_id=1):
+                 monitored_outputs=[], partitions=[]):
         """Init the Satel alarm data."""
         self._host = host
         self._port = port
@@ -124,7 +134,7 @@ class AsyncSatel:
         self._alarm_status_callback = None
         self._zone_changed_callback = None
         self._output_changed_callback = None
-        self._partition_id = partition_id
+        self._partitions = partitions
 
         self._message_handlers[b'\x00'] = self._zone_violated
         self._message_handlers[b'\x17'] = self._output_changed
@@ -258,14 +268,7 @@ class AsyncSatel:
             self._reader = None
             return False
 
-    @property
-    def _partition_bytes(self):
-        partition = self._partition_id
-        if self._partition_id > 0:
-            partition = 1 << self._partition_id - 1
-        return partition.to_bytes(4, 'little')
-
-    async def arm(self, code, mode=0):
+    async def arm(self, code, partition_list, mode=0):
         """Send arming command to the alarm. Modes allowed: from 0 till 3."""
         _LOGGER.debug("Sending arm command, mode: %s!", mode)
         while len(code) < 16:
@@ -273,13 +276,13 @@ class AsyncSatel:
 
         code_bytes = bytearray.fromhex(code)
         mode_command = 0x80 + mode
-        data = generate_query(mode_command.to_bytes(1, 'big') +
-                              code_bytes +
-                              self._partition_bytes)
+        data = generate_query(mode_command.to_bytes(1, 'big')
+                              + code_bytes
+                              + partition_bytes(partition_list))
 
         await self._send_data(data)
 
-    async def disarm(self, code):
+    async def disarm(self, code, partition_list):
         """Send command to disarm."""
         _LOGGER.info("Sending disarm command.")
         while len(code) < 16:
@@ -287,11 +290,12 @@ class AsyncSatel:
 
         code_bytes = bytearray.fromhex(code)
 
-        data = generate_query(b'\x84' + code_bytes + self._partition_bytes)
+        data = generate_query(b'\x84' + code_bytes
+                              + partition_bytes(partition_list))
 
         await self._send_data(data)
 
-    async def clear_alarm(self, code):
+    async def clear_alarm(self, code, partition_list):
         """Send command to clear the alarm."""
         _LOGGER.info("Sending clear the alarm command.")
         while len(code) < 16:
@@ -299,7 +303,8 @@ class AsyncSatel:
 
         code_bytes = bytearray.fromhex(code)
 
-        data = generate_query(b'\x85' + code_bytes + self._partition_bytes)
+        data = generate_query(b'\x85' + code_bytes
+                              + partition_bytes(partition_list))
 
         await self._send_data(data)
 

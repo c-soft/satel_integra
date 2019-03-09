@@ -135,6 +135,8 @@ class AsyncSatel:
         self._zone_changed_callback = None
         self._output_changed_callback = None
         self._partitions = partitions
+        self._command_status_event = asyncio.Event()
+        self._command_status = False
 
         self._message_handlers[b'\x00'] = self._zone_violated
         self._message_handlers[b'\x17'] = self._output_changed
@@ -154,7 +156,7 @@ class AsyncSatel:
             AlarmState.EXIT_COUNTDOWN_OVER_10, msg)
         self._message_handlers[b'\x10'] = lambda msg: self._armed(
             AlarmState.EXIT_COUNTDOWN_UNDER_10, msg)
-        self._message_handlers[b'\xEF'] = self._error_occurred
+        self._message_handlers[b'\xEF'] = lambda msg: self._error_occurred(msg)
         self._message_handlers[b'\x13'] = lambda msg: self._armed(
             AlarmState.TRIGGERED, msg)
         self._message_handlers[b'\x14'] = lambda msg: self._armed(
@@ -236,8 +238,7 @@ class AsyncSatel:
 
         return status
 
-    @staticmethod
-    def _error_occurred(msg):
+    def _error_occurred(self, msg):
         status = {"error": "Some problem!"}
         error_code = msg[1:2]
 
@@ -247,6 +248,8 @@ class AsyncSatel:
             status = {"error": "User code not found"}
 
         _LOGGER.debug("Received error status: %s", status)
+        self._command_status = status
+        self._command_status_event.set()
         return status
 
     async def _send_data(self, data):
@@ -325,6 +328,8 @@ class AsyncSatel:
                               code_bytes +
                               output_bytes(output_id))
         await self._send_data(data)
+        await self._command_status_event.wait()
+        return self._command_status
 
     async def set_output_off(self, code, output):
         """Send output turn off command to the alarm."""

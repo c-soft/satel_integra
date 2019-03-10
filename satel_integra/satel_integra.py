@@ -319,7 +319,7 @@ class AsyncSatel:
         data = generate_query(b'\x85' + code_bytes
                               + partition_bytes(partition_list))
 
-        await self._send_data(data)
+        return self.send_and_wait_for_answer(data)
 
     async def set_output(self, code, output_id, state):
         """Send output turn on command to the alarm."""

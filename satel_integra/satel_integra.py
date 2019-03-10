@@ -252,15 +252,15 @@ class AsyncSatel:
         self._command_status_event.set()
         return status
 
-    async def send_and_wait_for_answer(self, data):
-        """Send given data and wait for confirmation from Satel"""
-        await self._send_data(data)
-        try:
-            await asyncio.wait_for(self._command_status_event.wait(),
-                                   timeout=5)
-        except asyncio.TimeoutError:
-            _LOGGER.warning("Timeout waiting for reponse from Satel!")
-        return self._command_status
+    # async def send_and_wait_for_answer(self, data):
+    #     """Send given data and wait for confirmation from Satel"""
+    #     await self._send_data(data)
+    #     try:
+    #         await asyncio.wait_for(self._command_status_event.wait(),
+    #                                timeout=5)
+    #     except asyncio.TimeoutError:
+    #         _LOGGER.warning("Timeout waiting for reponse from Satel!")
+    #     return self._command_status
 
     async def _send_data(self, data):
         _LOGGER.debug("-- Sending data --")
@@ -293,7 +293,7 @@ class AsyncSatel:
                               + code_bytes
                               + partition_bytes(partition_list))
 
-        return self.send_and_wait_for_answer(data)
+        await self._send_data(data)
 
     async def disarm(self, code, partition_list):
         """Send command to disarm."""
@@ -306,7 +306,7 @@ class AsyncSatel:
         data = generate_query(b'\x84' + code_bytes
                               + partition_bytes(partition_list))
 
-        return self.send_and_wait_for_answer(data)
+        await self._send_data(data)
 
     async def clear_alarm(self, code, partition_list):
         """Send command to clear the alarm."""
@@ -319,7 +319,7 @@ class AsyncSatel:
         data = generate_query(b'\x85' + code_bytes
                               + partition_bytes(partition_list))
 
-        return self.send_and_wait_for_answer(data)
+        await self._send_data(data)
 
     async def set_output(self, code, output_id, state):
         """Send output turn on command to the alarm."""
@@ -337,7 +337,7 @@ class AsyncSatel:
         data = generate_query(mode_command.to_bytes(1, 'big') +
                               code_bytes +
                               output_bytes(output_id))
-        return self.send_and_wait_for_answer(data)
+        await self._send_data(data)
 
     def _armed(self, mode, msg):
         partitions = list_set_bits(msg, 4)

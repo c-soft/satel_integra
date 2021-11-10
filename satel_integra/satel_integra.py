@@ -464,8 +464,8 @@ def demo(host, port):
                      )
 
     loop.run_until_complete(stl.connect())
-    loop.create_task(stl.arm("3333", 1))
-    loop.create_task(stl.disarm("3333"))
+    loop.create_task(stl.arm("3333", (1,)))
+    loop.create_task(stl.disarm("3333",(1,)))
     loop.create_task(stl.keep_alive())
     loop.create_task(stl.monitor_status())
 

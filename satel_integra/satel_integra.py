@@ -173,7 +173,7 @@ class AsyncSatel:
 
         try:
             self._reader, self._writer = await asyncio.open_connection(
-                self._host, self._port, loop=self._loop)
+                self._host, self._port)
             _LOGGER.debug("sucess connecting...")
 
         except Exception as e:

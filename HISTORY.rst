@@ -31,3 +31,8 @@ History
 
 * Added ENTRY_TIME status to display "DISARMING" status in HA
 * Fixed issue with unhandled connection error  causing HomeAssistant to give up on coommunication with eth module completely
+
+0.3.6 (2022-07-05)
+------------------
+
+* Integrated fix for Python 3.10 compatibility

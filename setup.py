@@ -25,7 +25,7 @@ test_requirements = [
 
 setup(
     name='satel_integra',
-    version='0.3.4',
+    version='0.3.7',
     description="Communication library and basic testing tool for Satel "
                 "Integra alarm system. Communication via tcpip protocol "
                 "published by SATEL. ",

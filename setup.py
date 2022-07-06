@@ -29,7 +29,8 @@ setup(
     description="Communication library and basic testing tool for Satel "
                 "Integra alarm system. Communication via tcpip protocol "
                 "published by SATEL. ",
-    long_description=readme + '\n\n' + history,
+    long_description_content_type="text/markdown",
+    long_description=readme + '\n\n' + history,    
     author="Krzysztof Machelski",
     author_email='krzysztof.machelski+pypi@gmail.com',
     url='https://github.com/c-soft/satel_integra',

@@ -281,8 +281,8 @@ class AsyncSatel:
         """Keeps sending commands from the queue and 
            waiting for anwers"""
         while True:
-            await self._command_queue.get()
-            if await self._send_data_internal(self._current_command):
+            data = await self._command_queue.get()
+            if await self._send_data_internal(data):
                 try:
                     await asyncio.wait_for(self._command_status_event.wait(), timeout=10)
                     self._command_status_event.clear()

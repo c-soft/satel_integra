@@ -85,13 +85,13 @@ def output_bytes(output):
 
 
 def partition_bytes(partition_list):
-        ret_val = 0
-        for position in partition_list:
-            if position >= 32:
-                raise IndexError()
-            ret_val = ret_val | (1 << (position - 1))
+    ret_val = 0
+    for position in partition_list:
+        if position >= 32:
+            raise IndexError()
+        ret_val = ret_val | (1 << (position - 1))
 
-        return ret_val.to_bytes(4, 'little')
+    return ret_val.to_bytes(4, 'little')
 
 
 @unique
@@ -137,6 +137,7 @@ class AsyncSatel:
         self._partitions = partitions
         self._command_status_event = asyncio.Event()
         self._command_status = False
+        self._command_queue = asyncio.Queue()
 
         self._message_handlers[b'\x00'] = self._zone_violated
         self._message_handlers[b'\x17'] = self._output_changed
@@ -161,6 +162,7 @@ class AsyncSatel:
             AlarmState.TRIGGERED, msg)
         self._message_handlers[b'\x14'] = lambda msg: self._armed(
             AlarmState.TRIGGERED_FIRE, msg)
+        self._message_handlers[b'\xEE'] = self._device_info
 
     @property
     def connected(self):
@@ -191,14 +193,6 @@ class AsyncSatel:
             b'\x7F\x01\xDC\x99\x80\x00\x04\x00\x00\x00\x00\x00\x00')
 
         await self._send_data(data)
-        resp = await self._read_data()
-
-        if resp is None:
-            _LOGGER.warning("Start monitoring - no data!")
-            return
-
-        if resp[1:2] != b'\xFF':
-            _LOGGER.warning("Monitoring not accepted.")
 
     def _zone_violated(self, msg):
 
@@ -237,7 +231,7 @@ class AsyncSatel:
             self._output_changed_callback(status)
 
         return status
-
+        
     def _command_result(self, msg):
         status = {"error": "Some problem!"}
         error_code = msg[1:2]
@@ -261,8 +255,10 @@ class AsyncSatel:
     #     except asyncio.TimeoutError:
     #         _LOGGER.warning("Timeout waiting for reponse from Satel!")
     #     return self._command_status
-
     async def _send_data(self, data):
+        self._command_queue.put_nowait(data)
+
+    async def _send_data_internal(self, data):
         _LOGGER.debug("-- Sending data --")
         print_hex(data)
         _LOGGER.debug("-- ------------- --")
@@ -270,16 +266,28 @@ class AsyncSatel:
 
         if not self._writer:
             _LOGGER.warning("Ignoring data because we're disconnected!")
-            return
         try:
             self._writer.write(data)
             await self._writer.drain()
+            return True
         except Exception as e:
             _LOGGER.warning(
                 "Exception during sending data: %s.", e)
             self._writer = None
             self._reader = None
             return False
+
+    async def sender_worker(self):
+        """Keeps sending commands from the queue and 
+           waiting for anwers"""
+        while True:
+            await self._command_queue.get()
+            if await self._send_data_internal(self._current_command):
+                try:
+                    await asyncio.wait_for(self._command_status_event.wait(), timeout=10)
+                    self._command_status_event.clear()
+                except TimeoutError:
+                    _LOGGER.warning("Timeout while waiting for confirmation")            
 
     async def arm(self, code, partition_list, mode=0):
         """Send arming command to the alarm. Modes allowed: from 0 till 3."""
@@ -385,6 +393,11 @@ class AsyncSatel:
             data = generate_query(b'\xEE\x01\x01')
             await self._send_data(data)
 
+    def _device_info(self, msg):
+        """Dummy handler for keep_alive responses"""
+        self._command_status = None
+        self._command_status_event.set()
+        
     async def _update_status(self):
         _LOGGER.debug("Wait...")
 
@@ -466,6 +479,8 @@ def demo(host, port):
     loop.run_until_complete(stl.connect())
     loop.create_task(stl.arm("3333", (1,)))
     loop.create_task(stl.disarm("3333",(1,)))
+    loop.create_task(stl.sender_worker())
+
     loop.create_task(stl.keep_alive())
     loop.create_task(stl.monitor_status())
 

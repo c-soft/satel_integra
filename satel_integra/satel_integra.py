@@ -280,14 +280,19 @@ class AsyncSatel:
     async def sender_worker(self):
         """Keeps sending commands from the queue and 
            waiting for anwers"""
-        while True:
+        while not self.closed:
             data = await self._command_queue.get()
-            if await self._send_data_internal(data):
-                try:
-                    await asyncio.wait_for(self._command_status_event.wait(), timeout=10)
+            try:
+                if await self._send_data_internal(data):
+                    await asyncio.wait_for(asyncio.shield(self._command_status_event.wait()), timeout=10)
                     self._command_status_event.clear()
-                except TimeoutError:
-                    _LOGGER.warning("Timeout while waiting for confirmation")            
+                self._command_queue.task_done()
+            except TimeoutError:
+                self._command_queue.task_done()
+                _LOGGER.warning("Timeout while waiting for confirmation")
+            except Exception:
+                self._command_queue.task_done()
+                _LOGGER.warning("Error while waiting for confirmation")
 
     async def arm(self, code, partition_list, mode=0):
         """Send arming command to the alarm. Modes allowed: from 0 till 3."""

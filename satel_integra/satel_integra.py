@@ -72,7 +72,7 @@ def generate_query(command):
     c = checksum(data)
     data.append(c >> 8)
     data.append(c & 0xFF)
-    data.replace(b'\xFE', b'\xFE\xF0')
+    data = data.replace(b'\xFE', b'\xFE\xF0')
 
     data = bytearray.fromhex("FEFE") + data + bytearray.fromhex("FE0D")
     return data

@@ -84,14 +84,14 @@ def output_bytes(output):
     return output_no.to_bytes(32, 'little')
 
 
-def partition_bytes(partition_list):
-        ret_val = 0
-        for position in partition_list:
-            if position >= 32:
-                raise IndexError()
-            ret_val = ret_val | (1 << (position - 1))
+def partition_bytes(partition_list):  # pragma: no cover
+    ret_val = 0
+    for position in partition_list:
+        if position >= 32:
+            raise IndexError()
+        ret_val = ret_val | (1 << (position - 1))
 
-        return ret_val.to_bytes(4, 'little')
+    return ret_val.to_bytes(4, 'little')
 
 
 @unique
@@ -450,7 +450,7 @@ class AsyncSatel:
             self._writer.close()
 
 
-def demo(host, port):
+def demo(host, port):  # pragma: no cover
     """Basic demo of the monitoring capabilities."""
     # logging.basicConfig(level=logging.DEBUG)
 
@@ -465,7 +465,7 @@ def demo(host, port):
 
     loop.run_until_complete(stl.connect())
     loop.create_task(stl.arm("3333", (1,)))
-    loop.create_task(stl.disarm("3333",(1,)))
+    loop.create_task(stl.disarm("3333", (1,)))
     loop.create_task(stl.keep_alive())
     loop.create_task(stl.monitor_status())
 

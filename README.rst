@@ -6,19 +6,22 @@ Satel Integra
 .. image:: https://img.shields.io/pypi/v/satel_integra.svg
         :target: https://pypi.python.org/pypi/satel_integra
 
-.. image:: https://img.shields.io/travis/c-soft/satel_integra.svg
-        :target: https://travis-ci.org/c-soft/satel_integra
+.. image:: https://img.shields.io/pypi/pyversions/satel_integra.svg
+        :target: https://pypi.org/project/satel_integra/
 
 .. image:: https://readthedocs.org/projects/satel-integra/badge/?version=latest
         :target: https://satel-integra.readthedocs.io/en/latest/?badge=latest
         :alt: Documentation Status
 
-.. image:: https://pyup.io/repos/github/c-soft/satel_integra/shield.svg
-     :target: https://pyup.io/repos/github/c-soft/satel_integra/
-     :alt: Updates
+.. image:: https://github.com/wasilukm/hoymiles_modbus/actions/workflows/dev.yml/badge.svg
+        :target: https://github.com/wasilukm/satel_integra/actions/workflows/dev.yml
 
+.. image:: https://codecov.io/gh/wasilukm/hoymiles_modbus/branch/main/graphs/badge.svg
+        :target: https://codecov.io/github/wasilukm/satel_integra
 
-Communication library and basic testing tool for Satel Integra alarm system. Communication via tcpip protocol published by SATEL. 
+Communication library and basic testing tool for Satel Integra alarm system. Communication via tcpip protocol published by SATEL.
+
+This is a fork of https://github.com/c-soft/satel_integra.
 
 
 * Free software: MIT license

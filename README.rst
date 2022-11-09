@@ -13,10 +13,10 @@ Satel Integra
         :target: https://satel-integra.readthedocs.io/en/latest/?badge=latest
         :alt: Documentation Status
 
-.. image:: https://github.com/wasilukm/hoymiles_modbus/actions/workflows/dev.yml/badge.svg
+.. image:: https://github.com/wasilukm/satel_integra/actions/workflows/dev.yml/badge.svg
         :target: https://github.com/wasilukm/satel_integra/actions/workflows/dev.yml
 
-.. image:: https://codecov.io/gh/wasilukm/hoymiles_modbus/branch/main/graphs/badge.svg
+.. image:: https://codecov.io/gh/wasilukm/satel_integra/branch/main/graphs/badge.svg
         :target: https://codecov.io/github/wasilukm/satel_integra
 
 Communication library and basic testing tool for Satel Integra alarm system. Communication via tcpip protocol published by SATEL.

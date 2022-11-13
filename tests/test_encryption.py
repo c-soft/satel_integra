@@ -5,7 +5,7 @@
 
 import pytest
 from unittest.mock import patch, MagicMock
-from satel_integra.encryption import EncryptedCommunicationHandler, SatelEncryption
+from satel_integra2.encryption import EncryptedCommunicationHandler, SatelEncryption
 
 
 class TestProtocol:

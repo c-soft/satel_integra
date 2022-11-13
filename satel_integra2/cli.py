@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 
-"""Console script for satel_integra."""
+"""Console script for satel_integra2."""
 
 import logging
 import click
-from satel_integra import demo
+from satel_integra2 import demo
 
 
 @click.command()
@@ -18,14 +18,14 @@ from satel_integra import demo
     '--integration_key', default='',
     help='Satel integration key for encrypted communication.')
 def main(port, ip, command, loglevel, integration_key):
-    """Console script for satel_integra."""
+    """Console script for satel_integra2."""
     numeric_level = getattr(logging, loglevel.upper(), None)
     if not isinstance(numeric_level, int):
         raise ValueError('Invalid log level: %s' % loglevel)
 
     logging.basicConfig(level=numeric_level)
 
-    click.echo("Demo of satel_integra library")
+    click.echo("Demo of satel_integra2 library")
     if command == "demo":
         demo(ip, port, integration_key)
 

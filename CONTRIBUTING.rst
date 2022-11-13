@@ -15,7 +15,7 @@ Types of Contributions
 Report Bugs
 ~~~~~~~~~~~
 
-Report bugs at https://github.com/c-soft/satel_integra/issues.
+Report bugs at https://github.com/wasilukm/satel_integra2/issues.
 
 If you are reporting a bug, please include:
 
@@ -45,7 +45,7 @@ articles, and such.
 Submit Feedback
 ~~~~~~~~~~~~~~~
 
-The best way to send feedback is to file an issue at https://github.com/c-soft/satel_integra/issues.
+The best way to send feedback is to file an issue at https://github.com/wasilukm/satel_integra2/issues.
 
 If you are proposing a feature:
 
@@ -57,17 +57,17 @@ If you are proposing a feature:
 Get Started!
 ------------
 
-Ready to contribute? Here's how to set up `satel_integra` for local development.
+Ready to contribute? Here's how to set up `satel_integra2` for local development.
 
-1. Fork the `satel_integra` repo on GitHub.
+1. Fork the `satel_integra2` repo on GitHub.
 2. Clone your fork locally::
 
-    $ git clone git@github.com:your_name_here/satel_integra.git
+    $ git clone git@github.com:your_name_here/satel_integra2.git
 
 3. Install your local copy into a virtualenv. Assuming you have virtualenvwrapper installed, this is how you set up your fork for local development::
 
-    $ mkvirtualenv satel_integra
-    $ cd satel_integra/
+    $ mkvirtualenv satel_integra2
+    $ cd satel_integra2/
     $ python setup.py develop
 
 4. Create a branch for local development::
@@ -78,8 +78,8 @@ Ready to contribute? Here's how to set up `satel_integra` for local development.
 
 5. When you're done making changes, check that your changes pass flake8 and the tests, including testing other Python versions with tox::
 
-    $ flake8 satel_integra tests
-    $ python setup.py test or py.test
+    $ flake8 satel_integra2 tests
+    $ python setup.py test or pytest
     $ tox
 
    To get flake8 and tox, just pip install them into your virtualenv.
@@ -101,14 +101,13 @@ Before you submit a pull request, check that it meets these guidelines:
 2. If the pull request adds functionality, the docs should be updated. Put
    your new functionality into a function with a docstring, and add the
    feature to the list in README.rst.
-3. The pull request should work for Python 2.6, 2.7, 3.3, 3.4 and 3.5, and for PyPy. Check
-   https://travis-ci.org/c-soft/satel_integra/pull_requests
-   and make sure that the tests pass for all supported Python versions.
+3. The pull request should work for Python 3.8, 3.9 and 3.10. Check if Github
+   workflows are passing for your changes.
 
 Tips
 ----
 
 To run a subset of tests::
 
-$ py.test tests.test_satel_integra
+$ pytest tests.test_satel_integra
 

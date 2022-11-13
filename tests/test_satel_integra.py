@@ -1,15 +1,15 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-"""Tests for `satel_integra` package."""
+"""Tests for `satel_integra2` package."""
 
 import pytest
 
 # from click.testing import CliRunner
 
-# from satel_integra import cli
+# from satel_integra2 import cli
 from unittest import TestCase
-from satel_integra.satel_integra import \
+from satel_integra2.satel_integra import \
     checksum, generate_query, verify_and_strip
 
 # import unittest
@@ -31,7 +31,7 @@ def test_command_line_interface():
     # runner = CliRunner()
     # result = runner.invoke(cli.main)
     # assert result.exit_code == 0
-    # assert 'satel_integra.cli.main' in result.output
+    # assert 'satel_integra2.cli.main' in result.output
     # help_result = runner.invoke(cli.main, ['--help'])
     # assert help_result.exit_code == 0
     #    assert '--help  Show this message and exit.' in help_result.output

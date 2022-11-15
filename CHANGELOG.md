@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.4.0] (2022-11-15)
+
+* Forked from https://github.com/c-soft/satel_integra
+* Renamed to `satel_integra2` to avoid conflicts with the original package
+* Added support for encrypted communication
+
 ## [0.3.7] (2022-07-05)
 
 * Integrated fix for Python 3.10 compatibility

@@ -1,0 +1,42 @@
+[tool]
+[tool.poetry]
+name = "satel_integra2"
+version = "0.3.7"
+homepage = "https://github.com/wasilukm/satel_integra2"
+description = "Communication library and basic testing tool for Satel Integra alarm system."
+
+authors = []
+readme = "README.rst"
+license =  "MIT"
+classifiers=[
+    'Development Status :: 2 - Pre-Alpha',
+    'Intended Audience :: Developers',
+    'License :: OSI Approved :: MIT License',
+    'Natural Language :: English',
+    'Programming Language :: Python :: 3',
+    'Programming Language :: Python :: 3.8',
+    'Programming Language :: Python :: 3.9',
+    'Programming Language :: Python :: 3.10',
+]
+packages = [
+    { include = "satel_integra2" },
+    { include = "tests", format = "sdist" },
+]
+
+[tool.poetry.dependencies]
+python = ">=3.7,<4.0"
+cryptography = "^38.0.3"
+click = {version = "^8.1.3", python = ">=3.8,<4.0"}
+pytest-cov = {extras = ["test"], version = "^4.0.0"}
+pytest = {extras = ["test"], version = "^7.2.0"}
+tox = {extras = ["dev"], version = "^3.27.0"}
+pip = {extras = ["dev"], version = "^22.3.1"}
+twine = {extras = ["dev"], version = "^4.0.1"}
+toml = {extras = ["dev"], version = "^0.10.2"}
+bump2version = {extras = ["dev"], version = "^1.0.1"}
+flake8 = {extras = ["test"], version = "^5.0.4"}
+
+
+[build-system]
+requires = ["poetry-core>=1.0.0", "setuptools"]
+build-backend = "poetry.core.masonry.api"

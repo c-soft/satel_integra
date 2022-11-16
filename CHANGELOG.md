@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.4.1] (2022-11-16)
+
+* Unlock package dependencies to avoid conflicts
+
 ## [0.4.0] (2022-11-15)
 
 * Forked from https://github.com/c-soft/satel_integra

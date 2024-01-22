@@ -5,8 +5,11 @@
 import asyncio
 import logging
 from enum import Enum, unique
+from .encryption import EncryptedCommunicationHandler
 
 _LOGGER = logging.getLogger(__name__)
+
+END_SEQUENCE = b'\xFE\x0D'
 
 
 def checksum(command):
@@ -34,7 +37,7 @@ def verify_and_strip(resp):
         _LOGGER.error("Houston, we got problem:")
         print_hex(resp)
         raise Exception("Wrong header - got %X%X" % (resp[0], resp[1]))
-    if resp[-2:] != b'\xFE\x0D':
+    if resp[-2:] != END_SEQUENCE:
         raise Exception("Wrong footer - got %X%X" % (resp[-2], resp[-1]))
     output = resp[2:-2].replace(b'\xFE\xF0', b'\xFE')
 
@@ -115,7 +118,7 @@ class AsyncSatel:
     """Asynchronous interface to talk to Satel Integra alarm system."""
 
     def __init__(self, host, port, loop, monitored_zones=[],
-                 monitored_outputs=[], partitions=[]):
+                 monitored_outputs=[], partitions=[], integration_key=''):
         """Init the Satel alarm data."""
         self._host = host
         self._port = port
@@ -137,6 +140,7 @@ class AsyncSatel:
         self._partitions = partitions
         self._command_status_event = asyncio.Event()
         self._command_status = False
+        self._integration_key = integration_key
 
         self._message_handlers[b'\x00'] = self._zone_violated
         self._message_handlers[b'\x17'] = self._output_changed
@@ -161,6 +165,7 @@ class AsyncSatel:
             AlarmState.TRIGGERED, msg)
         self._message_handlers[b'\x14'] = lambda msg: self._armed(
             AlarmState.TRIGGERED_FIRE, msg)
+        self._encryption_handler = None
 
     @property
     def connected(self):
@@ -182,6 +187,9 @@ class AsyncSatel:
             self._writer = None
             self._reader = None
             return False
+
+        if self._integration_key:
+            self._encryption_handler = EncryptedCommunicationHandler(self._integration_key)
 
         return True
 
@@ -265,12 +273,19 @@ class AsyncSatel:
     async def _send_data(self, data):
         _LOGGER.debug("-- Sending data --")
         print_hex(data)
-        _LOGGER.debug("-- ------------- --")
-        _LOGGER.debug("Sending %d bytes...", len(data))
 
         if not self._writer:
             _LOGGER.warning("Ignoring data because we're disconnected!")
             return
+        if self._encryption_handler:
+            data = self._encryption_handler.prepare_pdu(data)
+            data = (len(data)).to_bytes(1, 'big') + data  # add PDU length at the beginning
+            _LOGGER.debug("-- ------------- --")
+            _LOGGER.debug("-- Encrypted data --")
+            print_hex(data)
+
+        _LOGGER.debug("-- ------------- --")
+        _LOGGER.debug("Sending %d bytes...", len(data))
         try:
             self._writer.write(data)
             await self._writer.drain()
@@ -355,21 +370,44 @@ class AsyncSatel:
             return []
 
         try:
-            data = await self._reader.readuntil(b'\xFE\x0D')
-            _LOGGER.debug("-- Receiving data --")
-            print_hex(data)
-            _LOGGER.debug("-- ------------- --")
+            if self._encryption_handler:
+                data = await self._read_encrypted()
+            else:
+                data = await self._read_plain()
             return verify_and_strip(data)
-
         except Exception as e:
             _LOGGER.warning(
-                "Got exception: %s. Most likely the other side has "
-                "disconnected!", e)
+                "Got exception: %s.", e)
             self._writer = None
             self._reader = None
 
             if self._alarm_status_callback:
                 self._alarm_status_callback()
+
+    async def _read_plain(self):
+        data = await self._reader.readuntil(END_SEQUENCE)
+        _LOGGER.debug("-- Receiving data --")
+        print_hex(data)
+        _LOGGER.debug("-- ------------- --")
+        return data
+
+    async def _read_encrypted(self):
+        """Read encrypted data end decrypt it."""
+        # first byte will tell how long is the rest of data
+        data_len = ord(await self._reader.read(1))
+        # read rest of data
+        data = await self._reader.read(data_len)
+        _LOGGER.debug("-- Receiving data --")
+        print_hex(data)
+        _LOGGER.debug("-- ------------- --")
+        data = self._encryption_handler.extract_data_from_pdu(data)
+        _LOGGER.debug("-- Decrypted data --")
+        print_hex(data)
+        _LOGGER.debug("-- ------------- --")
+        if END_SEQUENCE in data:
+            # padding may be after the end sequence, trim it
+            data = data.split(END_SEQUENCE)[0] + END_SEQUENCE
+        return data
 
     async def keep_alive(self):
         """A workaround for Satel Integra disconnecting after 25s.
@@ -450,7 +488,7 @@ class AsyncSatel:
             self._writer.close()
 
 
-def demo(host, port):
+def demo(host, port, integration_key=''):
     """Basic demo of the monitoring capabilities."""
     # logging.basicConfig(level=logging.DEBUG)
 
@@ -460,7 +498,8 @@ def demo(host, port):
                      loop,
                      [1, 2, 3, 4, 5, 6, 7, 8, 12, 13, 14, 15, 16, 17, 18, 19,
                       20, 21, 22, 23, 25, 26, 27, 28, 29, 30],
-                     [8, 9, 10]
+                     [8, 9, 10],
+                     integration_key=integration_key
                      )
 
     loop.run_until_complete(stl.connect())

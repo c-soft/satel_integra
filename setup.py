@@ -13,6 +13,7 @@ with open('HISTORY.rst') as history_file:
 
 requirements = [
     'Click>=6.0',
+    'cryptography'
 ]
 
 setup_requirements = [
@@ -30,7 +31,7 @@ setup(
                 "Integra alarm system. Communication via tcpip protocol "
                 "published by SATEL. ",
     long_description_content_type="text/markdown",
-    long_description=readme + '\n\n' + history,    
+    long_description=readme + '\n\n' + history,
     author="Krzysztof Machelski",
     author_email='krzysztof.machelski+pypi@gmail.com',
     url='https://github.com/c-soft/satel_integra',

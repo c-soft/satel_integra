@@ -120,7 +120,6 @@ class AsyncSatel:
         self._host = host
         self._port = port
         self._loop = loop
-        self._message_handlers = {}
         self._monitored_zones = monitored_zones
         self.violated_zones = []
         self._monitored_outputs = monitored_outputs
@@ -138,29 +137,41 @@ class AsyncSatel:
         self._command_status_event = asyncio.Event()
         self._command_status = False
 
-        self._message_handlers[b'\x00'] = self._zone_violated
-        self._message_handlers[b'\x17'] = self._output_changed
-        self._message_handlers[b'\x0A'] = lambda msg: self._armed(
-            AlarmState.ARMED_MODE0, msg)
-        self._message_handlers[b'\x2A'] = lambda msg: self._armed(
-            AlarmState.ARMED_MODE1, msg)
-        self._message_handlers[b'\x0B'] = lambda msg: self._armed(
-            AlarmState.ARMED_MODE2, msg)
-        self._message_handlers[b'\x0C'] = lambda msg: self._armed(
-            AlarmState.ARMED_MODE3, msg)
-        self._message_handlers[b'\x09'] = lambda msg: self._armed(
-            AlarmState.ARMED_SUPPRESSED, msg)
-        self._message_handlers[b'\x0E'] = lambda msg: self._armed(
-            AlarmState.ENTRY_TIME, msg)
-        self._message_handlers[b'\x0F'] = lambda msg: self._armed(
-            AlarmState.EXIT_COUNTDOWN_OVER_10, msg)
-        self._message_handlers[b'\x10'] = lambda msg: self._armed(
-            AlarmState.EXIT_COUNTDOWN_UNDER_10, msg)
-        self._message_handlers[b'\xEF'] = lambda msg: self._command_result(msg)
-        self._message_handlers[b'\x13'] = lambda msg: self._armed(
-            AlarmState.TRIGGERED, msg)
-        self._message_handlers[b'\x14'] = lambda msg: self._armed(
-            AlarmState.TRIGGERED_FIRE, msg)
+        self._message_handlers = {
+            SatelReadCommand.ZONES_VIOLATED: self._zones_violated,
+            SatelReadCommand.PARTITIONS_ARMED_SUPPRESSED: lambda msg: self._partitions_armed_state(
+                AlarmState.ARMED_SUPPRESSED, msg
+            ),
+            SatelReadCommand.PARTITIONS_ARMED_MODE0: lambda msg: self._partitions_armed_state(
+                AlarmState.ARMED_MODE0, msg
+            ),
+            SatelReadCommand.PARTITIONS_ARMED_MODE2: lambda msg: self._partitions_armed_state(
+                AlarmState.ARMED_MODE2, msg
+            ),
+            SatelReadCommand.PARTITIONS_ARMED_MODE3: lambda msg: self._partitions_armed_state(
+                AlarmState.ARMED_MODE3, msg
+            ),
+            SatelReadCommand.PARTITIONS_ENTRY_TIME: lambda msg: self._partitions_armed_state(
+                AlarmState.ENTRY_TIME, msg
+            ),
+            SatelReadCommand.PARTITIONS_EXIT_COUNTDOWN_OVER_10: lambda msg: self._partitions_armed_state(
+                AlarmState.EXIT_COUNTDOWN_OVER_10, msg
+            ),
+            SatelReadCommand.PARTITIONS_EXIT_COUNTDOWN_UNDER_10: lambda msg: self._partitions_armed_state(
+                AlarmState.EXIT_COUNTDOWN_UNDER_10, msg
+            ),
+            SatelReadCommand.PARTITIONS_ALARM: lambda msg: self._partitions_armed_state(
+                AlarmState.TRIGGERED, msg
+            ),
+            SatelReadCommand.PARTITIONS_FIRE_ALARM: lambda msg: self._partitions_armed_state(
+                AlarmState.TRIGGERED_FIRE, msg
+            ),
+            SatelReadCommand.OUTPUTS_STATE: self._outputs_changed,
+            SatelReadCommand.PARTITIONS_ARMED_MODE1: lambda msg: self._partitions_armed_state(
+                AlarmState.ARMED_MODE1, msg
+            ),
+            SatelReadCommand.RESULT: self._command_result,
+        }
 
     @property
     def connected(self):
@@ -200,8 +211,7 @@ class AsyncSatel:
         if resp[1:2] != b'\xFF':
             _LOGGER.warning("Monitoring not accepted.")
 
-    def _zone_violated(self, msg):
-
+    def _zones_violated(self, msg):
         status = {"zones": {}}
 
         violated_zones = list_set_bits(msg, 32)
@@ -218,7 +228,7 @@ class AsyncSatel:
 
         return status
 
-    def _output_changed(self, msg):
+    def _outputs_changed(self, msg):
         """0x17   outputs state 0x17   + 16/32 bytes"""
 
         status = {"outputs": {}}

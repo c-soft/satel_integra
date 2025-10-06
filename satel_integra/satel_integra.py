@@ -7,6 +7,7 @@ import logging
 from enum import Enum, unique
 
 from satel_integra.commands import SatelReadCommand, SatelWriteCommand
+from satel_integra.connection import SatelConnection
 from satel_integra.utils import encode_bitmask_le
 
 _LOGGER = logging.getLogger(__name__)
@@ -117,11 +118,12 @@ class AlarmState(Enum):
 class AsyncSatel:
     """Asynchronous interface to talk to Satel Integra alarm system."""
 
-    def __init__(self, host, port, loop, monitored_zones=[],
-                 monitored_outputs=[], partitions=[]):
+    def __init__(
+        self, host, port, loop, monitored_zones=[], monitored_outputs=[], partitions=[]
+    ):
         """Init the Satel alarm data."""
-        self._host = host
-        self._port = port
+        self._connection = SatelConnection(host, port)
+
         self._loop = loop
         self._monitored_zones = monitored_zones
         self.violated_zones = []
@@ -130,9 +132,6 @@ class AsyncSatel:
         self.partition_states = {}
         self._keep_alive_timeout = 20
         self._reconnection_timeout = 15
-        self._reader = None
-        self._writer = None
-        self.closed = False
         self._alarm_status_callback = None
         self._zone_changed_callback = None
         self._output_changed_callback = None

@@ -32,7 +32,7 @@ def print_hex(data):
     _LOGGER.debug(hex_msg)
 
 
-def verify_and_strip(resp):
+def verify_and_strip(resp: bytes) -> bytes:
     """Verify checksum and strip header and footer of received frame."""
     if resp[0:2] != b'\xFE\xFE':
         _LOGGER.error("Houston, we got problem:")
@@ -273,24 +273,13 @@ class AsyncSatel:
     #         _LOGGER.warning("Timeout waiting for reponse from Satel!")
     #     return self._command_status
 
-    async def _send_data(self, data):
+    async def _send_data(self, data: bytearray) -> bool:
         _LOGGER.debug("-- Sending data --")
         print_hex(data)
         _LOGGER.debug("-- ------------- --")
         _LOGGER.debug("Sending %d bytes...", len(data))
 
-        if not self._writer:
-            _LOGGER.warning("Ignoring data because we're disconnected!")
-            return
-        try:
-            self._writer.write(data)
-            await self._writer.drain()
-        except Exception as e:
-            _LOGGER.warning(
-                "Exception during sending data: %s.", e)
-            self._writer = None
-            self._reader = None
-            return False
+        return await self._connection.send_frame(data)
 
     async def arm(self, code, partition_list, mode=0):
         """Send arming command to the alarm. Modes allowed: from 0 till 3."""

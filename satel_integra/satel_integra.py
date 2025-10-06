@@ -375,9 +375,11 @@ class AsyncSatel:
             code += 'F'
 
         code_bytes = bytearray.fromhex(code)
-        mode_command = 0x88 if state else 0x89
+        mode_command = (
+            SatelWriteCommand.OUTPUTS_ON if state else SatelWriteCommand.OUTPUTS_OFF
+        )
         data = generate_query(
-            mode_command.to_bytes(1, "big") + code_bytes + output_bytes(output_id)
+            mode_command.to_bytearray() + code_bytes + output_bytes(output_id)
         )
         await self._send_data(data)
 

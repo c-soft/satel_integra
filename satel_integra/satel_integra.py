@@ -370,26 +370,22 @@ class AsyncSatel:
         if self._alarm_status_callback:
             self._alarm_status_callback()
 
-    async def _read_data(self):
-        if not self._reader:
-            return []
+    async def _read_data(self) -> bytes | None:
+        """Read data from the alarm."""
 
-        try:
-            data = await self._reader.readuntil(b'\xFE\x0D')
-            _LOGGER.debug("-- Receiving data --")
-            print_hex(data)
-            _LOGGER.debug("-- ------------- --")
-            return verify_and_strip(data)
+        data = await self._connection.read_frame()
 
-        except Exception as e:
-            _LOGGER.warning(
-                "Got exception: %s. Most likely the other side has "
-                "disconnected!", e)
-            self._writer = None
-            self._reader = None
+        if data is not None:
+            try:
+                return verify_and_strip(data)
 
-            if self._alarm_status_callback:
-                self._alarm_status_callback()
+            except Exception as e:
+                _LOGGER.warning("Failed to verify/strip data: %s", e)
+
+        if self._alarm_status_callback:
+            self._alarm_status_callback()
+
+        return None
 
     async def keep_alive(self):
         """A workaround for Satel Integra disconnecting after 25s.
@@ -414,11 +410,6 @@ class AsyncSatel:
         resp = await self._read_data()
 
         if not resp:
-            _LOGGER.warning("Got empty response. We think it's disconnect.")
-            self._writer = None
-            self._reader = None
-            if self._alarm_status_callback:
-                self._alarm_status_callback()
             return
 
         cmd_byte = resp[0]

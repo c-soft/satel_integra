@@ -12,7 +12,7 @@ class SatelBaseCommand(IntEnum):
         return bytearray(self.value.to_bytes(1, "little"))
 
     def __str__(self) -> str:
-        return self.name
+        return f"{self.name} (0x{self.value:02X})"
 
 
 @unique

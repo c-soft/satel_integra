@@ -31,6 +31,7 @@ class SatelReadCommand(SatelBaseCommand):
     PARTITIONS_FIRE_ALARM = 0x14
     OUTPUTS_STATE = 0x17
     PARTITIONS_ARMED_MODE1 = 0x2A
+    READ_DEVICE_NAME = 0xEE
     RESULT = 0xEF
 
 
@@ -47,3 +48,4 @@ class SatelWriteCommand(SatelBaseCommand):
     PARTITIONS_CLEAR_ALARM = 0x85
     OUTPUTS_ON = 0x88
     OUTPUTS_OFF = 0x89
+    READ_DEVICE_NAME = 0xEE

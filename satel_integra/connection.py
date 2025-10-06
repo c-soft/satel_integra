@@ -88,7 +88,7 @@ class SatelConnection:
             success = await self.connect()
             if not success:
                 _LOGGER.warning(
-                    "Reconnect failed, retrying in %ss...", self._reconnection_timeout
+                    "Connection failed, retrying in %ss...", self._reconnection_timeout
                 )
                 await asyncio.sleep(self._reconnection_timeout)
 

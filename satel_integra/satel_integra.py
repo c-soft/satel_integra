@@ -175,29 +175,6 @@ class AsyncSatel:
             SatelReadCommand.RESULT: self._command_result,
         }
 
-    @property
-    def connected(self):
-        """Return true if there is connection to the alarm."""
-        return self._writer and self._reader
-
-    async def connect(self):
-        """Make a TCP connection to the alarm system."""
-        _LOGGER.debug("Connecting...")
-
-        try:
-            self._reader, self._writer = await asyncio.open_connection(
-                self._host, self._port)
-            _LOGGER.debug("sucess connecting...")
-
-        except Exception as e:
-            _LOGGER.warning(
-                "Exception during connecting: %s.", e)
-            self._writer = None
-            self._reader = None
-            return False
-
-        return True
-
     async def start_monitoring(self):
         """Start monitoring for interesting events."""
 
@@ -493,12 +470,26 @@ class AsyncSatel:
                     break
         _LOGGER.info("Closed, quit monitoring.")
 
-    def close(self):
+    # region Connection management
+    @property
+    def connected(self) -> bool:
+        """Return true if there is connection to the alarm."""
+        return self._connection.connected
+
+    @property
+    def closed(self) -> bool:
+        """Return true if connection is closed."""
+        return self._connection.closed
+
+    async def connect(self) -> bool:
+        """Make a TCP connection to the alarm system."""
+        return await self._connection.connect()
+
+    async def close(self):
         """Stop monitoring and close connection."""
-        _LOGGER.debug("Closing...")
-        self.closed = True
-        if self.connected:
-            self._writer.close()
+        return await self._connection.close()
+
+    # endregion
 
 
 def demo(host, port):

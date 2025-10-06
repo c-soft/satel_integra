@@ -429,25 +429,13 @@ class AsyncSatel:
         _LOGGER.info("Starting monitor_status loop")
 
         while not self.closed:
-            _LOGGER.debug("Iteration... ")
-            while not self.connected:
-                _LOGGER.info("Not connected, re-connecting... ")
-                await self.connect()
-                if not self.connected:
-                    _LOGGER.warning("Not connected, sleeping for 10s... ")
-                    await asyncio.sleep(self._reconnection_timeout)
-                    continue
+            await self._connection.ensure_connected()
+
             await self.start_monitoring()
-            if not self.connected:
-                _LOGGER.warning("Start monitoring failed, sleeping for 10s...")
-                await asyncio.sleep(self._reconnection_timeout)
-                continue
-            while True:
+
+            while self.connected and not self.closed:
                 await self._update_status()
                 _LOGGER.debug("Got status!")
-                if not self.connected:
-                    _LOGGER.info("Got connection broken, reconnecting!")
-                    break
         _LOGGER.info("Closed, quit monitoring.")
 
     # region Connection management

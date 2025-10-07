@@ -1,0 +1,26 @@
+name: CI
+
+on:
+    push:
+        branches: [master]
+    pull_request:
+        branches: [master]
+
+jobs:
+    tests:
+        runs-on: ubuntu-latest
+
+        steps:
+            - uses: actions/checkout@v5.0.0
+            - name: Set up Python 3.13
+              uses: actions/setup-python@v6.0.0
+              with:
+                  python-version: 3.13
+                  cache: "pip"
+            - name: Install dependencies
+              run: |
+                  pip install -e .
+                  pip install -r requirements_tests.txt
+            - name: Execute tests
+              run: |
+                  pytest --timeout=10 tests

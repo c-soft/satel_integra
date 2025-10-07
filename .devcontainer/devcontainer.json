@@ -13,6 +13,7 @@
                 "charliermarsh.ruff",
                 "esbenp.prettier-vscode",
                 "ms-python.python",
+                "ms-python.debugpy",
                 "ms-python.vscode-pylance",
                 "visualstudioexptteam.vscodeintellicode"
             ],
@@ -36,7 +37,11 @@
                 "python.linting.pydocstylePath": "/usr/local/bin/pydocstyle",
                 "[python]": {
                     "editor.defaultFormatter": "charliermarsh.ruff"
-                }
+                },
+                "python.testing.pytestEnabled": true,
+                "python.testing.unittestEnabled": false,
+                "python.testing.autoTestDiscoverOnSaveEnabled": true,
+                "python.testing.pytestArgs": ["tests"]
             }
         }
     }

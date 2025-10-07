@@ -1,7 +1,0 @@
-mypy==1.18.2
-pre-commit==3.4.0
-pydocstyle==6.3.0
-pylint==3.3.8
-pytest==8.4.2
-pytest-asyncio==1.2.0
-pytest-timeout==1.2.0

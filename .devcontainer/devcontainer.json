@@ -4,8 +4,7 @@
         "dockerfile": "Dockerfile",
         "context": ".."
     },
-    "postCreateCommand": "pip install -r requirements_tests.txt && pre-commit install",
-    "postStartCommand": "pip install -r requirements_tests.txt && pip install -e .",
+    "postCreateCommand": "pip install -e .[dev] && pre-commit install",
     "runArgs": ["-e", "GIT_EDITOR=code --wait"],
     "customizations": {
         "vscode": {

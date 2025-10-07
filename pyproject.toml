@@ -29,5 +29,5 @@ optional-dependencies= []
 
 
 [project.urls]
-Repository=https://github.com/c-soft/satel_integra
-Changelog=https://github.com/c-soft/satel_integra/blob/master/HISTORY.rst
+Repository="https://github.com/c-soft/satel_integra"
+Changelog="https://github.com/c-soft/satel_integra/blob/master/HISTORY.rst"

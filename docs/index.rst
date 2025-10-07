@@ -10,7 +10,6 @@ Contents:
    installation
    usage
    modules
-   authors
 
 Indices and tables
 ==================

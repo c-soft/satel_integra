@@ -29,3 +29,7 @@ dependencies = []
 [project.urls]
 Repository="https://github.com/c-soft/satel_integra"
 Changelog="https://github.com/c-soft/satel_integra/blob/master/HISTORY.rst"
+
+[tool.pytest.ini_options]
+timeout = 10
+addopts = "--cov --cov-report html"

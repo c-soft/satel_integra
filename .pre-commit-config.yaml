@@ -1,0 +1,50 @@
+repos:
+    - repo: https://github.com/astral-sh/ruff-pre-commit
+      rev: v0.13.3
+      hooks:
+          - id: ruff-check
+            args:
+                - --fix
+                - --unsafe-fixes
+          - id: ruff-format
+    - repo: https://github.com/asottile/pyupgrade
+      rev: v3.20.0
+      hooks:
+          - id: pyupgrade
+            args:
+                - --py310-plus
+    - repo: https://github.com/codespell-project/codespell
+      rev: v2.4.1
+      hooks:
+          - id: codespell
+            args:
+                - --skip="./.*,*.csv,*.json"
+                - --quiet-level=2
+            exclude_types:
+                - csv
+                - json
+    - repo: https://github.com/pre-commit/pre-commit-hooks
+      rev: v6.0.0
+      hooks:
+          - id: check-executables-have-shebangs
+          - id: check-merge-conflict
+          - id: detect-private-key
+          - id: no-commit-to-branch
+            args: [--branch, master]
+          - id: requirements-txt-fixer
+
+    # - repo: local
+    #   hooks:
+    # - id: mypy
+    #   name: Check with mypy
+    #   entry: scripts/run-in-env.sh mypy
+    #   language: script
+    #   types:
+    #     - python
+
+    # - id: pylint
+    #   name: Check with pylint
+    #   entry: scripts/run-in-env.sh pylint
+    #   language: script
+    #   types:
+    #     - python

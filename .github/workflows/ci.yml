@@ -24,3 +24,24 @@ jobs:
             - name: Execute tests
               run: |
                   pytest --timeout=10 tests
+
+    pre-commit:
+        runs-on: ubuntu-latest
+
+        steps:
+            - uses: actions/checkout@v5.0.0
+            - name: Set up Python 3.13
+              uses: actions/setup-python@v6.0.0
+              with:
+                  python-version: 3.13
+            - name: Restore pre-commit cache
+              uses: actions/cache@v4.3.0
+              with:
+                  path: ~/.cache/pre-commit
+                  key: pre-commit-${{ hashFiles('.pre-commit-config.yaml') }}
+            - name: Install dependencies
+              run: |
+                  pip install -e .
+                  pip install -r requirements_tests.txt
+            - name: Run pre-commit checks
+              run: SKIP=no-commit-to-branch pre-commit run --all-files

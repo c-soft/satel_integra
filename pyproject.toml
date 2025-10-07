@@ -24,7 +24,6 @@ classifiers = [
 ]
 requires-python = ">=3.11"
 dependencies = []
-optional-dependencies= []
 
 
 [project.urls]

@@ -8,6 +8,7 @@ from enum import Enum, unique
 
 from satel_integra.commands import SatelReadCommand, SatelWriteCommand
 from satel_integra.connection import SatelConnection
+from satel_integra.messages import SatelWriteMessage
 from satel_integra.utils import encode_bitmask_le
 
 _LOGGER = logging.getLogger(__name__)
@@ -196,12 +197,12 @@ class AsyncSatel:
             [cmd.value + 1 for cmd in monitored_commands], 12
         )
 
-        data = generate_query(
-            SatelWriteCommand.START_MONITORING.to_bytearray()
-            + monitored_commands_bitmask
+        msg = SatelWriteMessage(
+            SatelWriteCommand.START_MONITORING,
+            raw_data=bytearray(monitored_commands_bitmask),
         )
 
-        await self._send_data(data)
+        await self._send_data(msg)
         resp = await self._read_data()
 
         if resp is None:
@@ -272,81 +273,6 @@ class AsyncSatel:
     #         _LOGGER.warning("Timeout waiting for reponse from Satel!")
     #     return self._command_status
 
-    async def _send_data(self, data: bytearray) -> bool:
-        _LOGGER.debug("-- Sending data --")
-        print_hex(data)
-        _LOGGER.debug("-- ------------- --")
-        _LOGGER.debug("Sending %d bytes...", len(data))
-
-        return await self._connection.send_frame(data)
-
-    async def arm(self, code, partition_list, mode=0):
-        """Send arming command to the alarm. Modes allowed: from 0 till 3."""
-        _LOGGER.debug("Sending arm command, mode: %s!", mode)
-        while len(code) < 16:
-            code += 'F'
-
-        code_bytes = bytearray.fromhex(code)
-        mode_command = SatelWriteCommand(SatelWriteCommand.PARTITIONS_ARM_MODE_0 + mode)
-
-        data = generate_query(
-            mode_command.to_bytearray() + code_bytes + partition_bytes(partition_list)
-        )
-
-        await self._send_data(data)
-
-    async def disarm(self, code, partition_list):
-        """Send command to disarm."""
-        _LOGGER.info("Sending disarm command.")
-        while len(code) < 16:
-            code += 'F'
-
-        code_bytes = bytearray.fromhex(code)
-
-        data = generate_query(
-            SatelWriteCommand.PARTITIONS_DISARM.to_bytearray()
-            + code_bytes
-            + partition_bytes(partition_list),
-        )
-
-        await self._send_data(data)
-
-    async def clear_alarm(self, code, partition_list):
-        """Send command to clear the alarm."""
-        _LOGGER.info("Sending clear the alarm command.")
-        while len(code) < 16:
-            code += 'F'
-
-        code_bytes = bytearray.fromhex(code)
-
-        data = generate_query(
-            SatelWriteCommand.PARTITIONS_CLEAR_ALARM.to_bytearray()
-            + code_bytes
-            + partition_bytes(partition_list)
-        )
-
-        await self._send_data(data)
-
-    async def set_output(self, code, output_id, state):
-        """Send output turn on command to the alarm."""
-        """0x88   outputs on
-              + 8 bytes - user code
-              + 16/32 bytes - output list
-              If function is accepted, function result can be
-              checked by observe the system state """
-        _LOGGER.debug("Turn on, output: %s, code: %s", output_id, code)
-        while len(code) < 16:
-            code += 'F'
-
-        code_bytes = bytearray.fromhex(code)
-        mode_command = (
-            SatelWriteCommand.OUTPUTS_ON if state else SatelWriteCommand.OUTPUTS_OFF
-        )
-        data = generate_query(
-            mode_command.to_bytearray() + code_bytes + output_bytes(output_id)
-        )
-        await self._send_data(data)
-
     def _partitions_armed_state(self, mode, msg):
         partitions = list_set_bits(msg, 4)
 
@@ -386,9 +312,8 @@ class AsyncSatel:
             if self.closed:
                 return
             # Command to read status of the alarm
-            data = generate_query(
-                SatelWriteCommand.READ_DEVICE_NAME.to_bytearray()
-                + bytearray([0x01, 0x01])
+            data = SatelWriteMessage(
+                SatelWriteCommand.READ_DEVICE_NAME, raw_data=bytearray([0x01, 0x01])
             )
             await self._send_data(data)
 
@@ -436,6 +361,66 @@ class AsyncSatel:
                 await self._update_status()
                 _LOGGER.debug("Got status!")
         _LOGGER.info("Closed, quit monitoring.")
+
+    # region Write Actions
+    async def arm(self, code, partition_list, mode=0):
+        """Send arming command to the alarm. Modes allowed: from 0 till 3."""
+        _LOGGER.debug("Sending arm command, mode: %s!", mode)
+
+        mode_command = SatelWriteCommand(SatelWriteCommand.PARTITIONS_ARM_MODE_0 + mode)
+
+        msg = SatelWriteMessage(mode_command, code=code, partitions=partition_list)
+
+        await self._send_data(msg)
+
+    async def disarm(self, code, partition_list):
+        """Send command to disarm."""
+        _LOGGER.info("Sending disarm command.")
+
+        msg = SatelWriteMessage(
+            SatelWriteCommand.PARTITIONS_DISARM, code=code, partitions=partition_list
+        )
+
+        await self._send_data(msg)
+
+    async def clear_alarm(self, code, partition_list):
+        """Send command to clear the alarm."""
+        _LOGGER.info("Sending clear the alarm command.")
+
+        msg = SatelWriteMessage(
+            SatelWriteCommand.PARTITIONS_CLEAR_ALARM,
+            code=code,
+            partitions=partition_list,
+        )
+
+        await self._send_data(msg)
+
+    async def set_output(self, code, output_id, state):
+        """Send output turn on command to the alarm."""
+        """0x88   outputs on
+                  + 8 bytes - user code
+                  + 16/32 bytes - output list
+                  If function is accepted, function result can be
+                  checked by observe the system state """
+        _LOGGER.debug("Turn on, output: %s, code: %s", output_id, code)
+
+        mode_command = (
+            SatelWriteCommand.OUTPUTS_ON if state else SatelWriteCommand.OUTPUTS_OFF
+        )
+        msg = SatelWriteMessage(mode_command, code=code, zones_or_outputs=[output_id])
+        await self._send_data(msg)
+
+    # endregion
+
+    # region Data management
+    async def _send_data(self, msg: SatelWriteMessage) -> bool:
+        """Send message to the alarm."""
+        _LOGGER.debug("Sending command: %s", msg)
+        data = msg.encode_frame()
+
+        return await self._connection.send_frame(data)
+
+    # endregion
 
     # region Connection management
     @property

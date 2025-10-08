@@ -5,10 +5,11 @@
 import asyncio
 import logging
 from enum import Enum, unique
+from typing import Callable
 
 from satel_integra.commands import SatelReadCommand, SatelWriteCommand
 from satel_integra.connection import SatelConnection
-from satel_integra.messages import SatelWriteMessage
+from satel_integra.messages import SatelReadMessage, SatelWriteMessage
 from satel_integra.utils import encode_bitmask_le
 
 _LOGGER = logging.getLogger(__name__)
@@ -139,7 +140,9 @@ class AsyncSatel:
         self._command_status_event = asyncio.Event()
         self._command_status = False
 
-        self._message_handlers = {
+        self._message_handlers: dict[
+            SatelReadCommand, Callable[[SatelReadMessage], None]
+        ] = {
             SatelReadCommand.ZONES_VIOLATED: self._zones_violated,
             SatelReadCommand.PARTITIONS_ARMED_SUPPRESSED: lambda msg: self._partitions_armed_state(
                 AlarmState.ARMED_SUPPRESSED, msg
@@ -209,59 +212,55 @@ class AsyncSatel:
             _LOGGER.warning("Start monitoring - no data!")
             return
 
-        if resp[1:2] != b'\xFF':
+        if resp.msg_data != b"\xff":
             _LOGGER.warning("Monitoring not accepted.")
 
-    def _zones_violated(self, msg):
+    def _zones_violated(self, msg: SatelReadMessage):
         status = {"zones": {}}
 
-        violated_zones = list_set_bits(msg, 32)
+        violated_zones = msg.get_active_bits(32)
         self.violated_zones = violated_zones
         _LOGGER.debug("Violated zones: %s", violated_zones)
         for zone in self._monitored_zones:
-            status["zones"][zone] = \
-                1 if zone in violated_zones else 0
+            status["zones"][zone] = 1 if zone in violated_zones else 0
 
         _LOGGER.debug("Returning status: %s", status)
 
         if self._zone_changed_callback:
             self._zone_changed_callback(status)
 
-        return status
-
-    def _outputs_changed(self, msg):
+    def _outputs_changed(self, msg: SatelReadMessage):
         """0x17   outputs state 0x17   + 16/32 bytes"""
 
         status = {"outputs": {}}
 
-        output_states = list_set_bits(msg, 32)
+        output_states = msg.get_active_bits(32)
         self.violated_outputs = output_states
-        _LOGGER.debug("Output states: %s, monitored outputs: %s",
-                      output_states, self._monitored_outputs)
+        _LOGGER.debug(
+            "Output states: %s, monitored outputs: %s",
+            output_states,
+            self._monitored_outputs,
+        )
         for output in self._monitored_outputs:
-            status["outputs"][output] = \
-                1 if output in output_states else 0
+            status["outputs"][output] = 1 if output in output_states else 0
 
         _LOGGER.debug("Returning status: %s", status)
 
         if self._output_changed_callback:
             self._output_changed_callback(status)
 
-        return status
-
-    def _command_result(self, msg):
+    def _command_result(self, msg: SatelReadMessage):
         status = {"error": "Some problem!"}
-        error_code = msg[1:2]
+        error_code = msg.msg_data[0]
 
-        if error_code in [b'\x00', b'\xFF']:
+        if error_code in [b"\x00", b"\xff"]:
             status = {"error": "OK"}
-        elif error_code == b'\x01':
+        elif error_code == b"\x01":
             status = {"error": "User code not found"}
 
         _LOGGER.debug("Received error status: %s", status)
         self._command_status = status
         self._command_status_event.set()
-        return status
 
     # async def send_and_wait_for_answer(self, data):
     #     """Send given data and wait for confirmation from Satel"""
@@ -273,33 +272,15 @@ class AsyncSatel:
     #         _LOGGER.warning("Timeout waiting for reponse from Satel!")
     #     return self._command_status
 
-    def _partitions_armed_state(self, mode, msg):
-        partitions = list_set_bits(msg, 4)
+    def _partitions_armed_state(self, mode: AlarmState, msg: SatelReadMessage):
+        partitions = msg.get_active_bits(4)
 
-        _LOGGER.debug("Update: list of partitions in mode %s: %s",
-                      mode, partitions)
+        _LOGGER.debug("Update: list of partitions in mode %s: %s", mode, partitions)
 
         self.partition_states[mode] = partitions
 
         if self._alarm_status_callback:
             self._alarm_status_callback()
-
-    async def _read_data(self) -> bytes | None:
-        """Read data from the alarm."""
-
-        data = await self._connection.read_frame()
-
-        if data is not None:
-            try:
-                return verify_and_strip(data)
-
-            except Exception as e:
-                _LOGGER.warning("Failed to verify/strip data: %s", e)
-
-        if self._alarm_status_callback:
-            self._alarm_status_callback()
-
-        return None
 
     async def keep_alive(self):
         """A workaround for Satel Integra disconnecting after 25s.
@@ -320,23 +301,16 @@ class AsyncSatel:
     async def _update_status(self):
         _LOGGER.debug("Wait...")
 
-        resp = await self._read_data()
+        msg = await self._read_data()
 
-        if not resp:
+        if not msg:
             return
 
-        cmd_byte = resp[0]
-
-        try:
-            cmd = SatelReadCommand(cmd_byte)
-            if cmd in self._message_handlers:
-                _LOGGER.info("Calling handler for id: %s", cmd)
-                self._message_handlers[cmd](resp)
-
-            else:
-                _LOGGER.info("Ignoring message: %s", cmd)
-        except ValueError:
-            _LOGGER.warning("Unknown command byte: %s", hex(cmd_byte))
+        if msg.cmd in self._message_handlers:
+            _LOGGER.info("Calling handler for command: %s", msg.cmd)
+            self._message_handlers[msg.cmd](msg)
+        else:
+            _LOGGER.debug("No handler for command: %s", msg.cmd)
 
     async def monitor_status(self, alarm_status_callback=None,
                              zone_changed_callback=None,
@@ -419,6 +393,27 @@ class AsyncSatel:
         data = msg.encode_frame()
 
         return await self._connection.send_frame(data)
+
+    async def _read_data(self) -> SatelReadMessage | None:
+        """Read data from the alarm."""
+
+        try:
+            data = await self._connection.read_frame()
+
+            if not data:
+                return None
+
+            msg = SatelReadMessage.decode_frame(data)
+            _LOGGER.debug("Received command: %s", msg)
+            return msg
+
+        except Exception as e:
+            _LOGGER.exception("Error reading data: %s", e)
+            return None
+
+        finally:
+            if self._alarm_status_callback:
+                self._alarm_status_callback()
 
     # endregion
 

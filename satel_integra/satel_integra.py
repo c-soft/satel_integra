@@ -6,6 +6,9 @@ import asyncio
 import logging
 from enum import Enum, unique
 
+from satel_integra.commands import SatelReadCommand, SatelWriteCommand
+from satel_integra.utils import encode_bitmask_le
+
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -120,7 +123,6 @@ class AsyncSatel:
         self._host = host
         self._port = port
         self._loop = loop
-        self._message_handlers = {}
         self._monitored_zones = monitored_zones
         self.violated_zones = []
         self._monitored_outputs = monitored_outputs
@@ -138,29 +140,41 @@ class AsyncSatel:
         self._command_status_event = asyncio.Event()
         self._command_status = False
 
-        self._message_handlers[b'\x00'] = self._zone_violated
-        self._message_handlers[b'\x17'] = self._output_changed
-        self._message_handlers[b'\x0A'] = lambda msg: self._armed(
-            AlarmState.ARMED_MODE0, msg)
-        self._message_handlers[b'\x2A'] = lambda msg: self._armed(
-            AlarmState.ARMED_MODE1, msg)
-        self._message_handlers[b'\x0B'] = lambda msg: self._armed(
-            AlarmState.ARMED_MODE2, msg)
-        self._message_handlers[b'\x0C'] = lambda msg: self._armed(
-            AlarmState.ARMED_MODE3, msg)
-        self._message_handlers[b'\x09'] = lambda msg: self._armed(
-            AlarmState.ARMED_SUPPRESSED, msg)
-        self._message_handlers[b'\x0E'] = lambda msg: self._armed(
-            AlarmState.ENTRY_TIME, msg)
-        self._message_handlers[b'\x0F'] = lambda msg: self._armed(
-            AlarmState.EXIT_COUNTDOWN_OVER_10, msg)
-        self._message_handlers[b'\x10'] = lambda msg: self._armed(
-            AlarmState.EXIT_COUNTDOWN_UNDER_10, msg)
-        self._message_handlers[b'\xEF'] = lambda msg: self._command_result(msg)
-        self._message_handlers[b'\x13'] = lambda msg: self._armed(
-            AlarmState.TRIGGERED, msg)
-        self._message_handlers[b'\x14'] = lambda msg: self._armed(
-            AlarmState.TRIGGERED_FIRE, msg)
+        self._message_handlers = {
+            SatelReadCommand.ZONES_VIOLATED: self._zones_violated,
+            SatelReadCommand.PARTITIONS_ARMED_SUPPRESSED: lambda msg: self._partitions_armed_state(
+                AlarmState.ARMED_SUPPRESSED, msg
+            ),
+            SatelReadCommand.PARTITIONS_ARMED_MODE0: lambda msg: self._partitions_armed_state(
+                AlarmState.ARMED_MODE0, msg
+            ),
+            SatelReadCommand.PARTITIONS_ARMED_MODE2: lambda msg: self._partitions_armed_state(
+                AlarmState.ARMED_MODE2, msg
+            ),
+            SatelReadCommand.PARTITIONS_ARMED_MODE3: lambda msg: self._partitions_armed_state(
+                AlarmState.ARMED_MODE3, msg
+            ),
+            SatelReadCommand.PARTITIONS_ENTRY_TIME: lambda msg: self._partitions_armed_state(
+                AlarmState.ENTRY_TIME, msg
+            ),
+            SatelReadCommand.PARTITIONS_EXIT_COUNTDOWN_OVER_10: lambda msg: self._partitions_armed_state(
+                AlarmState.EXIT_COUNTDOWN_OVER_10, msg
+            ),
+            SatelReadCommand.PARTITIONS_EXIT_COUNTDOWN_UNDER_10: lambda msg: self._partitions_armed_state(
+                AlarmState.EXIT_COUNTDOWN_UNDER_10, msg
+            ),
+            SatelReadCommand.PARTITIONS_ALARM: lambda msg: self._partitions_armed_state(
+                AlarmState.TRIGGERED, msg
+            ),
+            SatelReadCommand.PARTITIONS_FIRE_ALARM: lambda msg: self._partitions_armed_state(
+                AlarmState.TRIGGERED_FIRE, msg
+            ),
+            SatelReadCommand.OUTPUTS_STATE: self._outputs_changed,
+            SatelReadCommand.PARTITIONS_ARMED_MODE1: lambda msg: self._partitions_armed_state(
+                AlarmState.ARMED_MODE1, msg
+            ),
+            SatelReadCommand.RESULT: self._command_result,
+        }
 
     @property
     def connected(self):
@@ -187,8 +201,30 @@ class AsyncSatel:
 
     async def start_monitoring(self):
         """Start monitoring for interesting events."""
+
+        monitored_commands = [
+            SatelReadCommand.ZONES_VIOLATED,
+            SatelReadCommand.PARTITIONS_ARMED_MODE0,
+            SatelReadCommand.PARTITIONS_ARMED_MODE1,
+            SatelReadCommand.PARTITIONS_ARMED_MODE2,
+            SatelReadCommand.PARTITIONS_ARMED_MODE3,
+            SatelReadCommand.PARTITIONS_ARMED_SUPPRESSED,
+            SatelReadCommand.PARTITIONS_ENTRY_TIME,
+            SatelReadCommand.PARTITIONS_EXIT_COUNTDOWN_OVER_10,
+            SatelReadCommand.PARTITIONS_EXIT_COUNTDOWN_UNDER_10,
+            SatelReadCommand.PARTITIONS_ALARM,
+            SatelReadCommand.PARTITIONS_FIRE_ALARM,
+            SatelReadCommand.OUTPUTS_STATE,
+        ]
+
+        monitored_commands_bitmask = encode_bitmask_le(
+            [cmd.value + 1 for cmd in monitored_commands], 12
+        )
+
         data = generate_query(
-            b'\x7F\x01\xDC\x99\x80\x00\x04\x00\x00\x00\x00\x00\x00')
+            SatelWriteCommand.START_MONITORING.to_bytearray()
+            + monitored_commands_bitmask
+        )
 
         await self._send_data(data)
         resp = await self._read_data()
@@ -200,8 +236,7 @@ class AsyncSatel:
         if resp[1:2] != b'\xFF':
             _LOGGER.warning("Monitoring not accepted.")
 
-    def _zone_violated(self, msg):
-
+    def _zones_violated(self, msg):
         status = {"zones": {}}
 
         violated_zones = list_set_bits(msg, 32)
@@ -218,7 +253,7 @@ class AsyncSatel:
 
         return status
 
-    def _output_changed(self, msg):
+    def _outputs_changed(self, msg):
         """0x17   outputs state 0x17   + 16/32 bytes"""
 
         status = {"outputs": {}}
@@ -288,10 +323,11 @@ class AsyncSatel:
             code += 'F'
 
         code_bytes = bytearray.fromhex(code)
-        mode_command = 0x80 + mode
-        data = generate_query(mode_command.to_bytes(1, 'big')
-                              + code_bytes
-                              + partition_bytes(partition_list))
+        mode_command = SatelWriteCommand(SatelWriteCommand.PARTITIONS_ARM_MODE_0 + mode)
+
+        data = generate_query(
+            mode_command.to_bytearray() + code_bytes + partition_bytes(partition_list)
+        )
 
         await self._send_data(data)
 
@@ -303,8 +339,11 @@ class AsyncSatel:
 
         code_bytes = bytearray.fromhex(code)
 
-        data = generate_query(b'\x84' + code_bytes
-                              + partition_bytes(partition_list))
+        data = generate_query(
+            SatelWriteCommand.PARTITIONS_DISARM.to_bytearray()
+            + code_bytes
+            + partition_bytes(partition_list),
+        )
 
         await self._send_data(data)
 
@@ -316,8 +355,11 @@ class AsyncSatel:
 
         code_bytes = bytearray.fromhex(code)
 
-        data = generate_query(b'\x85' + code_bytes
-                              + partition_bytes(partition_list))
+        data = generate_query(
+            SatelWriteCommand.PARTITIONS_CLEAR_ALARM.to_bytearray()
+            + code_bytes
+            + partition_bytes(partition_list)
+        )
 
         await self._send_data(data)
 
@@ -333,13 +375,15 @@ class AsyncSatel:
             code += 'F'
 
         code_bytes = bytearray.fromhex(code)
-        mode_command = 0x88 if state else 0x89
-        data = generate_query(mode_command.to_bytes(1, 'big') +
-                              code_bytes +
-                              output_bytes(output_id))
+        mode_command = (
+            SatelWriteCommand.OUTPUTS_ON if state else SatelWriteCommand.OUTPUTS_OFF
+        )
+        data = generate_query(
+            mode_command.to_bytearray() + code_bytes + output_bytes(output_id)
+        )
         await self._send_data(data)
 
-    def _armed(self, mode, msg):
+    def _partitions_armed_state(self, mode, msg):
         partitions = list_set_bits(msg, 4)
 
         _LOGGER.debug("Update: list of partitions in mode %s: %s",
@@ -382,7 +426,10 @@ class AsyncSatel:
             if self.closed:
                 return
             # Command to read status of the alarm
-            data = generate_query(b'\xEE\x01\x01')
+            data = generate_query(
+                SatelWriteCommand.READ_DEVICE_NAME.to_bytearray()
+                + bytearray([0x01, 0x01])
+            )
             await self._send_data(data)
 
     async def _update_status(self):
@@ -398,13 +445,18 @@ class AsyncSatel:
                 self._alarm_status_callback()
             return
 
-        msg_id = resp[0:1]
-        str_msg_id = ''.join(format(x, '02x') for x in msg_id)
-        if msg_id in self._message_handlers:
-            _LOGGER.info("Calling handler for id: 0x%s", str_msg_id)
-            self._message_handlers[msg_id](resp)
-        else:
-            _LOGGER.info("Ignoring message: 0x%s", str_msg_id)
+        cmd_byte = resp[0]
+
+        try:
+            cmd = SatelReadCommand(cmd_byte)
+            if cmd in self._message_handlers:
+                _LOGGER.info("Calling handler for id: %s", cmd)
+                self._message_handlers[cmd](resp)
+
+            else:
+                _LOGGER.info("Ignoring message: %s", cmd)
+        except ValueError:
+            _LOGGER.warning("Unknown command byte: %s", hex(cmd_byte))
 
     async def monitor_status(self, alarm_status_callback=None,
                              zone_changed_callback=None,

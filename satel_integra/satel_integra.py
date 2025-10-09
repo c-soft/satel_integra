@@ -131,7 +131,6 @@ class AsyncSatel:
         self.violated_outputs = []
         self.partition_states = {}
         self._keep_alive_timeout = 20
-        self._reconnection_timeout = 15
         self._alarm_status_callback = None
         self._zone_changed_callback = None
         self._output_changed_callback = None

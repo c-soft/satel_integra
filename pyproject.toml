@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "satel_integra"
+version = "0.0.0"
+description = "Communication library and basic testing tool for Satel Integra alarm system. Communication via TCP/IP protocol published by SATEL."
+readme = "README.rst"
+keywords = ["satel", "integra", "satel_integra", "alarm", "security"]
+authors = [
+  { name = "Krzysztof Machelski", email = "krzysztof.machelski+pypi@gmail.com" },
+  { name = "Tom Matheussen", email = "13683094+Tommatheussen@users.noreply.github.com" }
+]
+license-files = ["LICENSE"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Topic :: Security",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+]
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+  "mypy==1.18.2",
+  "pre-commit==3.4.0",
+  "pydocstyle==6.3.0",
+  "pylint==3.3.8",
+  "pytest==8.4.2",
+  "pytest-asyncio==1.2.0",
+  "pytest-cov==7.0.0",
+  "pytest-timeout==2.4.0",
+]
+
+
+[project.urls]
+Repository="https://github.com/c-soft/satel_integra"
+Changelog="https://github.com/c-soft/satel_integra/blob/master/CHANGELOG.md"
+
+[tool.pytest.ini_options]
+timeout = 10
+addopts = "--cov --cov-report html"

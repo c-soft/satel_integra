@@ -1,0 +1,47 @@
+{
+    "name": "Satel Integra Dev",
+    "build": {
+        "dockerfile": "Dockerfile",
+        "context": ".."
+    },
+    "postCreateCommand": "pip install -e .[dev] && pre-commit install",
+    "runArgs": ["-e", "GIT_EDITOR=code --wait"],
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "charliermarsh.ruff",
+                "esbenp.prettier-vscode",
+                "ms-python.python",
+                "ms-python.debugpy",
+                "ms-python.vscode-pylance",
+                "visualstudioexptteam.vscodeintellicode"
+            ],
+            "settings": {
+                "terminal.integrated.profiles.linux": {
+                    "zsh": {
+                        "path": "/usr/bin/zsh"
+                    }
+                },
+                "terminal.integrated.defaultProfile.linux": "zsh",
+                "editor.formatOnPaste": false,
+                "editor.formatOnSave": true,
+                "editor.formatOnType": true,
+                "files.trimTrailingWhitespace": true,
+                "python.pythonPath": "/usr/local/bin/python3",
+                "python.linting.pylintEnabled": true,
+                "python.linting.enabled": true,
+                "python.formatting.provider": "ruff",
+                "python.linting.mypyPath": "/usr/local/bin/mypy",
+                "python.linting.pylintPath": "/usr/local/bin/pylint",
+                "python.linting.pydocstylePath": "/usr/local/bin/pydocstyle",
+                "[python]": {
+                    "editor.defaultFormatter": "charliermarsh.ruff"
+                },
+                "python.testing.pytestEnabled": true,
+                "python.testing.unittestEnabled": false,
+                "python.testing.autoTestDiscoverOnSaveEnabled": true,
+                "python.testing.pytestArgs": ["tests"]
+            }
+        }
+    }
+}

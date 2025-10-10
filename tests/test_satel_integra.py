@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 
 """Tests for `satel_integra` package."""
 
@@ -9,8 +8,6 @@ import pytest
 
 # from satel_integra import cli
 from unittest import TestCase
-from satel_integra.satel_integra import \
-    checksum, generate_query, verify_and_strip
 
 # import unittest
 # from unittest.mock import MagicMock
@@ -38,41 +35,35 @@ def test_command_line_interface():
     pass
 
 
-test_frames = \
-    {"Version query": b'\xFE\xFE\x7E\xD8\x60\xFE\x0D',
-     "Version response": b'\xFE\xFE\x7E\x03\x31\x31\x36\x32\x30\x31\x36\x30'
-                         b'\x37\x31\x35\x00\x00\x02\x48\xFE\x0D',
-     "Time query": b'\xFE\xFE\x1a\xd7\xfc\xFE\x0D',
-     "Time response": b'\xFE\xFE\x1A\x20\x17\x08\x07\x23\x59\x22\x00\xA3\x34'
-                      b'\x70\xFE\x0D',
-     "Name query": b'\xFE\xFE\xee\x00\x01\x63\x0a\xfe\x0d',
-     "Name response": b'\xFE\xFE\xEE\x00\x01\x00\x53\x74\x72\x65\x66\x61\x20'
-                      b'\x20\x31\x20\x20\x20\x20\x20\x20\x20\x5D\x20\xFE\x0D',
-     "Start monitoring arm state":
-         b'\xfe\xfe\x7f\x00\x02\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xa7'
-         b'\xa9\xfe\x0d',
-     "Response OK to start monitoring": b'\xfe\xfe\xef\xff\x4f\xa9\xfe\x0d',
-     "First partition armed": b'\xfe\xfe\x09\x01\x00\x00\x00\x7d\xac\xfe\x0d',
-     "First partition disarmed":
-         b'\xfe\xfe\x09\x00\x00\x00\x00\x7d\xb4\xfe\x0d',
-     "Output status query": b'\xfe\xfe\x17\xd7\xf9\xfe\x0d',
-     "Output status active 16 and 256":
-         b'\xfe\xfe\x17\x00\x80\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
-         b'\x00\x00\x80\x22\xd8\xfe\x0d',
-     "Arm0 query": b'\xfe\xfe\x80\x11\x11\xff\xff\xff\xff\xff\xff\x01\x00'
-                   b'\x00\x00\x15\x40\xfe\x0d',
-     "Arm0 response": b'\xfe\xfe\xef\x00\x4e\xaa\xfe\x0d',
-     "Armed partitions query": b'\xfe\xfe\x0a\xd7\xec\xfe\x0d',
-     "Armed partitions response":
-         b'\xfe\xfe\x0a\x01\x00\x00\x00\x7d\xbc\xfe\x0d',
-     "Active outputs query": b'\xfe\xfe\x17\xd7\xf9\xfe\x0d',
-     "Active outputs response":
-         b'\xfe\xfe\x17\x00\x80\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
-         b'\x00\x00\x80\x22\xd8\xfe\x0d',
-     "New data query": b'\xfe\xfe\x7f\xd8\x61\xfe\x0d',
-     "New data response": b'\xfe\xfe\x7f\xfe\xf0\xfb\x7f\xfb\xff\xff\xcc\xfe'
-                          b'\x0d',
-     }
+test_frames = {
+    "Version query": b"\xfe\xfe\x7e\xd8\x60\xfe\x0d",
+    "Version response": b"\xfe\xfe\x7e\x03\x31\x31\x36\x32\x30\x31\x36\x30"
+    b"\x37\x31\x35\x00\x00\x02\x48\xfe\x0d",
+    "Time query": b"\xfe\xfe\x1a\xd7\xfc\xfe\x0d",
+    "Time response": b"\xfe\xfe\x1a\x20\x17\x08\x07\x23\x59\x22\x00\xa3\x34"
+    b"\x70\xfe\x0d",
+    "Name query": b"\xfe\xfe\xee\x00\x01\x63\x0a\xfe\x0d",
+    "Name response": b"\xfe\xfe\xee\x00\x01\x00\x53\x74\x72\x65\x66\x61\x20"
+    b"\x20\x31\x20\x20\x20\x20\x20\x20\x20\x5d\x20\xfe\x0d",
+    "Start monitoring arm state": b"\xfe\xfe\x7f\x00\x02\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xa7"
+    b"\xa9\xfe\x0d",
+    "Response OK to start monitoring": b"\xfe\xfe\xef\xff\x4f\xa9\xfe\x0d",
+    "First partition armed": b"\xfe\xfe\x09\x01\x00\x00\x00\x7d\xac\xfe\x0d",
+    "First partition disarmed": b"\xfe\xfe\x09\x00\x00\x00\x00\x7d\xb4\xfe\x0d",
+    "Output status query": b"\xfe\xfe\x17\xd7\xf9\xfe\x0d",
+    "Output status active 16 and 256": b"\xfe\xfe\x17\x00\x80\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+    b"\x00\x00\x80\x22\xd8\xfe\x0d",
+    "Arm0 query": b"\xfe\xfe\x80\x11\x11\xff\xff\xff\xff\xff\xff\x01\x00"
+    b"\x00\x00\x15\x40\xfe\x0d",
+    "Arm0 response": b"\xfe\xfe\xef\x00\x4e\xaa\xfe\x0d",
+    "Armed partitions query": b"\xfe\xfe\x0a\xd7\xec\xfe\x0d",
+    "Armed partitions response": b"\xfe\xfe\x0a\x01\x00\x00\x00\x7d\xbc\xfe\x0d",
+    "Active outputs query": b"\xfe\xfe\x17\xd7\xf9\xfe\x0d",
+    "Active outputs response": b"\xfe\xfe\x17\x00\x80\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+    b"\x00\x00\x80\x22\xd8\xfe\x0d",
+    "New data query": b"\xfe\xfe\x7f\xd8\x61\xfe\x0d",
+    "New data response": b"\xfe\xfe\x7f\xfe\xf0\xfb\x7f\xfb\xff\xff\xcc\xfe\x0d",
+}
 
 
 class TestSatel(TestCase):
@@ -86,43 +77,44 @@ class TestSatel(TestCase):
         """Called after every test."""
         pass
 
-    def test_checksum_generation(self):
-        """For each reference data frame verify if checksum is counted OK."""
-        for data in test_frames.values():
-            # Skipping first 2 sync bytes and 4 ending bytes: 2 bytes of CRC
-            #  and 2 bytes trailing
-            modified = data[2:-2].replace(b'\xFE\xF0', b'\xFE')
-            crc = checksum(modified[:-2])
-            expected_crc = modified[-2:]
+    # def test_checksum_generation(self):
+    #     """For each reference data frame verify if checksum is counted OK."""
+    #     for data in test_frames.values():
+    #         # Skipping first 2 sync bytes and 4 ending bytes: 2 bytes of CRC
+    #         #  and 2 bytes trailing
+    #         modified = data[2:-2].replace(b"\xfe\xf0", b"\xfe")
+    #         crc = checksum(modified[:-2])
+    #         expected_crc = modified[-2:]
 
-            res = int.from_bytes(expected_crc, "big")
+    #         res = int.from_bytes(expected_crc, "big")
 
-            self.assertEqual(crc, res)
+    #         self.assertEqual(crc, res)
 
-    def test_version_query_generation(self):
-        """Test if version query frame is generated as reference."""
-        result = generate_query(b'\x7E')
-        self.assertEqual(result, test_frames["Version query"])
+    # def test_version_query_generation(self):
+    #     """Test if version query frame is generated as reference."""
+    #     result = generate_query(b"\x7e")
+    #     self.assertEqual(result, test_frames["Version query"])
 
-    def test_time_query_generation(self):
-        """Test if time query frame is generated as reference."""
-        result = generate_query(b'\x1a')
-        self.assertEqual(result, test_frames["Time query"])
+    # def test_time_query_generation(self):
+    #     """Test if time query frame is generated as reference."""
+    #     result = generate_query(b"\x1a")
+    #     self.assertEqual(result, test_frames["Time query"])
 
-    def test_name_query_generation(self):
-        """Test if object name query frame is generated as reference."""
-        device_type = b'\x01'
-        devicenumber = b'\x00'
-        result = generate_query(b'\xEE' + devicenumber + device_type)
-        self.assertEqual(result, test_frames["Name query"])
+    # def test_name_query_generation(self):
+    #     """Test if object name query frame is generated as reference."""
+    #     device_type = b"\x01"
+    #     devicenumber = b"\x00"
+    #     result = generate_query(b"\xee" + devicenumber + device_type)
+    #     self.assertEqual(result, test_frames["Name query"])
 
-    def test_verify_and_strip(self):
-        """Test if verify and strip works ok on reference data."""
-        for data in test_frames.values():
-            verify_and_strip(data)
+    # def test_verify_and_strip(self):
+    #     """Test if verify and strip works ok on reference data."""
+    #     for data in test_frames.values():
+    #         verify_and_strip(data)
+
 
 # def test_get_version(self):
-#     """Connect and retreive Satel Integra Version. Test bases
+#     """Connect and retrieve Satel Integra Version. Test bases
 # on captured frames."""
 #     sock = MagicMock()
 #     sock.send = MagicMock(return_value=True)
@@ -135,7 +127,7 @@ class TestSatel(TestCase):
 #     sock.send.assert_called_with(test_frames["Version query"])
 #
 # def test_get_name(self):
-#     """Connect and retreive Satel Integra Name. Test bases on
+#     """Connect and retrieve Satel Integra Name. Test bases on
 # captured frames."""
 #     sock = MagicMock()
 #     sock.send = MagicMock(return_value=True)

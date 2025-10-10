@@ -7,6 +7,7 @@ import logging
 from enum import Enum, unique
 
 from satel_integra.commands import SatelReadCommand, SatelWriteCommand
+from satel_integra.connection import SatelConnection
 from satel_integra.utils import encode_bitmask_le
 
 _LOGGER = logging.getLogger(__name__)
@@ -31,7 +32,7 @@ def print_hex(data):
     _LOGGER.debug(hex_msg)
 
 
-def verify_and_strip(resp):
+def verify_and_strip(resp: bytes) -> bytes:
     """Verify checksum and strip header and footer of received frame."""
     if resp[0:2] != b'\xFE\xFE':
         _LOGGER.error("Houston, we got problem:")
@@ -117,11 +118,12 @@ class AlarmState(Enum):
 class AsyncSatel:
     """Asynchronous interface to talk to Satel Integra alarm system."""
 
-    def __init__(self, host, port, loop, monitored_zones=[],
-                 monitored_outputs=[], partitions=[]):
+    def __init__(
+        self, host, port, loop, monitored_zones=[], monitored_outputs=[], partitions=[]
+    ):
         """Init the Satel alarm data."""
-        self._host = host
-        self._port = port
+        self._connection = SatelConnection(host, port)
+
         self._loop = loop
         self._monitored_zones = monitored_zones
         self.violated_zones = []
@@ -129,10 +131,6 @@ class AsyncSatel:
         self.violated_outputs = []
         self.partition_states = {}
         self._keep_alive_timeout = 20
-        self._reconnection_timeout = 15
-        self._reader = None
-        self._writer = None
-        self.closed = False
         self._alarm_status_callback = None
         self._zone_changed_callback = None
         self._output_changed_callback = None
@@ -175,29 +173,6 @@ class AsyncSatel:
             ),
             SatelReadCommand.RESULT: self._command_result,
         }
-
-    @property
-    def connected(self):
-        """Return true if there is connection to the alarm."""
-        return self._writer and self._reader
-
-    async def connect(self):
-        """Make a TCP connection to the alarm system."""
-        _LOGGER.debug("Connecting...")
-
-        try:
-            self._reader, self._writer = await asyncio.open_connection(
-                self._host, self._port)
-            _LOGGER.debug("sucess connecting...")
-
-        except Exception as e:
-            _LOGGER.warning(
-                "Exception during connecting: %s.", e)
-            self._writer = None
-            self._reader = None
-            return False
-
-        return True
 
     async def start_monitoring(self):
         """Start monitoring for interesting events."""
@@ -297,24 +272,13 @@ class AsyncSatel:
     #         _LOGGER.warning("Timeout waiting for reponse from Satel!")
     #     return self._command_status
 
-    async def _send_data(self, data):
+    async def _send_data(self, data: bytearray) -> bool:
         _LOGGER.debug("-- Sending data --")
         print_hex(data)
         _LOGGER.debug("-- ------------- --")
         _LOGGER.debug("Sending %d bytes...", len(data))
 
-        if not self._writer:
-            _LOGGER.warning("Ignoring data because we're disconnected!")
-            return
-        try:
-            self._writer.write(data)
-            await self._writer.drain()
-        except Exception as e:
-            _LOGGER.warning(
-                "Exception during sending data: %s.", e)
-            self._writer = None
-            self._reader = None
-            return False
+        return await self._connection.send_frame(data)
 
     async def arm(self, code, partition_list, mode=0):
         """Send arming command to the alarm. Modes allowed: from 0 till 3."""
@@ -394,26 +358,22 @@ class AsyncSatel:
         if self._alarm_status_callback:
             self._alarm_status_callback()
 
-    async def _read_data(self):
-        if not self._reader:
-            return []
+    async def _read_data(self) -> bytes | None:
+        """Read data from the alarm."""
 
-        try:
-            data = await self._reader.readuntil(b'\xFE\x0D')
-            _LOGGER.debug("-- Receiving data --")
-            print_hex(data)
-            _LOGGER.debug("-- ------------- --")
-            return verify_and_strip(data)
+        data = await self._connection.read_frame()
 
-        except Exception as e:
-            _LOGGER.warning(
-                "Got exception: %s. Most likely the other side has "
-                "disconnected!", e)
-            self._writer = None
-            self._reader = None
+        if data is not None:
+            try:
+                return verify_and_strip(data)
 
-            if self._alarm_status_callback:
-                self._alarm_status_callback()
+            except Exception as e:
+                _LOGGER.warning("Failed to verify/strip data: %s", e)
+
+        if self._alarm_status_callback:
+            self._alarm_status_callback()
+
+        return None
 
     async def keep_alive(self):
         """A workaround for Satel Integra disconnecting after 25s.
@@ -438,11 +398,6 @@ class AsyncSatel:
         resp = await self._read_data()
 
         if not resp:
-            _LOGGER.warning("Got empty response. We think it's disconnect.")
-            self._writer = None
-            self._reader = None
-            if self._alarm_status_callback:
-                self._alarm_status_callback()
             return
 
         cmd_byte = resp[0]
@@ -473,33 +428,35 @@ class AsyncSatel:
         _LOGGER.info("Starting monitor_status loop")
 
         while not self.closed:
-            _LOGGER.debug("Iteration... ")
-            while not self.connected:
-                _LOGGER.info("Not connected, re-connecting... ")
-                await self.connect()
-                if not self.connected:
-                    _LOGGER.warning("Not connected, sleeping for 10s... ")
-                    await asyncio.sleep(self._reconnection_timeout)
-                    continue
+            await self._connection.ensure_connected()
+
             await self.start_monitoring()
-            if not self.connected:
-                _LOGGER.warning("Start monitoring failed, sleeping for 10s...")
-                await asyncio.sleep(self._reconnection_timeout)
-                continue
-            while True:
+
+            while self.connected and not self.closed:
                 await self._update_status()
                 _LOGGER.debug("Got status!")
-                if not self.connected:
-                    _LOGGER.info("Got connection broken, reconnecting!")
-                    break
         _LOGGER.info("Closed, quit monitoring.")
 
-    def close(self):
+    # region Connection management
+    @property
+    def connected(self) -> bool:
+        """Return true if there is connection to the alarm."""
+        return self._connection.connected
+
+    @property
+    def closed(self) -> bool:
+        """Return true if connection is closed."""
+        return self._connection.closed
+
+    async def connect(self) -> bool:
+        """Make a TCP connection to the alarm system."""
+        return await self._connection.connect()
+
+    async def close(self):
         """Stop monitoring and close connection."""
-        _LOGGER.debug("Closing...")
-        self.closed = True
-        if self.connected:
-            self._writer.close()
+        return await self._connection.close()
+
+    # endregion
 
 
 def demo(host, port):

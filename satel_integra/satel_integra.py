@@ -1,11 +1,9 @@
-# -*- coding: utf-8 -*-
-
-"""Main module."""
+# """Main module."""
 
 import asyncio
 import logging
 from enum import Enum, unique
-from typing import Callable
+from collections.abc import Callable
 
 from satel_integra.commands import SatelReadCommand, SatelWriteCommand
 from satel_integra.connection import SatelConnection
@@ -184,7 +182,7 @@ class AsyncSatel:
     #         await asyncio.wait_for(self._command_status_event.wait(),
     #                                timeout=5)
     #     except asyncio.TimeoutError:
-    #         _LOGGER.warning("Timeout waiting for reponse from Satel!")
+    #         _LOGGER.warning("Timeout waiting for response from Satel!")
     #     return self._command_status
 
     def _partitions_armed_state(self, mode: AlarmState, msg: SatelReadMessage):
@@ -227,9 +225,12 @@ class AsyncSatel:
         else:
             _LOGGER.debug("No handler for command: %s", msg.cmd)
 
-    async def monitor_status(self, alarm_status_callback=None,
-                             zone_changed_callback=None,
-                             output_changed_callback=None):
+    async def monitor_status(
+        self,
+        alarm_status_callback=None,
+        zone_changed_callback=None,
+        output_changed_callback=None,
+    ):
         """Start monitoring of the alarm status.
 
         Send command to satel integra to start sending updates. Read in a
@@ -359,17 +360,44 @@ def demo(host, port):
     # logging.basicConfig(level=logging.DEBUG)
 
     loop = asyncio.get_event_loop()
-    stl = AsyncSatel(host,
-                     port,
-                     loop,
-                     [1, 2, 3, 4, 5, 6, 7, 8, 12, 13, 14, 15, 16, 17, 18, 19,
-                      20, 21, 22, 23, 25, 26, 27, 28, 29, 30],
-                     [8, 9, 10]
-                     )
+    stl = AsyncSatel(
+        host,
+        port,
+        loop,
+        [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18,
+            19,
+            20,
+            21,
+            22,
+            23,
+            25,
+            26,
+            27,
+            28,
+            29,
+            30,
+        ],
+        [8, 9, 10],
+    )
 
     loop.run_until_complete(stl.connect())
     loop.create_task(stl.arm("3333", (1,)))
-    loop.create_task(stl.disarm("3333",(1,)))
+    loop.create_task(stl.disarm("3333", (1,)))
     loop.create_task(stl.keep_alive())
     loop.create_task(stl.monitor_status())
 

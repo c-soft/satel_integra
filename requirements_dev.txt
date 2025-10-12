@@ -1,6 +1,0 @@
-bumpversion==0.5.3
-pip==21.1
-
-pytest==2.9.2
-pytest-runner==2.11.1
-wheel==0.38.1

@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.3.7](https://github.com/c-soft/satel_integra/compare/0.3.7...0.3.6) -2022-07-05
+## [0.3.7](https://github.com/c-soft/satel_integra/compare/0.3.6...0.3.7) -2022-07-05
 
 -   Integrated fix for Python 3.10 compatibility
 

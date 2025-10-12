@@ -53,6 +53,8 @@ class SatelConnection:
             frame = await self._reader.readuntil(FRAME_END)
         except asyncio.IncompleteReadError:
             _LOGGER.debug("Incomplete read due to connection closing")
+            self._reader = None
+            self._writer = None
             return None
         except Exception as e:
             _LOGGER.warning("Read failed: %s", e)

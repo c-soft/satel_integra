@@ -1,12 +1,11 @@
 [build-system]
-requires = ["setuptools"]
+requires = ["setuptools>=80", "setuptools-scm[simple]>=8"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "satel_integra"
-version = "0.0.0"
 description = "Communication library and basic testing tool for Satel Integra alarm system. Communication via TCP/IP protocol published by SATEL."
-readme = "README.rst"
+readme = "README.md"
 keywords = ["satel", "integra", "satel_integra", "alarm", "security"]
 authors = [
   { name = "Krzysztof Machelski", email = "krzysztof.machelski+pypi@gmail.com" },
@@ -24,6 +23,7 @@ classifiers = [
 ]
 requires-python = ">=3.12"
 dependencies = []
+dynamic = ["version"]
 
 [project.optional-dependencies]
 dev = [
@@ -36,7 +36,6 @@ dev = [
   "pytest-cov==7.0.0",
   "pytest-timeout==2.4.0",
 ]
-
 
 [project.urls]
 Repository="https://github.com/c-soft/satel_integra"

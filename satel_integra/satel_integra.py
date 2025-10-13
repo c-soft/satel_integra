@@ -9,6 +9,7 @@ from satel_integra.commands import SatelReadCommand, SatelWriteCommand
 from satel_integra.connection import SatelConnection
 from satel_integra.messages import SatelReadMessage, SatelWriteMessage
 from satel_integra.utils import encode_bitmask_le
+from satel_integra.queue import SatelMessageQueue
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -38,6 +39,7 @@ class AsyncSatel:
     ):
         """Init the Satel alarm data."""
         self._connection = SatelConnection(host, port)
+        self._queue = SatelMessageQueue(self._send_encoded_frame)
 
         self._loop = loop
         self._monitored_zones = monitored_zones
@@ -172,8 +174,8 @@ class AsyncSatel:
             status = {"error": "User code not found"}
 
         _LOGGER.debug("Received error status: %s", status)
-        self._command_status = status
-        self._command_status_event.set()
+
+        self._queue.on_result_message(msg)
 
     # async def send_and_wait_for_answer(self, data):
     #     """Send given data and wait for confirmation from Satel"""
@@ -303,12 +305,17 @@ class AsyncSatel:
     # endregion
 
     # region Data management
-    async def _send_data(self, msg: SatelWriteMessage) -> bool:
+    async def _send_data(self, msg: SatelWriteMessage) -> None:
         """Send message to the alarm."""
+        _LOGGER.debug("queueing command: %s", msg)
+        await self._queue.add_message(msg)
+
+    async def _send_encoded_frame(self, msg: SatelWriteMessage) -> None:
+        """Encodes and actually sends message."""
         _LOGGER.debug("Sending command: %s", msg)
         data = msg.encode_frame()
 
-        return await self._connection.send_frame(data)
+        await self._connection.send_frame(data)
 
     async def _read_data(self) -> SatelReadMessage | None:
         """Read data from the alarm."""

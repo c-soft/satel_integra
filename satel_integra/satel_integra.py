@@ -353,11 +353,17 @@ class AsyncSatel:
 
     async def connect(self) -> bool:
         """Make a TCP connection to the alarm system."""
-        return await self._connection.connect()
+        result = await self._connection.connect()
+
+        if result:
+            await self._queue.start()
+
+        return result
 
     async def close(self):
         """Stop monitoring and close connection."""
-        return await self._connection.close()
+        await self._queue.stop()
+        await self._connection.close()
 
     # endregion
 

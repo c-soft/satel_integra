@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from unittest.mock import AsyncMock
 import pytest
@@ -28,6 +29,78 @@ def result_msg():
 
 
 @pytest.mark.asyncio
+async def test_get_next_message(mock_send_func, write_msg):
+    queue = SatelMessageQueue(mock_send_func)
+
+    queued = QueuedMessage(write_msg, False)
+    await queue._queue.put(queued)
+
+    result = await queue._get_next_message()
+
+    assert result is not None
+    assert result is queued
+
+
+@pytest.mark.asyncio
+async def test_get_next_message_empty_queue(mock_send_func):
+    queue = SatelMessageQueue(mock_send_func)
+
+    result = await queue._get_next_message()
+
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_stop_cancels_task(mock_send_func, write_msg):
+    queue = SatelMessageQueue(mock_send_func)
+    await queue.start()
+    await queue.stop()
+    assert queue._process_task is None
+    assert queue._closed is True
+
+
+@pytest.mark.asyncio
+async def test_add_message_wait_for_result(mock_send_func, write_msg, result_msg):
+    queue = SatelMessageQueue(mock_send_func)
+    await queue.start()
+
+    async def complete_result():
+        await asyncio.sleep(0.01)
+        queue.on_message_received(result_msg)
+
+    asyncio.create_task(complete_result())
+
+    result = await queue.add_message(write_msg, True)
+
+    assert result is result_msg
+
+    mock_send_func.assert_awaited_once_with(write_msg)
+
+
+@pytest.mark.asyncio
+async def test_add_message_no_wait(mock_send_func, write_msg):
+    queue = SatelMessageQueue(mock_send_func)
+    await queue.start()
+    result = await queue.add_message(write_msg, False)
+    await asyncio.sleep(0.05)
+    await queue.stop()
+
+    mock_send_func.assert_awaited_once_with(write_msg)
+
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_add_message_after_stop_raises(mock_send_func, write_msg):
+    queue = SatelMessageQueue(mock_send_func)
+    await queue.start()
+    await queue.stop()
+
+    with pytest.raises(RuntimeError, match="Queue is stopped"):
+        await queue.add_message(write_msg)
+
+
+@pytest.mark.asyncio
 async def test_on_message_received_correct(mock_send_func, write_msg, result_msg):
     queue = SatelMessageQueue(mock_send_func)
     queued = QueuedMessage(write_msg, True)
@@ -45,9 +118,7 @@ async def test_on_message_received_commmand_mismatch(
     caplog.at_level(logging.WARNING)
 
     queue = SatelMessageQueue(mock_send_func)
-    queued = QueuedMessage(
-        SatelWriteMessage(SatelWriteCommand.READ_DEVICE_NAME), wait_for_result=True
-    )
+    queued = QueuedMessage(SatelWriteMessage(SatelWriteCommand.READ_DEVICE_NAME), True)
     queue._current_message = queued
     queue.on_message_received(result_msg)
 

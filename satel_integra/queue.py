@@ -60,6 +60,8 @@ class SatelMessageQueue:
         if self._closed:
             raise RuntimeError("Queue is stopped")
 
+        _LOGGER.debug("Queueing message: %s", msg)
+
         loop = asyncio.get_running_loop()
         future = loop.create_future()
 

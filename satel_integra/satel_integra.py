@@ -52,8 +52,6 @@ class AsyncSatel:
         self._zone_changed_callback = None
         self._output_changed_callback = None
         self._partitions = partitions
-        self._command_status_event = asyncio.Event()
-        self._command_status = False
 
         self._message_handlers: dict[
             SatelReadCommand, Callable[[SatelReadMessage], None]

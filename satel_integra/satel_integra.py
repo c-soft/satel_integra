@@ -118,15 +118,17 @@ class AsyncSatel:
             raw_data=bytearray(monitored_commands_bitmask),
         )
 
-        await self._send_data(msg)
-        resp = await self._read_data()
+        monitoring_result = await self._send_data_and_wait(msg)
 
-        if resp is None:
+        if monitoring_result is None:
             _LOGGER.warning("Start monitoring - no data!")
             return
 
-        if resp.msg_data != b"\xff":
+        if monitoring_result.msg_data != b"\xff":
             _LOGGER.warning("Monitoring not accepted.")
+            return
+
+        _LOGGER.debug("Monitoring started")
 
     def _zones_violated(self, msg: SatelReadMessage):
         status = {"zones": {}}
@@ -304,13 +306,15 @@ class AsyncSatel:
 
     # region Data management
     async def _send_data(self, msg: SatelWriteMessage) -> None:
-        """Send message to the alarm."""
-        _LOGGER.debug("queueing command: %s", msg)
-        await self._queue.add_message(msg)
+        """Add message to the queue."""
+        await self._queue.add_message(msg, False)
+
+    async def _send_data_and_wait(self, msg: SatelWriteMessage):
+        """Add message to the queue and wait for the result."""
+        return await self._queue.add_message(msg, True)
 
     async def _send_encoded_frame(self, msg: SatelWriteMessage) -> None:
         """Encodes and actually sends message."""
-        _LOGGER.debug("Sending command: %s", msg)
         data = msg.encode_frame()
 
         await self._connection.send_frame(data)

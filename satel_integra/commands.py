@@ -50,3 +50,7 @@ class SatelWriteCommand(SatelBaseCommand):
     OUTPUTS_ON = 0x88
     OUTPUTS_OFF = 0x89
     READ_DEVICE_NAME = 0xEE
+
+    @property
+    def expects_same_cmd_response(self) -> bool:
+        return self in {SatelWriteCommand.READ_DEVICE_NAME}

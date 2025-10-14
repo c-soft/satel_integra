@@ -3,21 +3,31 @@
 import asyncio
 from collections.abc import Callable
 
-from dataclasses import dataclass
 import logging
 from collections.abc import Awaitable
 
+from satel_integra.commands import SatelReadCommand
 from satel_integra.const import MESSAGE_RESPONSE_TIMEOUT
 from satel_integra.messages import SatelReadMessage, SatelWriteMessage
 
 _LOGGER = logging.getLogger(__name__)
 
 
-@dataclass
 class QueuedMessage:
-    message: SatelWriteMessage
-    future: asyncio.Future[SatelReadMessage]
-    return_result: bool = False
+    def __init__(self, message: SatelWriteMessage, wait_for_result: bool):
+        self.message = message
+        self.return_result = wait_for_result
+
+        self.processed_future: asyncio.Future[SatelReadMessage] = (
+            asyncio.get_running_loop().create_future()
+        )
+
+        # Determine the expected response
+        self.expected_result_command = (
+            message.cmd
+            if getattr(message.cmd, "expects_same_cmd_response", False)
+            else SatelReadCommand.RESULT
+        )
 
 
 class SatelMessageQueue:
@@ -62,14 +72,11 @@ class SatelMessageQueue:
 
         _LOGGER.debug("Queueing message: %s", msg)
 
-        loop = asyncio.get_running_loop()
-        future = loop.create_future()
-
-        queued = QueuedMessage(msg, future, wait_for_result)
+        queued = QueuedMessage(msg, wait_for_result)
         await self._queue.put(queued)
 
         if wait_for_result:
-            return await queued.future
+            return await queued.processed_future
         return None
 
     async def _process_queue(self) -> None:
@@ -107,34 +114,40 @@ class SatelMessageQueue:
             await self._send_func(queued.message)
         except Exception as exc:
             _LOGGER.exception("Error while sending message: %s", exc)
-            if not queued.future.done():
-                queued.future.set_exception(exc)
+            if not queued.processed_future.done():
+                queued.processed_future.set_exception(exc)
             return
 
-        # Wait for the RESULT (the future will be completed by on_result_message).
+        # Wait for the RESULT (the future will be completed by on_message_received).
         try:
-            await asyncio.wait_for(queued.future, timeout=MESSAGE_RESPONSE_TIMEOUT)
+            await asyncio.wait_for(
+                queued.processed_future, timeout=MESSAGE_RESPONSE_TIMEOUT
+            )
         except asyncio.TimeoutError:
             _LOGGER.error(
                 "No response received from panel within %ss", MESSAGE_RESPONSE_TIMEOUT
             )
-            if not queued.future.done():
-                queued.future.set_exception(
+            if not queued.processed_future.done():
+                queued.processed_future.set_exception(
                     TimeoutError(
                         f"No response received within {MESSAGE_RESPONSE_TIMEOUT}s"
                     )
                 )
 
-    def on_result_message(self, result: SatelReadMessage):
+    def on_message_received(self, result: SatelReadMessage):
         """Called by AsyncSatel when a RESULT message is received."""
         if not self._current_message:
-            _LOGGER.warning("Received result but no message is being processed")
+            # Received result but no message is being processed, standard read message due to monitoring
             return
 
-        if self._current_message.future.done():
+        if self._current_message.processed_future.done():
             _LOGGER.warning(
                 "Received result but future is already done (likely timed out)"
             )
             return
 
-        self._current_message.future.set_result(result)
+        if self._current_message.expected_result_command != result.cmd:
+            _LOGGER.warning("Received result but message expects different result")
+            return
+
+        self._current_message.processed_future.set_result(result)

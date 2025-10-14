@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 import pytest
 
 from satel_integra.queue import SatelMessageQueue, QueuedMessage
@@ -26,6 +26,70 @@ def write_msg():
 def result_msg():
     """Matching result message fixture."""
     return SatelReadMessage(SatelReadCommand.RESULT, bytearray([0x01]))
+
+
+@pytest.mark.asyncio
+async def test_start_creates_task():
+    queue = SatelMessageQueue(mock_send_func)
+    queue._process_queue = AsyncMock()
+
+    await queue.start()
+
+    assert queue._process_task is not None
+    queue._process_queue.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_start_already_running(monkeypatch):
+    queue = SatelMessageQueue(mock_send_func)
+    queue._process_queue = AsyncMock()
+
+    existing_task = Mock()
+    queue._process_task = existing_task
+
+    mock_create_task = Mock()
+    monkeypatch.setattr("satel_integra.queue.asyncio.create_task", mock_create_task)
+
+    await queue.start()
+
+    mock_create_task.assert_not_called()
+    assert queue._process_task is existing_task
+
+
+@pytest.mark.asyncio
+async def test_stop():
+    queue = SatelMessageQueue(mock_send_func)
+
+    # Create a dummy task that will never complete
+    async def dummy_coro():
+        await asyncio.sleep(999)
+
+    task = asyncio.create_task(dummy_coro())
+
+    queue._process_task = task
+
+    await queue.stop()
+
+    assert queue._closed is True
+    assert task.cancelled()
+    assert queue._process_task is None
+
+
+@pytest.mark.asyncio
+async def test_queued_message_init(write_msg):
+    message = QueuedMessage(write_msg, False)
+
+    assert message.return_result is False
+    assert message.expected_result_command is SatelReadCommand.RESULT
+
+
+@pytest.mark.asyncio
+async def test_queued_message_init_same_cmd():
+    write_msg = SatelWriteMessage(SatelWriteCommand.READ_DEVICE_NAME)
+    message = QueuedMessage(write_msg, True)
+
+    assert message.return_result is True
+    assert message.expected_result_command is SatelWriteCommand.READ_DEVICE_NAME
 
 
 @pytest.mark.asyncio

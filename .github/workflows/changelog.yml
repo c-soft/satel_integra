@@ -1,0 +1,54 @@
+name: "Update Changelog"
+
+on:
+  release:
+    types: [released]
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          # Fetch entire history of repository to ensure release date can be
+          # extracted from commit of the given tag.
+          fetch-depth: 0
+          # Checkout target branch of this release. Ensures that the CHANGELOG
+          # is not out of date.
+          ref: ${{ github.event.release.target_commitish }}
+
+      - name: Extract release date from git tag
+        id: release_date
+        run: |
+          echo "date=$(git log -1 --date=short --format=%ad '${{ github.event.release.tag_name }}')" >> $GITHUB_OUTPUT;
+
+      - name: Update Changelog
+        uses: stefanzweifel/changelog-updater-action@v1
+        with:
+          # Pass extracted release date, release notes and version to the Action.
+          release-date: ${{ steps.release_date.outputs.date }}
+          release-notes: ${{ github.event.release.body }}
+          latest-version: ${{ github.event.release.tag_name }}
+
+          # Optional
+          # If your project keeps separate branches for major releases, and you want to point the compare URL
+          # in the "Unreleased"-heading to the corresponding major release branch (eg. `2.x`), then enable the option
+          # below.
+          # `compare-url-target-revision` will change how the compare URL is composed and will replace 
+          # `v2.0.1...HEAD` with `v2.0.1...2.x`.
+          # WARNING: When you select `main` when creating a new release, the value `refs/heads/main` 
+          # is passed to the Action which will generate an invalid compare URL.
+          # compare-url-target-revision: ${{ github.event.release.target_commitish }}
+
+      - name: Commit updated CHANGELOG
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          # Push updated CHANGELOG to release target branch.
+          branch: ${{ github.event.release.target_commitish }}
+          commit_message: Update CHANGELOG
+          file_pattern: CHANGELOG.md

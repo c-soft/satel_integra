@@ -33,6 +33,29 @@ class PlainConnection:
             self._reader, self._writer = None, None
             raise exc
 
+    async def check_connection(self) -> bool:
+        """Check if the connection is valid and the panel is responsive."""
+        if not self._reader or not self._writer:
+            _LOGGER.warning("Cannot check connection, not connected.")
+            return False
+
+        try:
+            # Try reading to end of file
+            data = await asyncio.wait_for(self._reader.read(-1), timeout=0.1)
+
+            if b"Busy" in data:
+                _LOGGER.warning("Panel reports busy, another client is connected.")
+                return False
+        except TimeoutError:
+            # Timeout is fine, means connection is alive and waiting
+            pass
+        except Exception as e:
+            _LOGGER.warning("Connection check failed: %s", e)
+            return False
+
+        _LOGGER.info("Connected to Satel Integra.")
+        return True
+
     async def read_frame(self) -> bytes | None:
         """Read a raw frame from the panel."""
         if not self._reader:
@@ -43,17 +66,15 @@ class PlainConnection:
             frame = await self._reader.readuntil(FRAME_END)
         except asyncio.IncompleteReadError:
             _LOGGER.debug("Incomplete read due to connection closing")
-            self._reader = None
-            self._writer = None
-            return None
         except Exception as e:
             _LOGGER.warning("Read failed: %s", e)
-            self._reader = None
-            self._writer = None
-            return None
         else:
             _LOGGER.debug("Received raw frame: %s", frame.hex())
             return frame
+
+        self._reader = None
+        self._writer = None
+        return None
 
     async def send_frame(self, frame: bytes) -> bool:
         """Send a raw frame to the panel."""
@@ -91,12 +112,8 @@ class EncryptedConnection(PlainConnection):
 
     def __init__(self, host: str, port: int, integration_key: str) -> None:
         self._integration_key = integration_key
-        self._encryption_handler: EncryptedCommunicationHandler | None = None
-        super().__init__(host, port)
-
-    async def connect(self) -> None:
         self._encryption_handler = EncryptedCommunicationHandler(self._integration_key)
-        await super().connect()
+        super().__init__(host, port)
 
     async def read_frame(self) -> bytes | None:
         """Read encrypted frame end decrypt it."""
@@ -167,6 +184,7 @@ class SatelConnection:
         _LOGGER.debug("Connecting to Satel Integra at %s:%s...", self._host, self._port)
         try:
             await self._connection.connect()
+            await self._connection.check_connection()
         except Exception as exc:
             _LOGGER.warning("Connection failed: %s", exc)
             return False

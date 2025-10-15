@@ -39,9 +39,22 @@ class SatelConnection:
             _LOGGER.warning("Connection failed: %s", e)
             self._reader, self._writer = None, None
             return False
-        else:
-            _LOGGER.info("Connected to Satel Integra.")
-            return True
+
+        try:
+            # Try reading to end of file
+            data = await asyncio.wait_for(self._reader.read(-1), timeout=0.1)
+
+            if b"Busy" in data:
+                _LOGGER.warning("Panel reports busy, another client is connected.")
+                return False
+        except TimeoutError:
+            pass
+        except Exception as e:
+            _LOGGER.warning("Connection check failed: %s", e)
+            return False
+
+        _LOGGER.info("Connected to Satel Integra.")
+        return True
 
     async def read_frame(self) -> bytes | None:
         """Read a raw frame from the panel."""
@@ -53,17 +66,15 @@ class SatelConnection:
             frame = await self._reader.readuntil(FRAME_END)
         except asyncio.IncompleteReadError:
             _LOGGER.debug("Incomplete read due to connection closing")
-            self._reader = None
-            self._writer = None
-            return None
         except Exception as e:
             _LOGGER.warning("Read failed: %s", e)
-            self._reader = None
-            self._writer = None
-            return None
         else:
             _LOGGER.debug("Received raw frame: %s", frame.hex())
             return frame
+
+        self._reader = None
+        self._writer = None
+        return None
 
     async def send_frame(self, frame: bytes) -> bool:
         """Send a raw frame to the panel."""

@@ -43,11 +43,12 @@ class PlainConnection:
             # Try reading to end of file
             data = await asyncio.wait_for(self._reader.read(-1), timeout=0.1)
 
+            # Satel returns a string starting with "Busy" when another client is connected
             if b"Busy" in data:
                 _LOGGER.warning("Panel reports busy, another client is connected.")
                 return False
         except TimeoutError:
-            # Timeout is fine, means connection is alive and waiting
+            # Timeout is fine, it means we can actually read data
             pass
         except Exception as e:
             _LOGGER.warning("Connection check failed: %s", e)

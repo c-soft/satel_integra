@@ -116,6 +116,7 @@ class SatelMessageQueue:
             _LOGGER.exception("Error while sending message: %s", exc)
             if not queued.processed_future.done():
                 queued.processed_future.set_exception(exc)
+
             return
 
         # Wait for the RESULT (the future will be completed by on_message_received).
@@ -127,12 +128,7 @@ class SatelMessageQueue:
             _LOGGER.error(
                 "No response received from panel within %ss", MESSAGE_RESPONSE_TIMEOUT
             )
-            if not queued.processed_future.done():
-                queued.processed_future.set_exception(
-                    TimeoutError(
-                        f"No response received within {MESSAGE_RESPONSE_TIMEOUT}s"
-                    )
-                )
+            return
 
     def on_message_received(self, result: SatelReadMessage):
         """Called by AsyncSatel when a RESULT message is received."""

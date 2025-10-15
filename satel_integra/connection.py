@@ -46,12 +46,19 @@ class PlainConnection:
             # Satel returns a string starting with "Busy" when another client is connected
             if b"Busy" in data:
                 _LOGGER.warning("Panel reports busy, another client is connected.")
+                self._writer.close()
+                await self._writer.wait_closed()
+                self._writer = self._reader = None
                 return False
         except TimeoutError:
             # Timeout is fine, it means we can actually read data
             pass
         except Exception as e:
             _LOGGER.warning("Connection check failed: %s", e)
+
+            self._writer.close()
+            await self._writer.wait_closed()
+            self._writer = self._reader = None
             return False
 
         _LOGGER.info("Connected to Satel Integra.")

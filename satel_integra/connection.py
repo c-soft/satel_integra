@@ -10,6 +10,12 @@ _LOGGER = logging.getLogger(__name__)
 
 class PlainConnection:
 
+    def __init__(self, host: str, port: int) -> None:
+        self._host = host
+        self._port = port
+        self._reader: asyncio.StreamReader | None = None
+        self._writer: asyncio.StreamWriter | None = None
+
     @property
     def connected(self) -> bool:
         """Return True if connected to the panel."""
@@ -84,11 +90,9 @@ class SatelConnection:
     def __init__(self, host: str, port: int, reconnection_timeout: int = 15) -> None:
         self._host = host
         self._port = port
-        self._reader: asyncio.StreamReader | None = None
-        self._writer: asyncio.StreamWriter | None = None
         self.closed = False
         self._reconnection_timeout = reconnection_timeout
-        self._connection = PlainConnection()
+        self._connection = PlainConnection(host, port)
 
     @property
     def connected(self) -> bool:

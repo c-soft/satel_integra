@@ -4,6 +4,7 @@ import asyncio
 import logging
 
 from satel_integra.const import FRAME_END
+from satel_integra.encryption import EncryptedCommunicationHandler
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -82,6 +83,56 @@ class PlainConnection:
 
         self._reader = None
         self._writer = None
+
+
+class EncryptedConnection(PlainConnection):
+
+    def __init__(self, host: str, port: int, integration_key: str) -> None:
+        self._integration_key = integration_key
+        self._encryption_handler = EncryptedCommunicationHandler(integration_key)
+        super().__init__(host, port)
+
+    async def read_frame(self) -> bytes | None:
+        """Read encrypted frame end decrypt it."""
+
+        if not self._reader:
+            _LOGGER.warning("Cannot read, not connected.")
+            return None
+
+        # first byte tells about data length
+        data_len = ord(await self._reader.read(1))
+        # read rest of data
+        data = await self._reader.read(data_len)
+        _LOGGER.debug("Encrypted frame: %s", data.hex())
+        decrypted_frame = self._encryption_handler.extract_data_from_pdu(data)
+        _LOGGER.debug("Decrypted frame: %s", decrypted_frame.hex())
+        if FRAME_END in data:
+            # there may be padding after the frame end marker, trim the padding
+            decrypted_frame = decrypted_frame.split(FRAME_END)[0] + FRAME_END
+        else:
+            _LOGGER.warning("Read failed, received frame without frame end marker")
+            self._reader = None
+            self._writer = None
+            return None
+        return decrypted_frame
+
+    async def send_frame(self, frame: bytes) -> bool:
+        """Send a raw frame to the panel."""
+        if not self._writer:
+            _LOGGER.warning("Cannot send, not connected.")
+            return False
+
+        try:
+            self._writer.write(frame)
+            await self._writer.drain()
+        except Exception as e:
+            _LOGGER.warning("Write failed: %s", e)
+            self._reader = None
+            self._writer = None
+            return False
+        else:
+            _LOGGER.debug("Sent raw frame: %s", frame.hex())
+            return True
 
 
 class SatelConnection:

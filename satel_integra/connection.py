@@ -50,6 +50,9 @@ class PlainConnection:
                 await self._writer.wait_closed()
                 self._writer = self._reader = None
                 return False
+            else:
+                # We assume any other data is fine, but we log it for debugging reasons
+                _LOGGER.debug("Received data after connect: %s", data)
         except TimeoutError:
             # Timeout is fine, it means we can actually read data
             pass

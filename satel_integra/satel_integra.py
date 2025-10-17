@@ -9,6 +9,7 @@ from satel_integra.commands import SatelReadCommand, SatelWriteCommand
 from satel_integra.connection import SatelConnection
 from satel_integra.messages import SatelReadMessage, SatelWriteMessage
 from satel_integra.utils import encode_bitmask_le
+from satel_integra.queue import SatelMessageQueue
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -38,6 +39,8 @@ class AsyncSatel:
     ):
         """Init the Satel alarm data."""
         self._connection = SatelConnection(host, port)
+        self._queue = SatelMessageQueue(self._send_encoded_frame)
+        self._reading_task: asyncio.Task | None = None
 
         self._loop = loop
         self._monitored_zones = monitored_zones
@@ -50,8 +53,6 @@ class AsyncSatel:
         self._zone_changed_callback = None
         self._output_changed_callback = None
         self._partitions = partitions
-        self._command_status_event = asyncio.Event()
-        self._command_status = False
 
         self._message_handlers: dict[
             SatelReadCommand, Callable[[SatelReadMessage], None]
@@ -118,15 +119,17 @@ class AsyncSatel:
             raw_data=bytearray(monitored_commands_bitmask),
         )
 
-        await self._send_data(msg)
-        resp = await self._read_data()
+        monitoring_result = await self._send_data_and_wait(msg)
 
-        if resp is None:
+        if monitoring_result is None:
             _LOGGER.warning("Start monitoring - no data!")
             return
 
-        if resp.msg_data != b"\xff":
+        if monitoring_result.msg_data != b"\xff":
             _LOGGER.warning("Monitoring not accepted.")
+            return
+
+        _LOGGER.debug("Monitoring started")
 
     def _zones_violated(self, msg: SatelReadMessage):
         status = {"zones": {}}
@@ -172,18 +175,6 @@ class AsyncSatel:
             status = {"error": "User code not found"}
 
         _LOGGER.debug("Received error status: %s", status)
-        self._command_status = status
-        self._command_status_event.set()
-
-    # async def send_and_wait_for_answer(self, data):
-    #     """Send given data and wait for confirmation from Satel"""
-    #     await self._send_data(data)
-    #     try:
-    #         await asyncio.wait_for(self._command_status_event.wait(),
-    #                                timeout=5)
-    #     except asyncio.TimeoutError:
-    #         _LOGGER.warning("Timeout waiting for response from Satel!")
-    #     return self._command_status
 
     def _partitions_armed_state(self, mode: AlarmState, msg: SatelReadMessage):
         partitions = msg.get_active_bits(4)
@@ -211,19 +202,28 @@ class AsyncSatel:
             )
             await self._send_data(data)
 
-    async def _update_status(self):
-        _LOGGER.debug("Wait...")
+    async def _reading_loop(self):
+        try:
+            while not self.closed:
+                await self._connection.ensure_connected()
 
-        msg = await self._read_data()
+                msg = await self._read_data()
 
-        if not msg:
-            return
+                if not msg:
+                    continue
 
-        if msg.cmd in self._message_handlers:
-            _LOGGER.info("Calling handler for command: %s", msg.cmd)
-            self._message_handlers[msg.cmd](msg)
-        else:
-            _LOGGER.debug("No handler for command: %s", msg.cmd)
+                self._queue.on_message_received(msg)
+
+                if msg.cmd in self._message_handlers:
+                    _LOGGER.debug("Calling handler for command: %s", msg.cmd)
+                    self._message_handlers[msg.cmd](msg)
+                else:
+                    _LOGGER.debug("No handler for command: %s", msg.cmd)
+
+        except asyncio.CancelledError:
+            _LOGGER.info("_reading_loop loop cancelled.")
+        except Exception as ex:
+            _LOGGER.exception("Error in _reading_loop loop, %s", ex)
 
     async def monitor_status(
         self,
@@ -242,15 +242,13 @@ class AsyncSatel:
 
         _LOGGER.info("Starting monitor_status loop")
 
-        while not self.closed:
-            await self._connection.ensure_connected()
+        await self._connection.ensure_connected()
+        await self._queue.start()
 
-            await self.start_monitoring()
+        if not self._reading_task or self._reading_task.done():
+            self._reading_task = asyncio.create_task(self._reading_loop())
 
-            while self.connected and not self.closed:
-                await self._update_status()
-                _LOGGER.debug("Got status!")
-        _LOGGER.info("Closed, quit monitoring.")
+        await self.start_monitoring()
 
     # region Write Actions
     async def arm(self, code, partition_list, mode=0):
@@ -303,12 +301,19 @@ class AsyncSatel:
     # endregion
 
     # region Data management
-    async def _send_data(self, msg: SatelWriteMessage) -> bool:
-        """Send message to the alarm."""
-        _LOGGER.debug("Sending command: %s", msg)
+    async def _send_data(self, msg: SatelWriteMessage) -> None:
+        """Add message to the queue."""
+        await self._queue.add_message(msg, False)
+
+    async def _send_data_and_wait(self, msg: SatelWriteMessage):
+        """Add message to the queue and wait for the result."""
+        return await self._queue.add_message(msg, True)
+
+    async def _send_encoded_frame(self, msg: SatelWriteMessage) -> None:
+        """Encodes and actually sends message."""
         data = msg.encode_frame()
 
-        return await self._connection.send_frame(data)
+        await self._connection.send_frame(data)
 
     async def _read_data(self) -> SatelReadMessage | None:
         """Read data from the alarm."""
@@ -346,11 +351,23 @@ class AsyncSatel:
 
     async def connect(self) -> bool:
         """Make a TCP connection to the alarm system."""
-        return await self._connection.connect()
+        result = await self._connection.connect()
+
+        return result
 
     async def close(self):
         """Stop monitoring and close connection."""
-        return await self._connection.close()
+        await self._queue.stop()
+
+        if self._reading_task:
+            self._reading_task.cancel()
+            try:
+                await self._reading_task
+            except asyncio.CancelledError:
+                pass
+            self._reading_task = None
+
+        await self._connection.close()
 
     # endregion
 

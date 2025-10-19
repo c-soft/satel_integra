@@ -35,10 +35,10 @@ class AsyncSatel:
     """Asynchronous interface to talk to Satel Integra alarm system."""
 
     def __init__(
-        self, host, port, loop, monitored_zones=[], monitored_outputs=[], partitions=[]
+        self, host, port, loop, monitored_zones=[], monitored_outputs=[], partitions=[], integration_key=''
     ):
         """Init the Satel alarm data."""
-        self._connection = SatelConnection(host, port)
+        self._connection = SatelConnection(host, port, integration_key=integration_key)
         self._queue = SatelMessageQueue(self._send_encoded_frame)
         self._reading_task: asyncio.Task | None = None
 
@@ -372,7 +372,7 @@ class AsyncSatel:
     # endregion
 
 
-def demo(host, port):
+def demo(host, port, integration_key=''):
     """Basic demo of the monitoring capabilities."""
     # logging.basicConfig(level=logging.DEBUG)
 
@@ -410,6 +410,7 @@ def demo(host, port):
             30,
         ],
         [8, 9, 10],
+        integration_key=integration_key,
     )
 
     loop.run_until_complete(stl.connect())

@@ -131,12 +131,12 @@ class EncryptedConnection(PlainConnection):
 class SatelConnection:
     """Manages TCP connection and I/O for the Satel Integra panel."""
 
-    def __init__(self, host: str, port: int, reconnection_timeout: int = 15, integration_key: str | None = None) -> None:
+    def __init__(self, host: str, port: int, reconnection_timeout: int = 15, integration_key: str = '') -> None:
         self._host = host
         self._port = port
         self.closed = False
         self._reconnection_timeout = reconnection_timeout
-        self._connection = PlainConnection(host, port) if integration_key is None else EncryptedConnection(host, port, integration_key)
+        self._connection = PlainConnection(host, port) if integration_key else EncryptedConnection(host, port, integration_key)
 
     @property
     def connected(self) -> bool:

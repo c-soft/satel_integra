@@ -136,7 +136,7 @@ class SatelConnection:
         self._port = port
         self.closed = False
         self._reconnection_timeout = reconnection_timeout
-        self._connection = PlainConnection(host, port) if integration_key else EncryptedConnection(host, port, integration_key)
+        self._connection = EncryptedConnection(host, port, integration_key) if integration_key else PlainConnection(host, port)
 
     @property
     def connected(self) -> bool:

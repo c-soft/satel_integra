@@ -109,7 +109,7 @@ class EncryptedConnection(PlainConnection):
         _LOGGER.debug("Encrypted frame: %s", data.hex())
         decrypted_frame = self._encryption_handler.extract_data_from_pdu(data)
         _LOGGER.debug("Decrypted frame: %s", decrypted_frame.hex())
-        if FRAME_END in data:
+        if FRAME_END in decrypted_frame:
             # there may be padding after the frame end marker, trim the padding
             decrypted_frame = decrypted_frame.split(FRAME_END)[0] + FRAME_END
         else:

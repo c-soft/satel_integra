@@ -1,8 +1,17 @@
 import asyncio
 import pytest
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch, PropertyMock
 from satel_integra.connection import SatelConnection
+import satel_integra.connection
 
+@pytest.fixture
+def reader_writer(monkeypatch):
+    reader = AsyncMock()
+    writer = AsyncMock()
+    monkeypatch.setattr(
+        asyncio, "open_connection", AsyncMock(return_value=(reader, writer))
+    )
+    yield reader, writer
 
 @pytest.mark.asyncio
 async def test_connect_success(monkeypatch):
@@ -34,13 +43,11 @@ async def test_connect_skipped_when_closed():
 
 
 @pytest.mark.asyncio
-async def test_send_frame_success(monkeypatch):
-    writer = MagicMock()
-    writer.write = MagicMock()
-    writer.drain = AsyncMock()
+async def test_send_frame_success(reader_writer):
+    _, writer = reader_writer
 
     conn = SatelConnection("host", 1)
-    conn._writer = writer
+    await conn.connect()
     frame = b"abc"
     result = await conn.send_frame(frame)
     assert result
@@ -56,25 +63,26 @@ async def test_send_frame_not_connected():
 
 
 @pytest.mark.asyncio
-async def test_send_frame_failure(monkeypatch):
-    writer = MagicMock()
-    writer.write = MagicMock()
+async def test_send_frame_failure(reader_writer):
+    _, writer = reader_writer
+
     writer.drain.side_effect = Exception("fail")
     conn = SatelConnection("h", 1)
-    conn._writer = writer
+    await conn.connect()
+    assert conn.connected
     result = await conn.send_frame(b"x")
     assert not result
-    assert conn._writer is None
+    assert not conn.connected
 
 
 @pytest.mark.asyncio
-async def test_read_frame_success(monkeypatch):
+async def test_read_frame_success(reader_writer):
+    reader, _ = reader_writer
     from satel_integra.const import FRAME_END
 
-    reader = AsyncMock()
     reader.readuntil.return_value = b"data" + FRAME_END
     conn = SatelConnection("h", 1)
-    conn._reader = reader
+    await conn.connect()
     frame = await conn.read_frame()
     assert frame is not None
     assert frame.endswith(FRAME_END)
@@ -89,65 +97,60 @@ async def test_read_frame_not_connected():
 
 
 @pytest.mark.asyncio
-async def test_read_frame_failure(monkeypatch):
-    reader = AsyncMock()
+async def test_read_frame_failure(reader_writer):
+    reader, _ = reader_writer
     reader.readuntil.side_effect = Exception("boom")
     conn = SatelConnection("h", 1)
-    conn._reader = reader
-    conn._writer = AsyncMock()
+    await conn.connect()
+    assert conn.connected
     result = await conn.read_frame()
     assert result is None
-    assert conn._reader is None
-    assert conn._writer is None
+    assert not conn.connected
 
 
 @pytest.mark.asyncio
-async def test_read_frame_timeout():
+async def test_read_frame_timeout(reader_writer):
+    reader, _ = reader_writer
+    reader.readuntil.side_effect = asyncio.TimeoutError()
     conn = SatelConnection("host", 1234)
-    conn._reader = AsyncMock()
-    conn._reader.readuntil.side_effect = asyncio.TimeoutError()
+    await conn.connect()
 
     result = await conn.read_frame()
     assert result is None
+    reader.readuntil.assert_awaited_once()
     assert not conn.connected  # Should disconnect on timeout
 
 
 @pytest.mark.asyncio
-async def test_ensure_connected_already_connected():
+async def test_ensure_connected_already_connected(reader_writer):
     conn = SatelConnection("h", 1)
-    conn._reader = AsyncMock()
-    conn._writer = AsyncMock()
+    await conn.connect()
+    conn.connect = AsyncMock()
     assert await conn.ensure_connected() is True
+    conn.connect.assert_not_awaited()
 
 
 @pytest.mark.asyncio
 async def test_ensure_connected_reconnect(monkeypatch):
+    mock_connected = PropertyMock(side_effect=[False, False, False, True, True])
+    monkeypatch.setattr(SatelConnection, "connected", mock_connected)
+    mock_connect = AsyncMock()
+    monkeypatch.setattr(SatelConnection, "connect", mock_connect)
     conn = SatelConnection("h", 1, reconnection_timeout=0)
-    calls = 0
 
-    async def fake_connect():
-        nonlocal calls
-        calls += 1
-        if calls < 2:
-            return False
-        conn._reader, conn._writer = AsyncMock(), AsyncMock()
-        return True
-
-    conn.connect = fake_connect
     result = await conn.ensure_connected()
     assert result
-    assert calls == 2
+    assert mock_connect.await_count == 2
+    assert mock_connected.call_count == 5
 
 
 @pytest.mark.asyncio
-async def test_close_success(monkeypatch):
-    writer = MagicMock()
-    writer.is_closing.return_value = False
-    writer.close = MagicMock()
-    writer.wait_closed = AsyncMock()
+async def test_close_success(reader_writer):
+    _, writer = reader_writer
+    writer.is_closing = MagicMock(return_value = False)
 
     conn = SatelConnection("h", 1)
-    conn._reader, conn._writer = AsyncMock(), writer
+    await conn.connect()
 
     # Verify initial state
     assert not conn.closed
@@ -159,8 +162,7 @@ async def test_close_success(monkeypatch):
     writer.close.assert_called_once()
     writer.wait_closed.assert_awaited_once()
 
-    assert conn._reader is None
-    assert conn._writer is None
+    assert not conn.connected
 
 
 @pytest.mark.asyncio

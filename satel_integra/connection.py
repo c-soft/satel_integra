@@ -123,7 +123,7 @@ class EncryptedConnection(PlainConnection):
         """Send a raw frame to the panel."""
         _LOGGER.debug("Frame before encryption: %s", frame.hex())
         encrypted_frame = self._encryption_handler.prepare_pdu(frame)
-        encrypted_frame = (len(encrypted_frame)).to_bytes(1) + encrypted_frame  # add PDU length at the beginning
+        encrypted_frame = (len(encrypted_frame)).to_bytes() + encrypted_frame  # add PDU length at the beginning
 
         return await super().send_frame(encrypted_frame)
 

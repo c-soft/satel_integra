@@ -10,7 +10,6 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class PlainConnection:
-
     """Plain data writer and reader."""
 
     def __init__(self, host: str, port: int) -> None:
@@ -92,8 +91,12 @@ class EncryptedConnection(PlainConnection):
 
     def __init__(self, host: str, port: int, integration_key: str) -> None:
         self._integration_key = integration_key
-        self._encryption_handler = EncryptedCommunicationHandler(integration_key)
+        self._encryption_handler: EncryptedCommunicationHandler | None = None
         super().__init__(host, port)
+
+    async def connect(self) -> None:
+        self._encryption_handler = EncryptedCommunicationHandler(self._integration_key)
+        await super().connect()
 
     async def read_frame(self) -> bytes | None:
         """Read encrypted frame end decrypt it."""
@@ -123,7 +126,9 @@ class EncryptedConnection(PlainConnection):
         """Send a raw frame to the panel."""
         _LOGGER.debug("Frame before encryption: %s", frame.hex())
         encrypted_frame = self._encryption_handler.prepare_pdu(frame)
-        encrypted_frame = (len(encrypted_frame)).to_bytes() + encrypted_frame  # add PDU length at the beginning
+        encrypted_frame = (
+            len(encrypted_frame)
+        ).to_bytes() + encrypted_frame  # add PDU length at the beginning
 
         return await super().send_frame(encrypted_frame)
 
@@ -131,12 +136,22 @@ class EncryptedConnection(PlainConnection):
 class SatelConnection:
     """Manages TCP connection and I/O for the Satel Integra panel."""
 
-    def __init__(self, host: str, port: int, reconnection_timeout: int = 15, integration_key: str = '') -> None:
+    def __init__(
+        self,
+        host: str,
+        port: int,
+        reconnection_timeout: int = 15,
+        integration_key: str = "",
+    ) -> None:
         self._host = host
         self._port = port
         self.closed = False
         self._reconnection_timeout = reconnection_timeout
-        self._connection = EncryptedConnection(host, port, integration_key) if integration_key else PlainConnection(host, port)
+        self._connection = (
+            EncryptedConnection(host, port, integration_key)
+            if integration_key
+            else PlainConnection(host, port)
+        )
 
     @property
     def connected(self) -> bool:

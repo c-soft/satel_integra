@@ -193,12 +193,12 @@ async def test_read_encrypted(reader_writer, encryption_handler):
     encryption_handler_inst = encryption_handler.return_value
     decrypted_data = bytes([0x01, 0x02, 0x03])
     encryption_handler_inst.extract_data_from_pdu.return_value = (
-        decrypted_data + FRAME_END + bytes([0, 0, 0, 0])  # some padding
+        decrypted_data + FRAME_END + bytes([0, 0, 0, 0])  # some padding at the end
     )
 
     encrypted_frame_length = 0xAA
     reader.read.side_effect = [
-        bytes([encrypted_frame_length]),  # data length to read
+        bytes([encrypted_frame_length]),
         b"some_encrypted_data",
     ]
 
@@ -224,7 +224,7 @@ async def test_read_encrypted_no_frame_end(reader_writer, encryption_handler):
 
     encrypted_frame_length = 0xAA
     reader.read.side_effect = [
-        bytes([encrypted_frame_length]),  # data length to read
+        bytes([encrypted_frame_length]),
         b"some_encrypted_data",
     ]
 

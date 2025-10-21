@@ -2,7 +2,8 @@ import asyncio
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch, PropertyMock
 from satel_integra.connection import SatelConnection
-import satel_integra.connection
+from satel_integra.const import FRAME_END
+
 
 @pytest.fixture
 def reader_writer(monkeypatch):
@@ -12,6 +13,15 @@ def reader_writer(monkeypatch):
         asyncio, "open_connection", AsyncMock(return_value=(reader, writer))
     )
     yield reader, writer
+
+
+@pytest.fixture
+def encryption_handler():
+    with patch(
+        "satel_integra.connection.EncryptedCommunicationHandler", autospec=True
+    ) as mock:
+        yield mock
+
 
 @pytest.mark.asyncio
 async def test_connect_success(monkeypatch):
@@ -147,7 +157,7 @@ async def test_ensure_connected_reconnect(monkeypatch):
 @pytest.mark.asyncio
 async def test_close_success(reader_writer):
     _, writer = reader_writer
-    writer.is_closing = MagicMock(return_value = False)
+    writer.is_closing = MagicMock(return_value=False)
 
     conn = SatelConnection("h", 1)
     await conn.connect()
@@ -170,3 +180,69 @@ async def test_close_already_closed():
     conn = SatelConnection("h", 1)
     conn.closed = True
     await conn.close()  # should not raise or call anything
+
+
+@pytest.mark.asyncio
+async def test_read_encrypted(reader_writer, encryption_handler):
+    reader, _ = reader_writer
+    conn = SatelConnection("h", 1, integration_key="some_key")
+    await conn.connect()
+
+    encryption_handler.assert_called_once_with("some_key")
+
+    encryption_handler_inst = encryption_handler.return_value
+    decrypted_data = bytes([0x01, 0x02, 0x03])
+    encryption_handler_inst.extract_data_from_pdu.return_value = (
+        decrypted_data + FRAME_END + bytes([0, 0, 0, 0])  # some padding
+    )
+
+    encrypted_frame_length = 0xAA
+    reader.read.side_effect = [
+        bytes([encrypted_frame_length]),  # data length to read
+        b"some_encrypted_data",
+    ]
+
+    result = await conn.read_frame()
+    assert result == decrypted_data + FRAME_END
+    reader.read.assert_awaited_with(encrypted_frame_length)
+    encryption_handler_inst.extract_data_from_pdu.assert_called_with(
+        b"some_encrypted_data"
+    )
+
+
+@pytest.mark.asyncio
+async def test_read_encrypted_no_frame_end(reader_writer, encryption_handler):
+    reader, _ = reader_writer
+    conn = SatelConnection("h", 1, integration_key="some_key")
+    await conn.connect()
+
+    encryption_handler_inst = encryption_handler.return_value
+    decrypted_data_without_frame_end = bytes([0x01, 0x02, 0x03])
+    encryption_handler_inst.extract_data_from_pdu.return_value = (
+        decrypted_data_without_frame_end
+    )
+
+    encrypted_frame_length = 0xAA
+    reader.read.side_effect = [
+        bytes([encrypted_frame_length]),  # data length to read
+        b"some_encrypted_data",
+    ]
+
+    result = await conn.read_frame()
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_write_encrypted(reader_writer, encryption_handler):
+    _, writer = reader_writer
+    conn = SatelConnection("h", 1, integration_key="some_key")
+    await conn.connect()
+
+    encryption_handler_inst = encryption_handler.return_value
+    encrypted_data = b"some_encrypted_data"
+    encryption_handler_inst.prepare_pdu.return_value = encrypted_data
+
+    result = await conn.send_frame(b"some_plain_data")
+    assert result
+    encryption_handler_inst.prepare_pdu.assert_called_with(b"some_plain_data")
+    writer.write.assert_called_once_with(bytes([len(encrypted_data)]) + encrypted_data)

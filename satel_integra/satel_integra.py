@@ -35,7 +35,14 @@ class AsyncSatel:
     """Asynchronous interface to talk to Satel Integra alarm system."""
 
     def __init__(
-        self, host, port, loop, monitored_zones=[], monitored_outputs=[], partitions=[], integration_key=''
+        self,
+        host,
+        port,
+        loop,
+        monitored_zones=[],
+        monitored_outputs=[],
+        partitions=[],
+        integration_key="",
     ):
         """Init the Satel alarm data."""
         self._connection = SatelConnection(host, port, integration_key=integration_key)
@@ -372,7 +379,7 @@ class AsyncSatel:
     # endregion
 
 
-def demo(host, port, integration_key=''):
+def demo(host, port, integration_key=""):
     """Basic demo of the monitoring capabilities."""
     # logging.basicConfig(level=logging.DEBUG)
 

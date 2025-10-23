@@ -1,13 +1,10 @@
-# -*- coding: utf-8 -*-
 import os
-from typing import List
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
 BLOCK_LENGTH = 16
 
 
 class SatelEncryption:
-
     """Encryptor and decryptor for Satel integration protocol.
 
     :param integration_key: Satel integration key to be used for encrypting and decrypting data.
@@ -27,16 +24,18 @@ class SatelEncryption:
         :returns: encryption key
 
         """
-        integration_key_bytes = bytes(integration_key, 'ascii')
+        integration_key_bytes = bytes(integration_key, "ascii")
         key = [0] * 24
         for i in range(12):
-            key[i] = key[i + 12] = integration_key_bytes[i] if len(integration_key_bytes) > i else 0x20
+            key[i] = key[i + 12] = (
+                integration_key_bytes[i] if len(integration_key_bytes) > i else 0x20
+            )
         return bytes(key)
 
     @classmethod
-    def _bytes_to_blocks(cls, message: bytes, block_len: int) -> List[bytes]:
+    def _bytes_to_blocks(cls, message: bytes, block_len: int) -> list[bytes]:
         """Split message into list of blocks of equal length."""
-        return [message[i:i + block_len] for i in range(0, len(message), block_len)]
+        return [message[i : i + block_len] for i in range(0, len(message), block_len)]
 
     def encrypt(self, data: bytes) -> bytes:
         """Encrypt protocol data unit.
@@ -47,7 +46,7 @@ class SatelEncryption:
 
         """
         if len(data) < BLOCK_LENGTH:
-            data += b'\x00' * (BLOCK_LENGTH - len(data))
+            data += b"\x00" * (BLOCK_LENGTH - len(data))
         encrypted_data = []
         encryptor = self.cipher.encryptor()
         cv = [0] * BLOCK_LENGTH
@@ -92,7 +91,6 @@ class SatelEncryption:
 
 
 class EncryptedCommunicationHandler:
-
     """Handler for Satel encrypted communications.
 
     :param integration_key: Satel integration key to be used for encrypting and decrypting data.
@@ -111,10 +109,12 @@ class EncryptedCommunicationHandler:
         self._satel_encryption = SatelEncryption(integration_key)
 
     def _prepare_header(self) -> bytes:
-        header = (os.urandom(2) +
-                  self._rolling_counter.to_bytes(2, 'big') +
-                  self._id_s.to_bytes(1, 'big') +
-                  self._id_r.to_bytes(1, 'big'))
+        header = (
+            os.urandom(2)
+            + self._rolling_counter.to_bytes(2, "big")
+            + self._id_s.to_bytes(1, "big")
+            + self._id_r.to_bytes(1, "big")
+        )
         self._rolling_counter += 1
         self._rolling_counter &= 0xFFFF
         self._id_s = header[4]
@@ -146,6 +146,7 @@ class EncryptedCommunicationHandler:
         self._id_r = header[4]
         if (self._id_s & 0xFF) != decrypted_pdu[5]:
             raise RuntimeError(
-                f'Incorrect value of ID_S, received \\x{decrypted_pdu[5]:x} but expected \\x{self._id_s:x}\n'
-                'Decrypted data: %s' % ''.join('\\x{:02x}'.format(x) for x in decrypted_pdu))
+                f"Incorrect value of ID_S, received \\x{decrypted_pdu[5]:x} but expected \\x{self._id_s:x}\n"
+                "Decrypted data: %s" % "".join(f"\\x{x:02x}" for x in decrypted_pdu)
+            )
         return bytes(data)

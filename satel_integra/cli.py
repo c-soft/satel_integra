@@ -14,7 +14,9 @@ from satel_integra.satel_integra import demo
 )
 @click.option("--port", default=7094, help="Port number of the Satel Integra.")
 @click.option("--loglevel", default="DEBUG", help="Logging level (python names).")
-@click.option('--integration_key', default='', help='Integration key for encrypted communication.')
+@click.option(
+    "--integration_key", default="", help="Integration key for encrypted communication."
+)
 def main(port, ip, command, loglevel, integration_key):
     """Console script for satel_integra."""
     numeric_level = getattr(logging, loglevel.upper(), None)

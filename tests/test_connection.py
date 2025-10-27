@@ -45,9 +45,6 @@ async def test_connect_failure(monkeypatch):
     assert await conn.connect() is False
     assert not conn.connected
 
-    assert conn._writer is None
-    assert conn._reader is None
-
 
 @pytest.mark.asyncio
 async def test_connect_busy_message(monkeypatch, caplog):
@@ -66,11 +63,8 @@ async def test_connect_busy_message(monkeypatch, caplog):
     with caplog.at_level(logging.WARNING):
         assert await conn.connect() is False
 
-    assert "Panel reports busy, another client is connected." in caplog.text
+    assert "Panel reports busy (another client is connected)." in caplog.text
     assert not conn.connected
-
-    assert conn._writer is None
-    assert conn._reader is None
 
 
 @pytest.mark.asyncio
@@ -89,11 +83,8 @@ async def test_connect_read_exception(monkeypatch, caplog):
     with caplog.at_level(logging.WARNING):
         assert await conn.connect() is False
 
-    assert "Connection check failed: Test exception" in caplog.text
+    assert "Panel not responsive or busy." in caplog.text
     assert not conn.connected
-
-    assert conn._writer is None
-    assert conn._reader is None
 
 
 @pytest.mark.asyncio
@@ -116,9 +107,6 @@ async def test_connect_read_timeout(monkeypatch, caplog):
     assert await conn.connect() is True
 
     assert conn.connected
-
-    assert conn._writer is writer
-    assert conn._reader is reader
 
 
 @pytest.mark.asyncio

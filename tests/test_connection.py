@@ -1,7 +1,26 @@
 import asyncio
 import pytest
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch, PropertyMock
 from satel_integra.connection import SatelConnection
+from satel_integra.const import FRAME_END
+
+
+@pytest.fixture
+def reader_writer(monkeypatch):
+    reader = AsyncMock()
+    writer = AsyncMock()
+    monkeypatch.setattr(
+        asyncio, "open_connection", AsyncMock(return_value=(reader, writer))
+    )
+    yield reader, writer
+
+
+@pytest.fixture
+def encryption_handler():
+    with patch(
+        "satel_integra.connection.EncryptedCommunicationHandler", autospec=True
+    ) as mock:
+        yield mock
 
 
 @pytest.mark.asyncio
@@ -34,13 +53,11 @@ async def test_connect_skipped_when_closed():
 
 
 @pytest.mark.asyncio
-async def test_send_frame_success(monkeypatch):
-    writer = MagicMock()
-    writer.write = MagicMock()
-    writer.drain = AsyncMock()
+async def test_send_frame_success(reader_writer):
+    _, writer = reader_writer
 
     conn = SatelConnection("host", 1)
-    conn._writer = writer
+    await conn.connect()
     frame = b"abc"
     result = await conn.send_frame(frame)
     assert result
@@ -56,25 +73,26 @@ async def test_send_frame_not_connected():
 
 
 @pytest.mark.asyncio
-async def test_send_frame_failure(monkeypatch):
-    writer = MagicMock()
-    writer.write = MagicMock()
+async def test_send_frame_failure(reader_writer):
+    _, writer = reader_writer
+
     writer.drain.side_effect = Exception("fail")
     conn = SatelConnection("h", 1)
-    conn._writer = writer
+    await conn.connect()
+    assert conn.connected
     result = await conn.send_frame(b"x")
     assert not result
-    assert conn._writer is None
+    assert not conn.connected
 
 
 @pytest.mark.asyncio
-async def test_read_frame_success(monkeypatch):
+async def test_read_frame_success(reader_writer):
+    reader, _ = reader_writer
     from satel_integra.const import FRAME_END
 
-    reader = AsyncMock()
     reader.readuntil.return_value = b"data" + FRAME_END
     conn = SatelConnection("h", 1)
-    conn._reader = reader
+    await conn.connect()
     frame = await conn.read_frame()
     assert frame is not None
     assert frame.endswith(FRAME_END)
@@ -89,65 +107,60 @@ async def test_read_frame_not_connected():
 
 
 @pytest.mark.asyncio
-async def test_read_frame_failure(monkeypatch):
-    reader = AsyncMock()
+async def test_read_frame_failure(reader_writer):
+    reader, _ = reader_writer
     reader.readuntil.side_effect = Exception("boom")
     conn = SatelConnection("h", 1)
-    conn._reader = reader
-    conn._writer = AsyncMock()
+    await conn.connect()
+    assert conn.connected
     result = await conn.read_frame()
     assert result is None
-    assert conn._reader is None
-    assert conn._writer is None
+    assert not conn.connected
 
 
 @pytest.mark.asyncio
-async def test_read_frame_timeout():
+async def test_read_frame_timeout(reader_writer):
+    reader, _ = reader_writer
+    reader.readuntil.side_effect = asyncio.TimeoutError()
     conn = SatelConnection("host", 1234)
-    conn._reader = AsyncMock()
-    conn._reader.readuntil.side_effect = asyncio.TimeoutError()
+    await conn.connect()
 
     result = await conn.read_frame()
     assert result is None
+    reader.readuntil.assert_awaited_once()
     assert not conn.connected  # Should disconnect on timeout
 
 
 @pytest.mark.asyncio
-async def test_ensure_connected_already_connected():
+async def test_ensure_connected_already_connected(reader_writer):
     conn = SatelConnection("h", 1)
-    conn._reader = AsyncMock()
-    conn._writer = AsyncMock()
+    await conn.connect()
+    conn.connect = AsyncMock()
     assert await conn.ensure_connected() is True
+    conn.connect.assert_not_awaited()
 
 
 @pytest.mark.asyncio
 async def test_ensure_connected_reconnect(monkeypatch):
+    mock_connected = PropertyMock(side_effect=[False, False, False, True, True])
+    monkeypatch.setattr(SatelConnection, "connected", mock_connected)
+    mock_connect = AsyncMock()
+    monkeypatch.setattr(SatelConnection, "connect", mock_connect)
     conn = SatelConnection("h", 1, reconnection_timeout=0)
-    calls = 0
 
-    async def fake_connect():
-        nonlocal calls
-        calls += 1
-        if calls < 2:
-            return False
-        conn._reader, conn._writer = AsyncMock(), AsyncMock()
-        return True
-
-    conn.connect = fake_connect
     result = await conn.ensure_connected()
     assert result
-    assert calls == 2
+    assert mock_connect.await_count == 2
+    assert mock_connected.call_count == 5
 
 
 @pytest.mark.asyncio
-async def test_close_success(monkeypatch):
-    writer = MagicMock()
-    writer.is_closing.return_value = False
-    writer.close = MagicMock()
-    writer.wait_closed = AsyncMock()
+async def test_close_success(reader_writer):
+    _, writer = reader_writer
+    writer.is_closing = MagicMock(return_value=False)
 
     conn = SatelConnection("h", 1)
-    conn._reader, conn._writer = AsyncMock(), writer
+    await conn.connect()
 
     # Verify initial state
     assert not conn.closed
@@ -159,8 +172,7 @@ async def test_close_success(monkeypatch):
     writer.close.assert_called_once()
     writer.wait_closed.assert_awaited_once()
 
-    assert conn._reader is None
-    assert conn._writer is None
+    assert not conn.connected
 
 
 @pytest.mark.asyncio
@@ -168,3 +180,69 @@ async def test_close_already_closed():
     conn = SatelConnection("h", 1)
     conn.closed = True
     await conn.close()  # should not raise or call anything
+
+
+@pytest.mark.asyncio
+async def test_read_encrypted(reader_writer, encryption_handler):
+    reader, _ = reader_writer
+    conn = SatelConnection("h", 1, integration_key="some_key")
+    await conn.connect()
+
+    encryption_handler.assert_called_once_with("some_key")
+
+    encryption_handler_inst = encryption_handler.return_value
+    decrypted_data = bytes([0x01, 0x02, 0x03])
+    encryption_handler_inst.extract_data_from_pdu.return_value = (
+        decrypted_data + FRAME_END + bytes([0, 0, 0, 0])  # some padding at the end
+    )
+
+    encrypted_frame_length = 0xAA
+    reader.read.side_effect = [
+        bytes([encrypted_frame_length]),
+        b"some_encrypted_data",
+    ]
+
+    result = await conn.read_frame()
+    assert result == decrypted_data + FRAME_END
+    reader.read.assert_awaited_with(encrypted_frame_length)
+    encryption_handler_inst.extract_data_from_pdu.assert_called_with(
+        b"some_encrypted_data"
+    )
+
+
+@pytest.mark.asyncio
+async def test_read_encrypted_no_frame_end(reader_writer, encryption_handler):
+    reader, _ = reader_writer
+    conn = SatelConnection("h", 1, integration_key="some_key")
+    await conn.connect()
+
+    encryption_handler_inst = encryption_handler.return_value
+    decrypted_data_without_frame_end = bytes([0x01, 0x02, 0x03])
+    encryption_handler_inst.extract_data_from_pdu.return_value = (
+        decrypted_data_without_frame_end
+    )
+
+    encrypted_frame_length = 0xAA
+    reader.read.side_effect = [
+        bytes([encrypted_frame_length]),
+        b"some_encrypted_data",
+    ]
+
+    result = await conn.read_frame()
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_write_encrypted(reader_writer, encryption_handler):
+    _, writer = reader_writer
+    conn = SatelConnection("h", 1, integration_key="some_key")
+    await conn.connect()
+
+    encryption_handler_inst = encryption_handler.return_value
+    encrypted_data = b"some_encrypted_data"
+    encryption_handler_inst.prepare_pdu.return_value = encrypted_data
+
+    result = await conn.send_frame(b"some_plain_data")
+    assert result
+    encryption_handler_inst.prepare_pdu.assert_called_with(b"some_plain_data")
+    writer.write.assert_called_once_with(bytes([len(encrypted_data)]) + encrypted_data)

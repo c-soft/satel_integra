@@ -4,44 +4,34 @@ import asyncio
 import logging
 
 from satel_integra.const import FRAME_END
+from satel_integra.encryption import EncryptedCommunicationHandler
 
 _LOGGER = logging.getLogger(__name__)
 
 
-class SatelConnection:
-    """Manages TCP connection and I/O for the Satel Integra panel."""
+class PlainConnection:
+    """Plain data writer and reader."""
 
-    def __init__(self, host: str, port: int, reconnection_timeout: int = 15) -> None:
+    def __init__(self, host: str, port: int) -> None:
         self._host = host
         self._port = port
         self._reader: asyncio.StreamReader | None = None
         self._writer: asyncio.StreamWriter | None = None
-        self.closed = False
-        self._reconnection_timeout = reconnection_timeout
 
     @property
     def connected(self) -> bool:
         """Return True if connected to the panel."""
         return self._reader is not None and self._writer is not None
 
-    async def connect(self) -> bool:
+    async def connect(self) -> None:
         """Establish TCP connection."""
-        if self.closed:
-            _LOGGER.debug("Connection is closed, skipping connection")
-            return False
-
-        _LOGGER.debug("Connecting to Satel Integra at %s:%s...", self._host, self._port)
         try:
             self._reader, self._writer = await asyncio.open_connection(
                 self._host, self._port
             )
-        except Exception as e:
-            _LOGGER.warning("Connection failed: %s", e)
+        except Exception as exc:
             self._reader, self._writer = None, None
-            return False
-        else:
-            _LOGGER.info("Connected to Satel Integra.")
-            return True
+            raise exc
 
     async def read_frame(self) -> bytes | None:
         """Read a raw frame from the panel."""
@@ -83,6 +73,115 @@ class SatelConnection:
             _LOGGER.debug("Sent raw frame: %s", frame.hex())
             return True
 
+    async def close(self) -> None:
+        """Close the connection gracefully and clean up."""
+        if self._writer and not self._writer.is_closing():
+            try:
+                self._writer.close()
+                await self._writer.wait_closed()
+            except Exception as e:
+                _LOGGER.warning("Exception during close: %s", e)
+
+        self._reader = None
+        self._writer = None
+
+
+class EncryptedConnection(PlainConnection):
+    """Encrypted data writer and reader."""
+
+    def __init__(self, host: str, port: int, integration_key: str) -> None:
+        self._integration_key = integration_key
+        self._encryption_handler: EncryptedCommunicationHandler | None = None
+        super().__init__(host, port)
+
+    async def connect(self) -> None:
+        self._encryption_handler = EncryptedCommunicationHandler(self._integration_key)
+        await super().connect()
+
+    async def read_frame(self) -> bytes | None:
+        """Read encrypted frame end decrypt it."""
+
+        if not self._reader:
+            _LOGGER.warning("Cannot read, not connected.")
+            return None
+
+        # first byte tells about data length
+        data_len = ord(await self._reader.read(1))
+        # read rest of data
+        data = await self._reader.read(data_len)
+        _LOGGER.debug("Encrypted frame: %s", data.hex())
+        decrypted_frame = self._encryption_handler.extract_data_from_pdu(data)
+        _LOGGER.debug("Decrypted frame: %s", decrypted_frame.hex())
+        if FRAME_END in decrypted_frame:
+            # there may be padding after the frame end marker, trim the padding
+            decrypted_frame = decrypted_frame.split(FRAME_END)[0] + FRAME_END
+        else:
+            _LOGGER.warning("Read failed, received frame without frame end marker")
+            self._reader = None
+            self._writer = None
+            return None
+        return decrypted_frame
+
+    async def send_frame(self, frame: bytes) -> bool:
+        """Send a raw frame to the panel."""
+        _LOGGER.debug("Frame before encryption: %s", frame.hex())
+        encrypted_frame = self._encryption_handler.prepare_pdu(frame)
+        encrypted_frame = (
+            len(encrypted_frame)
+        ).to_bytes() + encrypted_frame  # add PDU length at the beginning
+
+        return await super().send_frame(encrypted_frame)
+
+
+class SatelConnection:
+    """Manages TCP connection and I/O for the Satel Integra panel."""
+
+    def __init__(
+        self,
+        host: str,
+        port: int,
+        reconnection_timeout: int = 15,
+        integration_key: str = "",
+    ) -> None:
+        self._host = host
+        self._port = port
+        self.closed = False
+        self._reconnection_timeout = reconnection_timeout
+        self._connection = (
+            EncryptedConnection(host, port, integration_key)
+            if integration_key
+            else PlainConnection(host, port)
+        )
+
+    @property
+    def connected(self) -> bool:
+        """Return True if connected to the panel."""
+        return self._connection.connected
+
+    async def connect(self) -> bool:
+        """Establish TCP connection."""
+        if self.closed:
+            _LOGGER.debug("Connection is closed, skipping connection")
+            return False
+
+        _LOGGER.debug("Connecting to Satel Integra at %s:%s...", self._host, self._port)
+        try:
+            await self._connection.connect()
+        except Exception as exc:
+            _LOGGER.warning("Connection failed: %s", exc)
+            return False
+        else:
+            _LOGGER.info("Connected to Satel Integra.")
+            return True
+
+    async def read_frame(self) -> bytes | None:
+        """Read a raw frame from the panel."""
+        return await self._connection.read_frame()
+
+    async def send_frame(self, frame: bytes) -> bool:
+        """Send a raw frame to the panel."""
+        return await self._connection.send_frame(frame)
+
     async def ensure_connected(self) -> bool:
         """Reconnect automatically if disconnected."""
         if self.connected:
@@ -106,15 +205,5 @@ class SatelConnection:
 
         self.closed = True
         _LOGGER.debug("Closing connection...")
-
-        if self._writer and not self._writer.is_closing():
-            try:
-                self._writer.close()
-                await self._writer.wait_closed()
-            except Exception as e:
-                _LOGGER.warning("Exception during close: %s", e)
-
-        self._reader = None
-        self._writer = None
-
+        await self._connection.close()
         _LOGGER.info("Connection closed cleanly.")

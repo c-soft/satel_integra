@@ -23,15 +23,18 @@ class PlainConnection:
         """Return True if connected to the panel."""
         return self._reader is not None and self._writer is not None
 
-    async def connect(self) -> None:
+    async def connect(self) -> bool:
         """Establish TCP connection."""
         try:
             self._reader, self._writer = await asyncio.open_connection(
                 self._host, self._port
             )
+            _LOGGER.debug("TCP connection established to %s:%s", self._host, self._port)
+            return True
         except Exception as exc:
-            self._reader, self._writer = None, None
-            raise exc
+            _LOGGER.debug("TCP connection failed: %s", exc)
+            self._reader = self._writer = None
+            return False
 
     async def check_connection(self) -> bool:
         """Check if the connection is valid and the panel is responsive."""
@@ -45,26 +48,20 @@ class PlainConnection:
 
             # Satel returns a string starting with "Busy" when another client is connected
             if b"Busy" in data:
-                _LOGGER.warning("Panel reports busy, another client is connected.")
-                self._writer.close()
-                await self._writer.wait_closed()
-                self._writer = self._reader = None
+                _LOGGER.warning("Panel reports busy (another client is connected).")
+                await self.close()
                 return False
-            else:
-                # We assume any other data is fine, but we log it for debugging reasons
-                _LOGGER.debug("Received data after connect: %s", data)
-        except TimeoutError:
+
+            # We assume any other data is fine, but we log it for debugging reasons
+            _LOGGER.debug("Received data after connect: %s", data)
+        except asyncio.TimeoutError:
             # Timeout is fine, it means we can actually read data
             pass
-        except Exception as e:
-            _LOGGER.warning("Connection check failed: %s", e)
-
-            self._writer.close()
-            await self._writer.wait_closed()
-            self._writer = self._reader = None
+        except Exception as exc:
+            _LOGGER.debug("Connection check failed: %s", exc)
+            await self.close()
             return False
 
-        _LOGGER.info("Connected to Satel Integra.")
         return True
 
     async def read_frame(self) -> bytes | None:
@@ -193,12 +190,18 @@ class SatelConnection:
             return False
 
         _LOGGER.debug("Connecting to Satel Integra at %s:%s...", self._host, self._port)
-        try:
-            await self._connection.connect()
-            await self._connection.check_connection()
-        except Exception as exc:
-            _LOGGER.warning("Connection failed: %s", exc)
+
+        if not await self._connection.connect():
+            _LOGGER.warning("Unable to establish TCP connection.")
             return False
+
+        _LOGGER.debug("TCP connection established, verifying panel responsiveness...")
+
+        if not await self._connection.check_connection():
+            _LOGGER.warning("Panel not responsive or busy.")
+            await self._connection.close()
+            return False
+
         else:
             _LOGGER.info("Connected to Satel Integra.")
             return True

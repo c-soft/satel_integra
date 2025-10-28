@@ -42,7 +42,7 @@ class AsyncSatel:
         monitored_zones=[],
         monitored_outputs=[],
         partitions=[],
-        integration_key="",
+        integration_key=None,
     ):
         """Init the Satel alarm data."""
         self._connection = SatelConnection(host, port, integration_key=integration_key)
@@ -379,7 +379,7 @@ class AsyncSatel:
     # endregion
 
 
-def demo(host, port, integration_key=""):
+def demo(host, port, integration_key):
     """Basic demo of the monitoring capabilities."""
     # logging.basicConfig(level=logging.DEBUG)
 
@@ -417,7 +417,7 @@ def demo(host, port, integration_key=""):
             30,
         ],
         [8, 9, 10],
-        integration_key=integration_key,
+        integration_key,
     )
 
     loop.run_until_complete(stl.connect())

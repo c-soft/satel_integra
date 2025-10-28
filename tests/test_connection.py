@@ -1,8 +1,6 @@
-import asyncio
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch, PropertyMock
+from unittest.mock import AsyncMock, MagicMock, PropertyMock
 from satel_integra.connection import SatelConnection
-from satel_integra.const import FRAME_END
 
 
 @pytest.fixture
@@ -82,7 +80,7 @@ async def test_ensure_connected_already_connected(mock_connection, mock_transpor
 
 @pytest.mark.asyncio
 async def test_ensure_connected_reconnect(mock_connection, mock_transport):
-    type(mock_connection).connected = PropertyMock(
+    type(mock_transport).connected = PropertyMock(
         side_effect=[False, False, False, True, True]
     )
 
@@ -94,8 +92,8 @@ async def test_ensure_connected_reconnect(mock_connection, mock_transport):
 
 @pytest.mark.asyncio
 async def test_close_success(mock_connection, mock_transport):
-    assert mock_connection.closed is False
-    assert mock_connection.connected is True
+    assert mock_transport.closed is False
+    assert mock_transport.connected is True
 
     await mock_connection.close()
 

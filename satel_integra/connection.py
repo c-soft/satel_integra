@@ -23,15 +23,46 @@ class PlainConnection:
         """Return True if connected to the panel."""
         return self._reader is not None and self._writer is not None
 
-    async def connect(self) -> None:
+    async def connect(self) -> bool:
         """Establish TCP connection."""
         try:
             self._reader, self._writer = await asyncio.open_connection(
                 self._host, self._port
             )
+            _LOGGER.debug("TCP connection established to %s:%s", self._host, self._port)
+            return True
         except Exception as exc:
-            self._reader, self._writer = None, None
-            raise exc
+            _LOGGER.debug("TCP connection failed: %s", exc)
+            self._reader = self._writer = None
+            return False
+
+    async def check_connection(self) -> bool:
+        """Check if the connection is valid and the panel is responsive."""
+        if not self._reader or not self._writer:
+            _LOGGER.warning("Cannot check connection, not connected.")
+            return False
+
+        try:
+            # Try reading to end of file
+            data = await asyncio.wait_for(self._reader.read(-1), timeout=0.1)
+
+            # Satel returns a string starting with "Busy" when another client is connected
+            if b"Busy" in data:
+                _LOGGER.warning("Panel reports busy (another client is connected).")
+                await self.close()
+                return False
+
+            # We assume any other data is fine, but we log it for debugging reasons
+            _LOGGER.debug("Received data after connect: %s", data)
+        except asyncio.TimeoutError:
+            # Timeout is fine, it means we can actually read data
+            pass
+        except Exception as exc:
+            _LOGGER.debug("Connection check failed: %s", exc)
+            await self.close()
+            return False
+
+        return True
 
     async def read_frame(self) -> bytes | None:
         """Read a raw frame from the panel."""
@@ -43,17 +74,15 @@ class PlainConnection:
             frame = await self._reader.readuntil(FRAME_END)
         except asyncio.IncompleteReadError:
             _LOGGER.debug("Incomplete read due to connection closing")
-            self._reader = None
-            self._writer = None
-            return None
         except Exception as e:
             _LOGGER.warning("Read failed: %s", e)
-            self._reader = None
-            self._writer = None
-            return None
         else:
             _LOGGER.debug("Received raw frame: %s", frame.hex())
             return frame
+
+        self._reader = None
+        self._writer = None
+        return None
 
     async def send_frame(self, frame: bytes) -> bool:
         """Send a raw frame to the panel."""
@@ -91,12 +120,8 @@ class EncryptedConnection(PlainConnection):
 
     def __init__(self, host: str, port: int, integration_key: str) -> None:
         self._integration_key = integration_key
-        self._encryption_handler: EncryptedCommunicationHandler | None = None
-        super().__init__(host, port)
-
-    async def connect(self) -> None:
         self._encryption_handler = EncryptedCommunicationHandler(self._integration_key)
-        await super().connect()
+        super().__init__(host, port)
 
     async def read_frame(self) -> bytes | None:
         """Read encrypted frame end decrypt it."""
@@ -165,11 +190,18 @@ class SatelConnection:
             return False
 
         _LOGGER.debug("Connecting to Satel Integra at %s:%s...", self._host, self._port)
-        try:
-            await self._connection.connect()
-        except Exception as exc:
-            _LOGGER.warning("Connection failed: %s", exc)
+
+        if not await self._connection.connect():
+            _LOGGER.warning("Unable to establish TCP connection.")
             return False
+
+        _LOGGER.debug("TCP connection established, verifying panel responsiveness...")
+
+        if not await self._connection.check_connection():
+            _LOGGER.warning("Panel not responsive or busy.")
+            await self._connection.close()
+            return False
+
         else:
             _LOGGER.info("Connected to Satel Integra.")
             return True

@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch, PropertyMock
 from satel_integra.connection import SatelConnection
@@ -43,6 +44,69 @@ async def test_connect_failure(monkeypatch):
     conn = SatelConnection("localhost", 1234)
     assert await conn.connect() is False
     assert not conn.connected
+
+
+@pytest.mark.asyncio
+async def test_connect_busy_message(monkeypatch, caplog):
+    reader, writer = AsyncMock(), MagicMock()
+    writer.close = MagicMock()
+    writer.wait_closed = AsyncMock()
+
+    reader.read.return_value = b"\x10Busy!\r\n\xd8\xa5\xa5\xa5\xa5\xa5\xa5\xa5"
+
+    monkeypatch.setattr(
+        asyncio, "open_connection", AsyncMock(return_value=(reader, writer))
+    )
+
+    conn = SatelConnection("localhost", 1234)
+
+    with caplog.at_level(logging.WARNING):
+        assert await conn.connect() is False
+
+    assert "Panel reports busy (another client is connected)." in caplog.text
+    assert not conn.connected
+
+
+@pytest.mark.asyncio
+async def test_connect_read_exception(monkeypatch, caplog):
+    reader, writer = AsyncMock(), MagicMock()
+    writer.close = MagicMock()
+    writer.wait_closed = AsyncMock()
+    reader.read = AsyncMock(side_effect=Exception("Test exception"))
+
+    monkeypatch.setattr(
+        asyncio, "open_connection", AsyncMock(return_value=(reader, writer))
+    )
+
+    conn = SatelConnection("localhost", 1234)
+
+    with caplog.at_level(logging.WARNING):
+        assert await conn.connect() is False
+
+    assert "Panel not responsive or busy." in caplog.text
+    assert not conn.connected
+
+
+@pytest.mark.asyncio
+async def test_connect_read_timeout(monkeypatch, caplog):
+    async def long_read(length):
+        await asyncio.sleep(999)
+        return ""
+
+    reader, writer = AsyncMock(), MagicMock()
+    reader.read = AsyncMock(side_effect=long_read)
+    writer.close = MagicMock()
+    writer.wait_closed = AsyncMock()
+
+    monkeypatch.setattr(
+        asyncio, "open_connection", AsyncMock(return_value=(reader, writer))
+    )
+
+    conn = SatelConnection("localhost", 1234)
+
+    assert await conn.connect() is True
+
+    assert conn.connected
 
 
 @pytest.mark.asyncio

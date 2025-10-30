@@ -218,6 +218,16 @@ async def test_write_encrypted(encryption_handler, mock_encrypted_transport):
     encrypted_data = b"some_encrypted_data"
     encryption_handler_inst.prepare_pdu.return_value = encrypted_data
 
+    with patch(
+        "satel_integra.transport.SatelBaseTransport.connect",
+        new=AsyncMock(return_value=True),
+    ) as base_connect_mock:
+        await mock_encrypted_transport.connect()
+
+    base_connect_mock.assert_awaited_once()
+
+    assert mock_encrypted_transport._encryption_handler is not None
+
     result = await mock_encrypted_transport.send_frame(b"some_plain_data")
     assert result
     encryption_handler_inst.prepare_pdu.assert_called_with(b"some_plain_data")

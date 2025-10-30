@@ -50,6 +50,8 @@ class AsyncSatel:
         self._reading_task: asyncio.Task | None = None
 
         self._loop = loop
+        self._keepalive_task: asyncio.Task | None = None
+
         self._monitored_zones = monitored_zones
         self.violated_zones = []
         self._monitored_outputs = monitored_outputs
@@ -193,7 +195,24 @@ class AsyncSatel:
         if self._alarm_status_callback:
             self._alarm_status_callback()
 
-    async def keep_alive(self):
+    # region Core logic
+    async def start(self, enable_monitoring=True):
+        """Start the client, including queue, reading loop and keepalive."""
+        await self._connection.ensure_connected()
+
+        await self._queue.start()
+
+        # Start background loops
+        if not self._reading_task or self._reading_task.done():
+            self._reading_task = asyncio.create_task(self._reading_loop())
+
+        if not self._keepalive_task or self._keepalive_task.done():
+            self._keepalive_task = asyncio.create_task(self._keepalive_loop())
+
+        if enable_monitoring:
+            await self.start_monitoring()
+
+    async def _keepalive_loop(self):
         """A workaround for Satel Integra disconnecting after 25s.
 
         Every interval it sends some random question to the device, ignoring
@@ -232,32 +251,23 @@ class AsyncSatel:
         except Exception as ex:
             _LOGGER.exception("Error in _reading_loop loop, %s", ex)
 
-    async def monitor_status(
+    async def register_callbacks(
         self,
-        alarm_status_callback=None,
-        zone_changed_callback=None,
-        output_changed_callback=None,
+        alarm_status_callback: Callable[[], None] | None = None,
+        zone_changed_callback: Callable[[dict[int, int]], None] | None = None,
+        output_changed_callback: Callable[[dict[int, int]], None] | None = None,
     ):
-        """Start monitoring of the alarm status.
+        """Register callback handlers for events."""
+        if alarm_status_callback:
+            self._alarm_status_callback = alarm_status_callback
+        if zone_changed_callback:
+            self._zone_changed_callback = zone_changed_callback
+        if output_changed_callback:
+            self._output_changed_callback = output_changed_callback
 
-        Send command to satel integra to start sending updates. Read in a
-        loop and call respective callbacks when received messages.
-        """
-        self._alarm_status_callback = alarm_status_callback
-        self._zone_changed_callback = zone_changed_callback
-        self._output_changed_callback = output_changed_callback
+    # endregion
 
-        _LOGGER.info("Starting monitor_status loop")
-
-        await self._connection.ensure_connected()
-        await self._queue.start()
-
-        if not self._reading_task or self._reading_task.done():
-            self._reading_task = asyncio.create_task(self._reading_loop())
-
-        await self.start_monitoring()
-
-    # region Write Actions
+    # region Write actions
     async def arm(self, code, partition_list, mode=0):
         """Send arming command to the alarm. Modes allowed: from 0 till 3."""
         _LOGGER.debug("Sending arm command, mode: %s!", mode)
@@ -373,6 +383,14 @@ class AsyncSatel:
             except asyncio.CancelledError:
                 pass
             self._reading_task = None
+
+        if self._keepalive_task:
+            self._keepalive_task.cancel()
+            try:
+                await self._keepalive_task
+            except asyncio.CancelledError:
+                pass
+            self._keepalive_task = None
 
         await self._connection.close()
 

@@ -190,6 +190,12 @@ async def test_close_already_closed(mock_transport):
 
 @pytest.mark.asyncio
 async def test_read_encrypted(encryption_handler, mock_encrypted_transport):
+    with patch(
+        "satel_integra.transport.SatelBaseTransport.connect",
+        new=AsyncMock(return_value=True),
+    ):
+        await mock_encrypted_transport.connect()
+
     encryption_handler.assert_called_once_with("some_key")
 
     encryption_handler_inst = encryption_handler.return_value

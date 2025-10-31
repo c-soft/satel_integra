@@ -5,8 +5,8 @@ from satel_integra import AsyncSatel
 import logging
 
 
-async def main(host: str, port: int) -> None:
-    """Basic demo of the connection."""
+async def main(host: str, port: int, integration_key: str) -> None:
+    """Basic demo of the connection. using encryption"""
     logging.getLogger().setLevel(logging.DEBUG)
 
     zones = [1, 2, 5]
@@ -19,6 +19,7 @@ async def main(host: str, port: int) -> None:
         monitored_zones=zones,
         monitored_outputs=outputs,
         partitions=partitions,
+        integration_key=integration_key,
     )
 
     await satel.connect()
@@ -40,4 +41,4 @@ async def main(host: str, port: int) -> None:
 
 
 if __name__ == "__main__":
-    asyncio.run(main("192.168.2.230", 7094))
+    asyncio.run(main("192.168.2.230", 7094, "mykey"))

@@ -1,213 +1,228 @@
-#!/usr/bin/env python
-
-"""Tests for `satel_integra` package."""
+import asyncio
+import logging
+from unittest.mock import AsyncMock, MagicMock, PropertyMock
 
 import pytest
 
-# from click.testing import CliRunner
-
-# from satel_integra import cli
-from unittest import TestCase
-
-# import unittest
-# from unittest.mock import MagicMock
+from satel_integra.satel_integra import AlarmState, AsyncSatel
 
 
 @pytest.fixture
-def response():
-    """Sample pytest fixture.
-
-    See more at: http://doc.pytest.org/en/latest/fixture.html
-    """
-    # import requests
-    # return requests.get('https://github.com/audreyr/cookiecutter-pypackage')
+def mock_connection():
+    conn = AsyncMock()
+    conn.connected = True
+    conn.closed = False
+    return conn
 
 
-def test_command_line_interface():
-    """Test the CLI."""
-    # runner = CliRunner()
-    # result = runner.invoke(cli.main)
-    # assert result.exit_code == 0
-    # assert 'satel_integra.cli.main' in result.output
-    # help_result = runner.invoke(cli.main, ['--help'])
-    # assert help_result.exit_code == 0
-    #    assert '--help  Show this message and exit.' in help_result.output
-    pass
+@pytest.fixture
+def mock_queue():
+    queue = AsyncMock()
+    return queue
 
 
-test_frames = {
-    "Version query": b"\xfe\xfe\x7e\xd8\x60\xfe\x0d",
-    "Version response": b"\xfe\xfe\x7e\x03\x31\x31\x36\x32\x30\x31\x36\x30"
-    b"\x37\x31\x35\x00\x00\x02\x48\xfe\x0d",
-    "Time query": b"\xfe\xfe\x1a\xd7\xfc\xfe\x0d",
-    "Time response": b"\xfe\xfe\x1a\x20\x17\x08\x07\x23\x59\x22\x00\xa3\x34"
-    b"\x70\xfe\x0d",
-    "Name query": b"\xfe\xfe\xee\x00\x01\x63\x0a\xfe\x0d",
-    "Name response": b"\xfe\xfe\xee\x00\x01\x00\x53\x74\x72\x65\x66\x61\x20"
-    b"\x20\x31\x20\x20\x20\x20\x20\x20\x20\x5d\x20\xfe\x0d",
-    "Start monitoring arm state": b"\xfe\xfe\x7f\x00\x02\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xa7"
-    b"\xa9\xfe\x0d",
-    "Response OK to start monitoring": b"\xfe\xfe\xef\xff\x4f\xa9\xfe\x0d",
-    "First partition armed": b"\xfe\xfe\x09\x01\x00\x00\x00\x7d\xac\xfe\x0d",
-    "First partition disarmed": b"\xfe\xfe\x09\x00\x00\x00\x00\x7d\xb4\xfe\x0d",
-    "Output status query": b"\xfe\xfe\x17\xd7\xf9\xfe\x0d",
-    "Output status active 16 and 256": b"\xfe\xfe\x17\x00\x80\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
-    b"\x00\x00\x80\x22\xd8\xfe\x0d",
-    "Arm0 query": b"\xfe\xfe\x80\x11\x11\xff\xff\xff\xff\xff\xff\x01\x00"
-    b"\x00\x00\x15\x40\xfe\x0d",
-    "Arm0 response": b"\xfe\xfe\xef\x00\x4e\xaa\xfe\x0d",
-    "Armed partitions query": b"\xfe\xfe\x0a\xd7\xec\xfe\x0d",
-    "Armed partitions response": b"\xfe\xfe\x0a\x01\x00\x00\x00\x7d\xbc\xfe\x0d",
-    "Active outputs query": b"\xfe\xfe\x17\xd7\xf9\xfe\x0d",
-    "Active outputs response": b"\xfe\xfe\x17\x00\x80\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
-    b"\x00\x00\x80\x22\xd8\xfe\x0d",
-    "New data query": b"\xfe\xfe\x7f\xd8\x61\xfe\x0d",
-    "New data response": b"\xfe\xfe\x7f\xfe\xf0\xfb\x7f\xfb\xff\xff\xcc\xfe\x0d",
-}
+@pytest.fixture
+def satel(monkeypatch, mock_connection, mock_queue):
+    monkeypatch.setattr(
+        "satel_integra.satel_integra.SatelConnection", lambda *a, **kw: mock_connection
+    )
+    monkeypatch.setattr(
+        "satel_integra.satel_integra.SatelMessageQueue", lambda send: mock_queue
+    )
+
+    satel = AsyncSatel(
+        "127.0.0.1",
+        7094,
+        monitored_zones=[1, 2],
+        monitored_outputs=[3, 4],
+        partitions=[1],
+    )
+    satel._connection = mock_connection
+    satel._queue = mock_queue
+    return satel
 
 
-class TestSatel(TestCase):
-    """Basic data processing test cases of Satel Integra protocol."""
+@pytest.mark.asyncio
+async def test_start_monitoring_success(satel, mock_queue):
+    mock_msg = MagicMock()
+    mock_msg.msg_data = b"\xff"
+    mock_queue.add_message.return_value = mock_msg
 
-    def setUp(self):
-        """Called before every test."""
-        pass
+    await satel.start_monitoring()
 
-    def tearDown(self):
-        """Called after every test."""
-        pass
-
-    # def test_checksum_generation(self):
-    #     """For each reference data frame verify if checksum is counted OK."""
-    #     for data in test_frames.values():
-    #         # Skipping first 2 sync bytes and 4 ending bytes: 2 bytes of CRC
-    #         #  and 2 bytes trailing
-    #         modified = data[2:-2].replace(b"\xfe\xf0", b"\xfe")
-    #         crc = checksum(modified[:-2])
-    #         expected_crc = modified[-2:]
-
-    #         res = int.from_bytes(expected_crc, "big")
-
-    #         self.assertEqual(crc, res)
-
-    # def test_version_query_generation(self):
-    #     """Test if version query frame is generated as reference."""
-    #     result = generate_query(b"\x7e")
-    #     self.assertEqual(result, test_frames["Version query"])
-
-    # def test_time_query_generation(self):
-    #     """Test if time query frame is generated as reference."""
-    #     result = generate_query(b"\x1a")
-    #     self.assertEqual(result, test_frames["Time query"])
-
-    # def test_name_query_generation(self):
-    #     """Test if object name query frame is generated as reference."""
-    #     device_type = b"\x01"
-    #     devicenumber = b"\x00"
-    #     result = generate_query(b"\xee" + devicenumber + device_type)
-    #     self.assertEqual(result, test_frames["Name query"])
-
-    # def test_verify_and_strip(self):
-    #     """Test if verify and strip works ok on reference data."""
-    #     for data in test_frames.values():
-    #         verify_and_strip(data)
+    mock_queue.add_message.assert_awaited_once()
 
 
-# def test_get_version(self):
-#     """Connect and retrieve Satel Integra Version. Test bases
-# on captured frames."""
-#     sock = MagicMock()
-#     sock.send = MagicMock(return_value=True)
-#     sock.recv = MagicMock(return_value=test_frames["Version
-# response"])
-#
-#     satel = SatelEthm(sock)
-#     self.assertEqual(satel.get_version(),"INTEGRA 128 1.16
-# 2016-07-15 LANG: Other SETTINGS NOT STORED in flash")
-#     sock.send.assert_called_with(test_frames["Version query"])
-#
-# def test_get_name(self):
-#     """Connect and retrieve Satel Integra Name. Test bases on
-# captured frames."""
-#     sock = MagicMock()
-#     sock.send = MagicMock(return_value=True)
-#     sock.recv = MagicMock(return_value=test_frames["Name
-# response"])
-#
-#     satel = SatelEthm(sock)
-#     self.assertEqual(satel.get_name(1, PARTITION),"Strefa  1")
-#     sock.send.assert_called_with(test_frames["Name query"])
-#
-# def test_arm_mode0(self):
-#     """Arm in mode zero."""
-#     sock = MagicMock()
-#     sock.send = MagicMock(return_value=True)
-#     sock.recv = MagicMock(return_value=test_frames["Arm0
-# response"])
-#
-#     satel = SatelEthm(sock)
-#     satel.arm("1111")
-#     self.assertEqual(satel.get_status(),AlarmState.ARMED_MODE0)
-#     sock.send.assert_called_with(test_frames["Arm0 query"])
-#
-# def test_update_arming_status(self):
-#     """Arm in mode zero."""
-#     sock = MagicMock()
-#     sock.send = MagicMock(return_value=True)
-#     sock.recv = MagicMock(return_value=test_frames["Armed
-# partitions response"])
-#
-#     satel = SatelEthm(sock)
-#     satel.update_arming_status()
-#     self.assertEqual(satel.get_status(),AlarmState.ARMED_MODE0)
-#     sock.send.assert_called_with(test_frames["Armed partitions
-#  query"])
-#
-# def test_get_triggered_outputs(self):
-#     """Return the list of outputs that are currently active."""
-#     sock = MagicMock()
-#     sock.send = MagicMock(return_value=True)
-#     sock.recv = MagicMock(return_value=test_frames["Active
-# outputs response"])
-#
-#     satel = SatelEthm(sock)
-#     outputs = satel.get_active_outputs()
-#     self.assertEqual(outputs,[0X10,0X80])
-#     sock.send.assert_called_with(test_frames["Active outputs
-# query"])
-#
-# def test_get_new_data_in_commands(self):
-#     """Return the list of outputs that are currently active."""
-#     sock = MagicMock()
-#     sock.send = MagicMock(return_value=True)
-#     sock.recv = MagicMock(return_value=test_frames["New data
-# response"])
-#
-#     satel = SatelEthm(sock)
-#     commands = satel.get_new_data_in_commands()
-#     self.assertEqual(commands, [0X02,0X03,0X04,0X05,0X06,0X07,
-# 0X08,
-#                                 0X09,0X0A,0X0C,0X0D,0X0E,0X0F,
-# 0X10,0X11,
-#                                 0X12,0X13,0X14,0X15,0X16,0x17,
-# 0X19,0X1A,
-#                                 0X1C,0X1D,0X1E,0X1F,0X20,0X21,
-# 0X22,0X23,
-#                                 0X24,0X25,0X26,0X27,0x28])
-#     sock.send.assert_called_with(test_frames["New data query"])
+@pytest.mark.asyncio
+async def test_start_monitoring_rejected(satel, mock_queue, caplog):
+    mock_msg = MagicMock()
+    mock_msg.msg_data = b"\x00"
+    mock_queue.add_message.return_value = mock_msg
 
-# def test_update_full_state(self):
-#        """Update alarm state should connect and update configuration of
-# the alarm."""
-#        sock = MagicMock()
-#        sock.send = MagicMock(return_value=True)
-#        sock.recv = MagicMock(return_value=test_frames["New data response"])
+    await satel.start_monitoring()
 
-#        satel = SatelEthm(sock)
-#        satel.update_full_state()
-
-#        sock.send.assert_called_with(test_frames["New data query"])
+    assert "Monitoring not accepted" in caplog.text
 
 
-# if __name__ == "__main__":
-#    unittest.main()
+def test_zones_violated_callback(satel):
+    msg = MagicMock()
+    msg.get_active_bits.return_value = [1]
+
+    called = {}
+    satel.register_callbacks(zone_changed_callback=lambda status: called.update(status))
+
+    satel._zones_violated(msg)
+
+    assert called == {1: 1, 2: 0}
+    assert satel.violated_zones == [1]
+
+
+def test_outputs_changed_callback(satel):
+    msg = MagicMock()
+    msg.get_active_bits.return_value = [4]
+
+    called = {}
+    satel.register_callbacks(
+        output_changed_callback=lambda status: called.update(status)
+    )
+
+    satel._outputs_changed(msg)
+
+    assert called == {3: 0, 4: 1}
+    assert satel.violated_outputs == [4]
+
+
+def test_partitions_armed_state_callback(satel):
+    msg = MagicMock()
+    msg.get_active_bits.return_value = [1]
+    called = False
+    satel.register_callbacks(alarm_status_callback=lambda: nonlocal_set(True))
+
+    # helper to mutate closure var
+    def nonlocal_set(val):
+        nonlocal called
+        called = val
+
+    satel._partitions_armed_state(AlarmState.ARMED_MODE0, msg)
+
+    assert satel.partition_states[AlarmState.ARMED_MODE0] == [1]
+    assert called
+
+
+def test_command_result_ok(satel, caplog):
+    msg = MagicMock()
+    msg.msg_data = [b"\xff"]
+
+    with caplog.at_level(logging.DEBUG):
+        satel._command_result(msg)
+
+    assert "OK" in caplog.text
+
+
+def test_command_result_user_code_not_found(satel, caplog):
+    msg = MagicMock()
+    msg.msg_data = [b"\x01"]
+
+    with caplog.at_level(logging.DEBUG):
+        satel._command_result(msg)
+    assert "User code not found" in caplog.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "method,args",
+    [
+        ("arm", ("1234", [1], 0)),
+        ("disarm", ("1234", [1])),
+        ("clear_alarm", ("1234", [1])),
+        ("set_output", ("1234", 3, True)),
+    ],
+)
+async def test_send_methods_call_queue_add(satel, mock_queue, method, args):
+    await getattr(satel, method)(*args)
+    mock_queue.add_message.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_close_cancels_tasks(satel):
+    satel._reading_task = asyncio.create_task(asyncio.sleep(999))
+    satel._keepalive_task = asyncio.create_task(asyncio.sleep(999))
+
+    await satel.close()
+
+    assert satel._reading_task is None
+    assert satel._keepalive_task is None
+
+
+@pytest.mark.asyncio
+async def test_read_data_exception_returns_none(satel):
+    satel._connection.read_frame.side_effect = Exception("boom")
+
+    result = await satel._read_data()
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_start_starts_background_tasks(satel):
+    satel._reading_task = None
+    satel._keepalive_task = None
+
+    satel._reading_loop = AsyncMock()
+    satel._keepalive_loop = AsyncMock()
+    satel.start_monitoring = AsyncMock()
+
+    await satel.start(enable_monitoring=True)
+
+    # Tasks are created
+    assert satel._reading_task is not None
+    assert satel._keepalive_task is not None
+
+    # Monitoring called
+    satel.start_monitoring.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_start_skips_monitoring(satel):
+    satel._reading_task = None
+    satel._keepalive_task = None
+
+    satel._reading_loop = AsyncMock()
+    satel._keepalive_loop = AsyncMock()
+    satel.start_monitoring = AsyncMock()
+
+    await satel.start(enable_monitoring=False)
+
+    satel.start_monitoring.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_keepalive_loop_sends_message(satel):
+    satel._keepalive_timeout = 0.01
+    satel._send_data = AsyncMock()
+
+    # Close after 1 call
+    type(satel).closed = PropertyMock(side_effect=[False, True])
+
+    await satel._keepalive_loop()
+
+    satel._send_data.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_reading_loop_processes_message(satel):
+    type(satel).closed = PropertyMock(side_effect=[False, True])
+    satel._queue.on_message_received = MagicMock()
+
+    msg = MagicMock()
+    msg.cmd = 1
+
+    satel._read_data = AsyncMock(side_effect=[msg, None])  # Return one msg then None
+
+    cmd_handler = MagicMock()
+
+    satel._message_handlers = {1: cmd_handler}
+
+    await satel._reading_loop()
+
+    satel._queue.on_message_received.assert_called_once()
+    cmd_handler.assert_called_once()

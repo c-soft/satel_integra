@@ -36,30 +36,32 @@ class AsyncSatel:
 
     def __init__(
         self,
-        host,
-        port,
-        loop,
-        monitored_zones=[],
-        monitored_outputs=[],
-        partitions=[],
-        integration_key=None,
+        host: str,
+        port: int,
+        monitored_zones: list[int] = [],
+        monitored_outputs: list[int] = [],
+        partitions: list[int] = [],
+        integration_key: str | None = None,
     ):
         """Init the Satel alarm data."""
         self._connection = SatelConnection(host, port, integration_key=integration_key)
         self._queue = SatelMessageQueue(self._send_encoded_frame)
         self._reading_task: asyncio.Task | None = None
+        self._keepalive_task: asyncio.Task | None = None
+        self._keepalive_timeout = 20
 
-        self._loop = loop
-        self._monitored_zones = monitored_zones
-        self.violated_zones = []
-        self._monitored_outputs = monitored_outputs
-        self.violated_outputs = []
-        self.partition_states = {}
-        self._keep_alive_timeout = 20
-        self._alarm_status_callback = None
-        self._zone_changed_callback = None
-        self._output_changed_callback = None
-        self._partitions = partitions
+        self._monitored_zones: list[int] = monitored_zones
+        self.violated_zones: list[int] = []
+
+        self._monitored_outputs: list[int] = monitored_outputs
+        self.violated_outputs: list[int] = []
+
+        self.partition_states: dict[AlarmState, list[int]] = {}
+        self._partitions: list[int] = partitions
+
+        self._alarm_status_callback: Callable[[], None] | None = None
+        self._zone_changed_callback: Callable[[dict[int, int]], None] | None = None
+        self._output_changed_callback: Callable[[dict[int, int]], None] | None = None
 
         self._message_handlers: dict[
             SatelReadCommand, Callable[[SatelReadMessage], None]
@@ -139,13 +141,13 @@ class AsyncSatel:
         _LOGGER.debug("Monitoring started")
 
     def _zones_violated(self, msg: SatelReadMessage):
-        status = {"zones": {}}
+        status: dict[int, int] = {}
 
         violated_zones = msg.get_active_bits(32)
         self.violated_zones = violated_zones
         _LOGGER.debug("Violated zones: %s", violated_zones)
         for zone in self._monitored_zones:
-            status["zones"][zone] = 1 if zone in violated_zones else 0
+            status[zone] = 1 if zone in violated_zones else 0
 
         _LOGGER.debug("Returning status: %s", status)
 
@@ -155,7 +157,7 @@ class AsyncSatel:
     def _outputs_changed(self, msg: SatelReadMessage):
         """0x17   outputs state 0x17   + 16/32 bytes"""
 
-        status = {"outputs": {}}
+        status: dict[int, int] = {}
 
         output_states = msg.get_active_bits(32)
         self.violated_outputs = output_states
@@ -165,7 +167,7 @@ class AsyncSatel:
             self._monitored_outputs,
         )
         for output in self._monitored_outputs:
-            status["outputs"][output] = 1 if output in output_states else 0
+            status[output] = 1 if output in output_states else 0
 
         _LOGGER.debug("Returning status: %s", status)
 
@@ -193,14 +195,31 @@ class AsyncSatel:
         if self._alarm_status_callback:
             self._alarm_status_callback()
 
-    async def keep_alive(self):
+    # region Core logic
+    async def start(self, enable_monitoring=True):
+        """Start the client, including queue, reading loop and keepalive."""
+        await self._connection.ensure_connected()
+
+        await self._queue.start()
+
+        # Start background loops
+        if not self._reading_task or self._reading_task.done():
+            self._reading_task = asyncio.create_task(self._reading_loop())
+
+        if not self._keepalive_task or self._keepalive_task.done():
+            self._keepalive_task = asyncio.create_task(self._keepalive_loop())
+
+        if enable_monitoring:
+            await self.start_monitoring()
+
+    async def _keepalive_loop(self):
         """A workaround for Satel Integra disconnecting after 25s.
 
         Every interval it sends some random question to the device, ignoring
         answer - just to keep connection alive.
         """
         while True:
-            await asyncio.sleep(self._keep_alive_timeout)
+            await asyncio.sleep(self._keepalive_timeout)
             if self.closed:
                 return
             # Command to read status of the alarm
@@ -232,32 +251,23 @@ class AsyncSatel:
         except Exception as ex:
             _LOGGER.exception("Error in _reading_loop loop, %s", ex)
 
-    async def monitor_status(
+    def register_callbacks(
         self,
-        alarm_status_callback=None,
-        zone_changed_callback=None,
-        output_changed_callback=None,
+        alarm_status_callback: Callable[[], None] | None = None,
+        zone_changed_callback: Callable[[dict[int, int]], None] | None = None,
+        output_changed_callback: Callable[[dict[int, int]], None] | None = None,
     ):
-        """Start monitoring of the alarm status.
+        """Register callback handlers for events."""
+        if alarm_status_callback:
+            self._alarm_status_callback = alarm_status_callback
+        if zone_changed_callback:
+            self._zone_changed_callback = zone_changed_callback
+        if output_changed_callback:
+            self._output_changed_callback = output_changed_callback
 
-        Send command to satel integra to start sending updates. Read in a
-        loop and call respective callbacks when received messages.
-        """
-        self._alarm_status_callback = alarm_status_callback
-        self._zone_changed_callback = zone_changed_callback
-        self._output_changed_callback = output_changed_callback
+    # endregion
 
-        _LOGGER.info("Starting monitor_status loop")
-
-        await self._connection.ensure_connected()
-        await self._queue.start()
-
-        if not self._reading_task or self._reading_task.done():
-            self._reading_task = asyncio.create_task(self._reading_loop())
-
-        await self.start_monitoring()
-
-    # region Write Actions
+    # region Write actions
     async def arm(self, code, partition_list, mode=0):
         """Send arming command to the alarm. Modes allowed: from 0 till 3."""
         _LOGGER.debug("Sending arm command, mode: %s!", mode)
@@ -374,57 +384,14 @@ class AsyncSatel:
                 pass
             self._reading_task = None
 
+        if self._keepalive_task:
+            self._keepalive_task.cancel()
+            try:
+                await self._keepalive_task
+            except asyncio.CancelledError:
+                pass
+            self._keepalive_task = None
+
         await self._connection.close()
 
     # endregion
-
-
-def demo(host, port, integration_key):
-    """Basic demo of the monitoring capabilities."""
-    # logging.basicConfig(level=logging.DEBUG)
-
-    loop = asyncio.get_event_loop()
-    stl = AsyncSatel(
-        host,
-        port,
-        loop,
-        [
-            1,
-            2,
-            3,
-            4,
-            5,
-            6,
-            7,
-            8,
-            12,
-            13,
-            14,
-            15,
-            16,
-            17,
-            18,
-            19,
-            20,
-            21,
-            22,
-            23,
-            25,
-            26,
-            27,
-            28,
-            29,
-            30,
-        ],
-        [8, 9, 10],
-        integration_key,
-    )
-
-    loop.run_until_complete(stl.connect())
-    loop.create_task(stl.arm("3333", (1,)))
-    loop.create_task(stl.disarm("3333", (1,)))
-    loop.create_task(stl.keep_alive())
-    loop.create_task(stl.monitor_status())
-
-    loop.run_forever()
-    loop.close()

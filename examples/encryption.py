@@ -31,7 +31,7 @@ async def main(host: str, port: int, integration_key: str) -> None:
 
     await satel.start(enable_monitoring=False)
 
-    # Arm partion 1
+    # Arm partition 1
     await satel.arm("3333", [1])
 
     try:

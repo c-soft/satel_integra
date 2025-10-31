@@ -31,7 +31,7 @@ async def main(host: str, port: int, integration_key: str | None = None) -> None
         logging.info(f"Zone status changed: {status}")
 
     def output_status_callback(status) -> None:
-        logging.info(f"Ouput status changed: {status}")
+        logging.info(f"Output status changed: {status}")
 
     satel.register_callbacks(
         alarm_status_callback=alarm_status_callback,

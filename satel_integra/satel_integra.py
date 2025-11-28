@@ -50,7 +50,6 @@ class AsyncSatel:
         self._reconnection_monitor_task: asyncio.Task | None = None
         self._keepalive_task: asyncio.Task | None = None
         self._keepalive_timeout = 20
-        self._monitoring_enabled = False
 
         self._monitored_zones: list[int] = monitored_zones
         self.violated_zones: list[int] = []
@@ -140,7 +139,6 @@ class AsyncSatel:
             _LOGGER.warning("Monitoring not accepted.")
             return
 
-        self._monitoring_enabled = True
         _LOGGER.debug("Monitoring started")
 
     def _zones_violated(self, msg: SatelReadMessage):

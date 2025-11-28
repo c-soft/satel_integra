@@ -47,8 +47,10 @@ class AsyncSatel:
         self._connection = SatelConnection(host, port, integration_key=integration_key)
         self._queue = SatelMessageQueue(self._send_encoded_frame)
         self._reading_task: asyncio.Task | None = None
+        self._reconnection_monitor_task: asyncio.Task | None = None
         self._keepalive_task: asyncio.Task | None = None
         self._keepalive_timeout = 20
+        self._monitoring_enabled = False
 
         self._monitored_zones: list[int] = monitored_zones
         self.violated_zones: list[int] = []
@@ -138,6 +140,7 @@ class AsyncSatel:
             _LOGGER.warning("Monitoring not accepted.")
             return
 
+        self._monitoring_enabled = True
         _LOGGER.debug("Monitoring started")
 
     def _zones_violated(self, msg: SatelReadMessage):
@@ -209,6 +212,15 @@ class AsyncSatel:
         if enable_monitoring:
             await self.start_monitoring()
 
+            # Start reconnection monitor only if monitoring is enabled
+            if (
+                not self._reconnection_monitor_task
+                or self._reconnection_monitor_task.done()
+            ):
+                self._reconnection_monitor_task = asyncio.create_task(
+                    self._monitor_reconnection_loop()
+                )
+
         if not self._keepalive_task or self._keepalive_task.done():
             self._keepalive_task = asyncio.create_task(self._keepalive_loop())
 
@@ -254,6 +266,24 @@ class AsyncSatel:
             _LOGGER.info("_reading_loop loop cancelled.")
         except Exception as ex:
             _LOGGER.exception("Error in _reading_loop loop, %s", ex)
+
+    async def _monitor_reconnection_loop(self):
+        """Monitor for reconnection events and reinitialize monitoring.
+
+        This task is only created when monitoring is enabled, so we can assume
+        monitoring should be restarted on reconnection.
+        """
+        while not self.closed:
+            try:
+                # Wait indefinitely for a reconnection event
+                await self._connection.wait_reconnected()
+                _LOGGER.info("Connection re-established, reinitializing monitoring...")
+                await self.start_monitoring()
+            except asyncio.CancelledError:
+                break
+            except Exception as ex:
+                _LOGGER.exception("Error in _monitor_reconnection: %s", ex)
+                await asyncio.sleep(1)
 
     def register_callbacks(
         self,
@@ -387,6 +417,14 @@ class AsyncSatel:
             except asyncio.CancelledError:
                 pass
             self._reading_task = None
+
+        if self._reconnection_monitor_task:
+            self._reconnection_monitor_task.cancel()
+            try:
+                await self._reconnection_monitor_task
+            except asyncio.CancelledError:
+                pass
+            self._reconnection_monitor_task = None
 
         if self._keepalive_task:
             self._keepalive_task.cancel()

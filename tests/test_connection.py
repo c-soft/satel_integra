@@ -1,3 +1,4 @@
+import asyncio
 import pytest
 from unittest.mock import AsyncMock, MagicMock, PropertyMock
 from satel_integra.connection import SatelConnection
@@ -113,3 +114,56 @@ async def test_close_already_closed(mock_connection, mock_transport):
     await mock_connection.close()  # should not raise or call anything
 
     mock_transport.close.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_reconnection_event_set_on_subsequent_connect(
+    mock_connection, mock_transport
+):
+    """First successful connect should set `_had_connection` but not the event.
+
+    A subsequent successful connect should set the `_reconnected_event` so
+    waiters are notified.
+    """
+    # First connect (initial connection)
+    result = await mock_connection.connect()
+    assert result is True
+
+    # After initial connect, we have had a connection but the reconnection
+    # event should not be set.
+    assert mock_connection._had_connection is True
+    assert mock_connection._reconnected_event.is_set() is False
+
+    # Ensure the event is cleared, then call connect() again to simulate a
+    # subsequent reconnection — the event should be set this time.
+    mock_connection._reconnected_event.clear()
+
+    # Simulate disconnected state at start of second connect
+    type(mock_transport).connected = PropertyMock(return_value=False)
+
+    await mock_connection.connect()
+
+    assert mock_connection._reconnected_event.is_set() is True
+
+
+@pytest.mark.asyncio
+async def test_wait_reconnected_blocks_and_returns_true(
+    mock_connection, mock_transport
+):
+    """`wait_reconnected()` should block until `_reconnected_event` is set
+    and then return True (when not closed).
+    """
+    # Ensure we've had an initial connection so wait_reconnected will wait for
+    # a later reconnection.
+    await mock_connection.connect()
+
+    waiter = asyncio.create_task(mock_connection.wait_reconnected())
+
+    # Give the loop a tick so the waiter can clear the event and start waiting
+    await asyncio.sleep(0)
+
+    # Now signal reconnection and await the waiter result
+    mock_connection._reconnected_event.set()
+
+    result = await asyncio.wait_for(waiter, timeout=1.0)
+    assert result is True

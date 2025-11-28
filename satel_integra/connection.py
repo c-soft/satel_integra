@@ -33,6 +33,10 @@ class SatelConnection:
 
         self._closed = False
         self._connection_lock = asyncio.Lock()  # Prevent concurrent connect/close
+        self._reconnected_event = (
+            asyncio.Event()
+        )  # Signals when connection is re-established
+        self._had_connection = False
 
     @property
     def connected(self) -> bool:
@@ -70,6 +74,14 @@ class SatelConnection:
 
         else:
             _LOGGER.info("Connected to Satel Integra.")
+            # If we've had a successful connection before, this is a
+            # reconnection — signal any waiters. Otherwise mark that we've
+            # now had a connection so future connects can be treated as
+            # reconnections.
+            if self._had_connection:
+                self._reconnected_event.set()
+
+            self._had_connection = True
             return True
 
     async def connect(self) -> bool:
@@ -126,3 +138,16 @@ class SatelConnection:
             await self._transport.close()
             self._closed = True
             _LOGGER.info("Connection closed cleanly.")
+
+    async def wait_reconnected(self) -> bool:
+        """Wait for connection to be re-established after being lost.
+
+        Blocks indefinitely until a reconnection occurs.
+        Returns False if the connection is closed.
+        """
+        if self.closed:
+            return False
+
+        self._reconnected_event.clear()
+        await self._reconnected_event.wait()
+        return True

@@ -18,25 +18,25 @@ class SatelBaseTransport:
         self._reader: asyncio.StreamReader | None = None
         self._writer: asyncio.StreamWriter | None = None
 
-        self.closed = False
+        self._connection_event = asyncio.Event()
 
     @property
     def connected(self) -> bool:
         """Return True if connected to the panel."""
         return self._reader is not None and self._writer is not None
 
-    async def connect(self) -> bool:
+    async def connect(self) -> None:
         """Establish TCP connection."""
         try:
             self._reader, self._writer = await asyncio.open_connection(
                 self._host, self._port
             )
             _LOGGER.debug("TCP connection established to %s:%s", self._host, self._port)
-            return True
+            self._connection_event.set()
+
         except Exception as exc:
             _LOGGER.debug("TCP connection failed: %s", exc)
-            self._reader = self._writer = None
-            return False
+            await self.close()
 
     async def check_connection(self) -> bool:
         """Check if the connection is valid and the panel is responsive."""
@@ -92,8 +92,7 @@ class SatelBaseTransport:
         except Exception as e:
             _LOGGER.warning("Read failed: %s", e)
 
-        self._reader = None
-        self._writer = None
+        await self.close()
         return None
 
     async def _read_from_transport(self) -> bytes | None:
@@ -123,8 +122,7 @@ class SatelBaseTransport:
 
         except Exception as e:
             _LOGGER.warning("Write failed: %s", e)
-            self._reader = None
-            self._writer = None
+            await self.close()
             return False
 
     def _prepare_frame(self, frame: bytes) -> bytes | None:
@@ -133,7 +131,7 @@ class SatelBaseTransport:
 
     async def close(self) -> None:
         """Close the connection gracefully and clean up."""
-        self.closed = True
+        self._connection_event.clear()
 
         if self._writer and not self._writer.is_closing():
             try:
@@ -144,6 +142,14 @@ class SatelBaseTransport:
 
         self._reader = None
         self._writer = None
+
+    async def wait_connected(self, timeout: float | None = None) -> bool:
+        """Wait until connection is established."""
+        try:
+            await asyncio.wait_for(self._connection_event.wait(), timeout=timeout)
+            return self.connected
+        except asyncio.TimeoutError:
+            return False
 
 
 class SatelPlainTransport(SatelBaseTransport):
@@ -163,9 +169,9 @@ class SatelEncryptedTransport(SatelBaseTransport):
         self._encryption_handler: EncryptedCommunicationHandler
         super().__init__(host, port)
 
-    async def connect(self) -> bool:
+    async def connect(self) -> None:
         self._encryption_handler = EncryptedCommunicationHandler(self._integration_key)
-        return await super().connect()
+        await super().connect()
 
     async def _read_from_transport(self) -> bytes | None:
         """Read encrypted frame end decrypt it."""

@@ -47,6 +47,7 @@ class AsyncSatel:
         self._connection = SatelConnection(host, port, integration_key=integration_key)
         self._queue = SatelMessageQueue(self._send_encoded_frame)
         self._reading_task: asyncio.Task | None = None
+        self._reconnection_monitor_task: asyncio.Task | None = None
         self._keepalive_task: asyncio.Task | None = None
         self._keepalive_timeout = 20
 
@@ -200,17 +201,26 @@ class AsyncSatel:
         """Start the client, including queue, reading loop and keepalive."""
         await self._connection.ensure_connected()
 
-        await self._queue.start()
-
-        # Start background loops
+        # Start reading loop first to ensure we don't miss any messages
         if not self._reading_task or self._reading_task.done():
             self._reading_task = asyncio.create_task(self._reading_loop())
 
-        if not self._keepalive_task or self._keepalive_task.done():
-            self._keepalive_task = asyncio.create_task(self._keepalive_loop())
+        await self._queue.start()
 
         if enable_monitoring:
             await self.start_monitoring()
+
+            # Start reconnection monitor only if monitoring is enabled
+            if (
+                not self._reconnection_monitor_task
+                or self._reconnection_monitor_task.done()
+            ):
+                self._reconnection_monitor_task = asyncio.create_task(
+                    self._monitor_reconnection_loop()
+                )
+
+        if not self._keepalive_task or self._keepalive_task.done():
+            self._keepalive_task = asyncio.create_task(self._keepalive_loop())
 
     async def _keepalive_loop(self):
         """A workaround for Satel Integra disconnecting after 25s.
@@ -238,7 +248,11 @@ class AsyncSatel:
                 if not msg:
                     continue
 
-                self._queue.on_message_received(msg)
+                # Only notify queue of command responses
+                if msg.cmd == SatelReadCommand.RESULT or getattr(
+                    msg.cmd, "expects_same_cmd_response", False
+                ):
+                    self._queue.on_message_received(msg)
 
                 if msg.cmd in self._message_handlers:
                     _LOGGER.debug("Calling handler for command: %s", msg.cmd)
@@ -250,6 +264,24 @@ class AsyncSatel:
             _LOGGER.info("_reading_loop loop cancelled.")
         except Exception as ex:
             _LOGGER.exception("Error in _reading_loop loop, %s", ex)
+
+    async def _monitor_reconnection_loop(self):
+        """Monitor for reconnection events and reinitialize monitoring.
+
+        This task is only created when monitoring is enabled, so we can assume
+        monitoring should be restarted on reconnection.
+        """
+        while not self.closed:
+            try:
+                # Wait indefinitely for a reconnection event
+                await self._connection.wait_reconnected()
+                _LOGGER.info("Connection re-established, reinitializing monitoring...")
+                await self.start_monitoring()
+            except asyncio.CancelledError:
+                break
+            except Exception as ex:
+                _LOGGER.exception("Error in _monitor_reconnection: %s", ex)
+                await asyncio.sleep(1)
 
     def register_callbacks(
         self,
@@ -383,6 +415,14 @@ class AsyncSatel:
             except asyncio.CancelledError:
                 pass
             self._reading_task = None
+
+        if self._reconnection_monitor_task:
+            self._reconnection_monitor_task.cancel()
+            try:
+                await self._reconnection_monitor_task
+            except asyncio.CancelledError:
+                pass
+            self._reconnection_monitor_task = None
 
         if self._keepalive_task:
             self._keepalive_task.cancel()

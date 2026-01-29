@@ -15,6 +15,10 @@ class SatelBaseCommand(IntEnum):
         """Format command string as CMD [HEX]"""
         return f"{self.name} [0x{self.value:02X}]"
 
+    @property
+    def expects_same_cmd_response(self) -> bool:
+        return self in _ECHO_RESPONSE_COMMANDS
+
 
 @unique
 class SatelReadCommand(SatelBaseCommand):
@@ -51,6 +55,10 @@ class SatelWriteCommand(SatelBaseCommand):
     OUTPUTS_OFF = 0x89
     READ_DEVICE_NAME = 0xEE
 
-    @property
-    def expects_same_cmd_response(self) -> bool:
-        return self in {SatelWriteCommand.READ_DEVICE_NAME}
+
+# Write commands that echo themselves back instead of returning RESULT
+_ECHO_RESPONSE_COMMANDS = frozenset(
+    {
+        SatelWriteCommand.READ_DEVICE_NAME,
+    }
+)

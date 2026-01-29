@@ -16,6 +16,7 @@ def mock_transport():
 
     transport = SatelBaseTransport("localhost", 1234)
 
+    transport._connection_event.set()
     transport._reader = reader
     transport._writer = writer
 
@@ -54,8 +55,9 @@ async def test_connect_success(monkeypatch):
     )
 
     transport = SatelBaseTransport("localhost", 1234)
-    assert await transport.connect() is True
+    await transport.connect()
     assert transport.connected
+    assert await transport.wait_connected() is True
 
 
 @pytest.mark.asyncio
@@ -64,8 +66,9 @@ async def test_connect_failure(monkeypatch):
         asyncio, "open_connection", AsyncMock(side_effect=OSError("boom"))
     )
     transport = SatelBaseTransport("localhost", 1234)
-    assert await transport.connect() is False
+    await transport.connect()
     assert not transport.connected
+    assert await transport.wait_connected(timeout=0.01) is False
 
 
 @pytest.mark.asyncio
@@ -173,13 +176,15 @@ async def test_close_success(mock_transport):
     mock_transport._writer.is_closing = MagicMock(return_value=False)
 
     # Verify initial state
-    assert not mock_transport.closed
     assert mock_transport.connected
+    assert mock_transport._connection_event.is_set()
 
     await mock_transport.close()
 
-    assert mock_transport.closed
     assert not mock_transport.connected
+    assert mock_transport._reader is None
+    assert mock_transport._writer is None
+    assert not mock_transport._connection_event.is_set()
 
 
 @pytest.mark.asyncio

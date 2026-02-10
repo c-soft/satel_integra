@@ -47,7 +47,7 @@ class AsyncSatel:
         self._connection = SatelConnection(host, port, integration_key=integration_key)
         self._queue = SatelMessageQueue(self._send_encoded_frame)
         self._reading_task: asyncio.Task | None = None
-        self._reconnection_monitor_task: asyncio.Task | None = None
+        self._reconnection_task: asyncio.Task | None = None
         self._keepalive_task: asyncio.Task | None = None
         self._keepalive_timeout = 20
 
@@ -68,36 +68,36 @@ class AsyncSatel:
             SatelReadCommand, Callable[[SatelReadMessage], None]
         ] = {
             SatelReadCommand.ZONES_VIOLATED: self._zones_violated,
-            SatelReadCommand.PARTITIONS_ARMED_SUPPRESSED: lambda msg: self._partitions_armed_state(
-                AlarmState.ARMED_SUPPRESSED, msg
+            SatelReadCommand.PARTITIONS_ARMED_SUPPRESSED: lambda msg: (
+                self._partitions_armed_state(AlarmState.ARMED_SUPPRESSED, msg)
             ),
-            SatelReadCommand.PARTITIONS_ARMED_MODE0: lambda msg: self._partitions_armed_state(
-                AlarmState.ARMED_MODE0, msg
+            SatelReadCommand.PARTITIONS_ARMED_MODE0: lambda msg: (
+                self._partitions_armed_state(AlarmState.ARMED_MODE0, msg)
             ),
-            SatelReadCommand.PARTITIONS_ARMED_MODE2: lambda msg: self._partitions_armed_state(
-                AlarmState.ARMED_MODE2, msg
+            SatelReadCommand.PARTITIONS_ARMED_MODE2: lambda msg: (
+                self._partitions_armed_state(AlarmState.ARMED_MODE2, msg)
             ),
-            SatelReadCommand.PARTITIONS_ARMED_MODE3: lambda msg: self._partitions_armed_state(
-                AlarmState.ARMED_MODE3, msg
+            SatelReadCommand.PARTITIONS_ARMED_MODE3: lambda msg: (
+                self._partitions_armed_state(AlarmState.ARMED_MODE3, msg)
             ),
-            SatelReadCommand.PARTITIONS_ENTRY_TIME: lambda msg: self._partitions_armed_state(
-                AlarmState.ENTRY_TIME, msg
+            SatelReadCommand.PARTITIONS_ENTRY_TIME: lambda msg: (
+                self._partitions_armed_state(AlarmState.ENTRY_TIME, msg)
             ),
-            SatelReadCommand.PARTITIONS_EXIT_COUNTDOWN_OVER_10: lambda msg: self._partitions_armed_state(
-                AlarmState.EXIT_COUNTDOWN_OVER_10, msg
+            SatelReadCommand.PARTITIONS_EXIT_COUNTDOWN_OVER_10: lambda msg: (
+                self._partitions_armed_state(AlarmState.EXIT_COUNTDOWN_OVER_10, msg)
             ),
-            SatelReadCommand.PARTITIONS_EXIT_COUNTDOWN_UNDER_10: lambda msg: self._partitions_armed_state(
-                AlarmState.EXIT_COUNTDOWN_UNDER_10, msg
+            SatelReadCommand.PARTITIONS_EXIT_COUNTDOWN_UNDER_10: lambda msg: (
+                self._partitions_armed_state(AlarmState.EXIT_COUNTDOWN_UNDER_10, msg)
             ),
             SatelReadCommand.PARTITIONS_ALARM: lambda msg: self._partitions_armed_state(
                 AlarmState.TRIGGERED, msg
             ),
-            SatelReadCommand.PARTITIONS_FIRE_ALARM: lambda msg: self._partitions_armed_state(
-                AlarmState.TRIGGERED_FIRE, msg
+            SatelReadCommand.PARTITIONS_FIRE_ALARM: lambda msg: (
+                self._partitions_armed_state(AlarmState.TRIGGERED_FIRE, msg)
             ),
             SatelReadCommand.OUTPUTS_STATE: self._outputs_changed,
-            SatelReadCommand.PARTITIONS_ARMED_MODE1: lambda msg: self._partitions_armed_state(
-                AlarmState.ARMED_MODE1, msg
+            SatelReadCommand.PARTITIONS_ARMED_MODE1: lambda msg: (
+                self._partitions_armed_state(AlarmState.ARMED_MODE1, msg)
             ),
             SatelReadCommand.RESULT: self._command_result,
         }
@@ -207,20 +207,17 @@ class AsyncSatel:
 
         await self._queue.start()
 
-        if enable_monitoring:
-            await self.start_monitoring()
+        if not self._keepalive_task or self._keepalive_task.done():
+            self._keepalive_task = asyncio.create_task(self._keepalive_loop())
 
+        if enable_monitoring:
             # Start reconnection monitor only if monitoring is enabled
-            if (
-                not self._reconnection_monitor_task
-                or self._reconnection_monitor_task.done()
-            ):
-                self._reconnection_monitor_task = asyncio.create_task(
+            if not self._reconnection_task or self._reconnection_task.done():
+                self._reconnection_task = asyncio.create_task(
                     self._monitor_reconnection_loop()
                 )
 
-        if not self._keepalive_task or self._keepalive_task.done():
-            self._keepalive_task = asyncio.create_task(self._keepalive_loop())
+            await self.start_monitoring()
 
     async def _keepalive_loop(self):
         """A workaround for Satel Integra disconnecting after 25s.
@@ -416,13 +413,13 @@ class AsyncSatel:
                 pass
             self._reading_task = None
 
-        if self._reconnection_monitor_task:
-            self._reconnection_monitor_task.cancel()
+        if self._reconnection_task:
+            self._reconnection_task.cancel()
             try:
-                await self._reconnection_monitor_task
+                await self._reconnection_task
             except asyncio.CancelledError:
                 pass
-            self._reconnection_monitor_task = None
+            self._reconnection_task = None
 
         if self._keepalive_task:
             self._keepalive_task.cancel()

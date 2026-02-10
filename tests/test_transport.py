@@ -166,8 +166,10 @@ async def test_send_frame_not_connected():
 async def test_send_frame_failure(mock_transport):
     mock_transport._writer.drain.side_effect = Exception("fail")
 
-    result = await mock_transport.send_frame(b"x")
-    assert not result
+    with pytest.raises(Exception) as excinfo:
+        await mock_transport.send_frame(b"x")
+
+    assert "fail" in str(excinfo.value)
     assert not mock_transport.connected
 
 

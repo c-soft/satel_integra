@@ -166,7 +166,7 @@ async def test_read_data_exception_returns_none(satel):
 async def test_start_starts_background_tasks(satel):
     satel._reading_task = None
     satel._keepalive_task = None
-    satel._reconnection_monitor_task = None
+    satel._reconnection_task = None
 
     satel._reading_loop = AsyncMock()
     satel._keepalive_loop = AsyncMock()
@@ -178,7 +178,7 @@ async def test_start_starts_background_tasks(satel):
     # Tasks are created
     assert satel._reading_task is not None
     assert satel._keepalive_task is not None
-    assert satel._reconnection_monitor_task is not None
+    assert satel._reconnection_task is not None
 
     # Monitoring called
     satel.start_monitoring.assert_awaited()
@@ -188,7 +188,7 @@ async def test_start_starts_background_tasks(satel):
 async def test_start_skips_monitoring(satel):
     satel._reading_task = None
     satel._keepalive_task = None
-    satel._reconnection_monitor_task = None
+    satel._reconnection_task = None
 
     satel._reading_loop = AsyncMock()
     satel._keepalive_loop = AsyncMock()
@@ -196,7 +196,7 @@ async def test_start_skips_monitoring(satel):
 
     await satel.start(enable_monitoring=False)
 
-    assert satel._reconnection_monitor_task is None
+    assert satel._reconnection_task is None
 
     satel.start_monitoring.assert_not_awaited()
 

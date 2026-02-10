@@ -121,9 +121,10 @@ class SatelBaseTransport:
             return True
 
         except Exception as e:
-            _LOGGER.warning("Write failed: %s", e)
+            _LOGGER.debug("Write failed: %s", e)
             await self.close()
-            return False
+
+            raise
 
     def _prepare_frame(self, frame: bytes) -> bytes | None:
         """Prepare frame for writing (e.g., encrypt). Override in subclass if needed."""

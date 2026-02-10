@@ -75,9 +75,14 @@ class SatelMessageQueue:
         queued = QueuedMessage(msg, wait_for_result)
         await self._queue.put(queued)
 
-        if wait_for_result:
+        if not wait_for_result:
+            return
+
+        try:
             return await queued.processed_future
-        return None
+        except Exception as exc:
+            _LOGGER.debug("Couldn't wait for message result: %s", exc)
+            return
 
     async def _process_queue(self) -> None:
         """Process queued commands sequentially."""
@@ -113,7 +118,7 @@ class SatelMessageQueue:
             _LOGGER.debug("Sending message: %s", queued.message)
             await self._send_func(queued.message)
         except Exception as exc:
-            _LOGGER.exception("Error while sending message: %s", exc)
+            _LOGGER.debug("Error while sending message: %s", exc)
             if not queued.processed_future.done():
                 queued.processed_future.set_exception(exc)
 
@@ -137,13 +142,18 @@ class SatelMessageQueue:
             return
 
         if self._current_message.processed_future.done():
-            _LOGGER.warning(
+            _LOGGER.debug(
                 "Received result but future is already done (likely timed out)"
             )
             return
 
         if self._current_message.expected_result_command != result.cmd:
-            _LOGGER.warning("Received result but message expects different result")
+            _LOGGER.warning(
+                "Received result (%s) for message (%s) but expects different result (%s)",
+                result,
+                self._current_message.message,
+                self._current_message.expected_result_command,
+            )
             return
 
         self._current_message.processed_future.set_result(result)

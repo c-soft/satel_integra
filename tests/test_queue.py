@@ -171,7 +171,10 @@ async def test_on_message_received_commmand_mismatch(mock_queue, result_msg, cap
     mock_queue._current_message = queued
     mock_queue.on_message_received(result_msg)
 
-    assert "Received result but message expects different result" in caplog.text
+    assert (
+        "Received result ((SatelReadMessage) RESULT [0xEF] -> 01 (1)) for message ((SatelWriteMessage) READ_DEVICE_NAME [0xEE] ->  (0)) but expects different result (READ_DEVICE_NAME [0xEE])"
+        in caplog.text
+    )
 
     assert not queued.processed_future.done()
 
@@ -187,14 +190,14 @@ async def test_on_message_received_no_current_message(mock_queue, result_msg):
 async def test_on_message_received_future_already_done(
     mock_queue, write_msg, result_msg, caplog
 ):
-    caplog.at_level(logging.WARNING)
-
     queued = QueuedMessage(write_msg, True)
     queued.processed_future.set_result(result_msg)
     mock_queue._current_message = queued
 
     # Should log a warning but not crash
-    mock_queue.on_message_received(result_msg)
+    with caplog.at_level(logging.DEBUG):
+        mock_queue.on_message_received(result_msg)
+
     assert (
         "Received result but future is already done (likely timed out)" in caplog.text
     )
@@ -276,7 +279,7 @@ async def test_send_and_wait_response_send_func_exception(
 
     queued = QueuedMessage(write_msg, False)
 
-    with caplog.at_level("ERROR"):
+    with caplog.at_level(logging.DEBUG):
         await mock_queue._send_and_wait_response(queued)
 
     assert "Error while sending message: Test exception" in caplog.text
@@ -297,7 +300,7 @@ async def test_send_and_wait_response_timeout(
     # Use a very short timeout for faster test
     monkeypatch.setattr("satel_integra.queue.MESSAGE_RESPONSE_TIMEOUT", 0.01)
 
-    with caplog.at_level("ERROR"):
+    with caplog.at_level(logging.ERROR):
         await mock_queue._send_and_wait_response(queued)
 
     assert "No response received from panel within" in caplog.text

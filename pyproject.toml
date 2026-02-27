@@ -11,6 +11,7 @@ authors = [
   { name = "Krzysztof Machelski", email = "krzysztof.machelski+pypi@gmail.com" },
   { name = "Tom Matheussen", email = "13683094+Tommatheussen@users.noreply.github.com" }
 ]
+license = "MIT"
 license-files = ["LICENSE"]
 classifiers = [
   "Development Status :: 3 - Alpha",

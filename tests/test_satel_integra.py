@@ -21,6 +21,7 @@ def mock_connection():
     conn.ensure_connected = AsyncMock(return_value=True)
     conn.wait_reconnected = AsyncMock(return_value=True)
     conn.wait_stopped = AsyncMock(return_value=None)
+    conn.set_connection_status_callback = MagicMock()
     return conn
 
 
@@ -335,3 +336,11 @@ async def test_connect_raises_in_strict_mode_for_connect_exceptions(
 
     with pytest.raises(exc_type, match="boom"):
         await satel.connect(raise_exceptions=True)
+
+
+def test_register_callbacks_forwards_connection_status_callback(satel, mock_connection):
+    callback = MagicMock()
+
+    satel.register_callbacks(connection_status_changed_callback=callback)
+
+    mock_connection.set_connection_status_callback.assert_called_once_with(callback)

@@ -347,6 +347,7 @@ class AsyncSatel:
         alarm_status_callback: Callable[[], None] | None = None,
         zone_changed_callback: Callable[[dict[int, int]], None] | None = None,
         output_changed_callback: Callable[[dict[int, int]], None] | None = None,
+        connection_status_changed_callback: Callable[[bool], None] | None = None,
     ):
         """Register callback handlers for events."""
         if alarm_status_callback:
@@ -355,6 +356,10 @@ class AsyncSatel:
             self._zone_changed_callback = zone_changed_callback
         if output_changed_callback:
             self._output_changed_callback = output_changed_callback
+        if connection_status_changed_callback:
+            self._connection.set_connection_status_callback(
+                connection_status_changed_callback
+            )
 
     # endregion
 

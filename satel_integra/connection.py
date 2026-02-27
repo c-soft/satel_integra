@@ -2,6 +2,9 @@
 
 import asyncio
 import logging
+from collections.abc import Callable
+from functools import wraps
+from typing import Any
 
 from satel_integra.commands import SatelWriteCommand
 from satel_integra.const import MESSAGE_RESPONSE_TIMEOUT
@@ -19,6 +22,21 @@ from satel_integra.transport import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def notify_connection_state(
+    fn: Callable[..., Any],
+) -> Callable[..., Any]:
+    """Notify connection status callback after connection-touching methods."""
+
+    @wraps(fn)
+    async def wrapper(self, *args, **kwargs):
+        try:
+            return await fn(self, *args, **kwargs)
+        finally:
+            self._notify_connection_status_changed()
+
+    return wrapper
 
 
 class SatelConnection:
@@ -47,6 +65,8 @@ class SatelConnection:
             asyncio.Event()
         )  # Signals when connection is re-established
         self._had_connection = False
+        self._connection_status_callback: Callable[[bool], None] | None = None
+        self._last_connected_state = self.connected
 
     @property
     def connected(self) -> bool:
@@ -63,6 +83,29 @@ class SatelConnection:
         if self.stopped:
             raise SatelConnectionStoppedError("Connection is stopped")
 
+    def set_connection_status_callback(
+        self, callback: Callable[[bool], None] | None
+    ) -> None:
+        """Register callback called when connection status changes."""
+        self._connection_status_callback = callback
+
+    def _notify_connection_status_changed(self) -> None:
+        """Notify when connected status changes."""
+        current_state = self.connected
+        if current_state == self._last_connected_state:
+            return
+
+        self._last_connected_state = current_state
+        callback = self._connection_status_callback
+        if callback is None:
+            return
+
+        try:
+            callback(current_state)
+        except Exception as exc:
+            _LOGGER.exception("Error in connection status callback: %s", exc)
+
+    @notify_connection_state
     async def _connect(self, verify_connection: bool = True) -> None:
         """Establish TCP connection. Must be called with _connection_lock held."""
         if self.stopped:
@@ -141,10 +184,12 @@ class SatelConnection:
                 return
             await self._connect(verify_connection=verify_connection)
 
+    @notify_connection_state
     async def read_frame(self) -> bytes | None:
         """Read a raw frame from the panel."""
         return await self._transport.read_frame()
 
+    @notify_connection_state
     async def send_frame(self, frame: bytes) -> bool:
         """Send a raw frame to the panel."""
         return await self._transport.send_frame(frame)
@@ -198,6 +243,7 @@ class SatelConnection:
 
         await self._stopped_event.wait()
 
+    @notify_connection_state
     async def close(self) -> None:
         """Close the connection gracefully and clean up."""
         async with self._connection_lock:

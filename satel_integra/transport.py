@@ -24,6 +24,12 @@ class SatelBaseTransport:
         """Return True if connected to the panel."""
         return self._reader is not None and self._writer is not None
 
+    def _reset_connection(self) -> None:
+        """Reset transport connection handles and clear connection event."""
+        self._connection_event.clear()
+        self._reader = None
+        self._writer = None
+
     async def connect(self) -> bool:
         """Establish TCP connection."""
 
@@ -124,8 +130,7 @@ class SatelBaseTransport:
             except Exception as e:
                 _LOGGER.debug("Exception during close: %s", e)
 
-        self._reader = None
-        self._writer = None
+        self._reset_connection()
 
 
 class SatelPlainTransport(SatelBaseTransport):

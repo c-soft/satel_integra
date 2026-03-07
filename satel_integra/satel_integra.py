@@ -395,9 +395,9 @@ class AsyncSatel:
         """Return true if connection is closed."""
         return self._connection.closed
 
-    async def connect(self) -> bool:
+    async def connect(self, check_busy: bool = True) -> bool:
         """Make a TCP connection to the alarm system."""
-        result = await self._connection.connect()
+        result = await self._connection.connect(check_busy=check_busy)
 
         return result
 

@@ -48,7 +48,7 @@ class SatelConnection:
         """Return True if the connection is closed."""
         return self._closed
 
-    async def _connect(self) -> bool:
+    async def _connect(self, check_busy: bool = True) -> bool:
         """Establish TCP connection. Must be called with _connection_lock held."""
         if self.closed:
             _LOGGER.debug("Connection is closed, skipping connection")
@@ -65,26 +65,31 @@ class SatelConnection:
             _LOGGER.warning("Unable to establish TCP connection.")
             return False
 
-        _LOGGER.debug("TCP connection established, verifying panel responsiveness...")
-
-        if not await self._transport.check_connection():
-            _LOGGER.warning("Panel not responsive or busy.")
-            await self._transport.close()
-            return False
-
+        if check_busy:
+            _LOGGER.debug(
+                "TCP connection established, verifying panel responsiveness..."
+            )
+            if not await self._transport.check_connection():
+                _LOGGER.warning("Panel not responsive or busy.")
+                await self._transport.close()
+                return False
         else:
-            _LOGGER.info("Connected to Satel Integra.")
-            # If we've had a successful connection before, this is a
-            # reconnection — signal any waiters. Otherwise mark that we've
-            # now had a connection so future connects can be treated as
-            # reconnections.
-            if self._had_connection:
-                self._reconnected_event.set()
+            _LOGGER.debug(
+                "TCP connection established, skipping busy/panel responsiveness check."
+            )
 
-            self._had_connection = True
-            return True
+        _LOGGER.info("Connected to Satel Integra.")
+        # If we've had a successful connection before, this is a
+        # reconnection — signal any waiters. Otherwise mark that we've
+        # now had a connection so future connects can be treated as
+        # reconnections.
+        if self._had_connection:
+            self._reconnected_event.set()
 
-    async def connect(self) -> bool:
+        self._had_connection = True
+        return True
+
+    async def connect(self, check_busy: bool = True) -> bool:
         """Establish TCP connection with a single attempt (no retries).
 
         Acquires lock internally. Suitable for setup validation where a single
@@ -95,7 +100,7 @@ class SatelConnection:
                 return False
             if self.connected:
                 return True
-            return await self._connect()
+            return await self._connect(check_busy=check_busy)
 
     async def read_frame(self) -> bytes | None:
         """Read a raw frame from the panel."""

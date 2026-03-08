@@ -61,6 +61,19 @@ async def test_connect_device_busy_failure(mock_connection, mock_transport):
 
 
 @pytest.mark.asyncio
+async def test_connect_skips_busy_check_when_disabled(mock_connection, mock_transport):
+    mock_transport.check_connection.return_value = False
+
+    result = await mock_connection.connect(check_busy=False)
+    assert result is True
+
+    mock_transport.connect.assert_awaited_once()
+    mock_transport.wait_connected.assert_awaited_once()
+    mock_transport.check_connection.assert_not_awaited()
+    mock_transport.close.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_connect_skipped_when_closed(mock_connection, mock_transport):
     mock_connection._closed = True
 

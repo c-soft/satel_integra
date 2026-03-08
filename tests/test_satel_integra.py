@@ -230,3 +230,10 @@ async def test_reading_loop_processes_message(satel):
     await satel._reading_loop()
 
     cmd_handler.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_connect_passes_check_busy_flag(satel, mock_connection):
+    await satel.connect(check_busy=False)
+
+    mock_connection.connect.assert_awaited_once_with(check_busy=False)

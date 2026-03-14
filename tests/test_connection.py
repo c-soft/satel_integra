@@ -365,13 +365,13 @@ async def test_connection_status_callback_called_on_connect(
     mock_connection, mock_transport
 ):
     callback = MagicMock()
-    mock_connection.add_connection_status_callback(callback)
+    mock_connection.add_connection_state_callback(callback)
 
     async def connect_side_effect():
-        mock_transport.add_connection_status_callback.assert_called_once_with(callback)
-        registered_callback = mock_transport.add_connection_status_callback.call_args[
+        mock_transport.add_connection_state_callback.assert_called_once_with(callback)
+        registered_callback = mock_transport.add_connection_state_callback.call_args[0][
             0
-        ][0]
+        ]
         registered_callback()
 
     mock_transport.connect.side_effect = connect_side_effect
@@ -388,13 +388,13 @@ async def test_connection_status_callback_called_on_read_disconnect(
     mock_connection, mock_transport
 ):
     callback = MagicMock()
-    mock_connection.add_connection_status_callback(callback)
+    mock_connection.add_connection_state_callback(callback)
 
     async def read_frame_side_effect():
         mock_transport.add_connection_state_callback.assert_called_once_with(callback)
-        registered_callback = mock_transport.add_connection_status_callback.call_args[
+        registered_callback = mock_transport.add_connection_state_callback.call_args[0][
             0
-        ][0]
+        ]
         registered_callback()
         return None
 

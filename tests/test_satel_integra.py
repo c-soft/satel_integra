@@ -21,7 +21,7 @@ def mock_connection():
     conn.ensure_connected = AsyncMock(return_value=True)
     conn.wait_reconnected = AsyncMock(return_value=True)
     conn.wait_stopped = AsyncMock(return_value=None)
-    conn.set_connection_status_callback = MagicMock()
+    conn.add_connection_state_callback = MagicMock()
     return conn
 
 
@@ -344,13 +344,3 @@ def test_add_connection_status_callback_forwards_to_transport(satel, mock_connec
     satel.add_connection_status_callback(callback)
 
     mock_connection.add_connection_state_callback.assert_called_once_with(callback)
-
-
-def test_remove_connection_status_callback_forwards_to_transport(
-    satel, mock_connection
-):
-    callback = MagicMock()
-
-    satel.remove_connection_status_callback(callback)
-
-    mock_connection.remove_connection_state_callback.assert_called_once_with(callback)

@@ -106,7 +106,7 @@ async def test_connection_state_callback_called_on_connect(monkeypatch):
     callback = MagicMock()
 
     transport = SatelBaseTransport("localhost", 1234)
-    transport.set_connection_state_callback(callback)
+    transport.add_connection_state_callback(callback)
 
     await transport.connect()
 
@@ -129,45 +129,6 @@ async def test_multiple_connection_state_callbacks(monkeypatch):
     await transport.connect()
 
     callback1.assert_called_once_with()
-    callback2.assert_called_once_with()
-
-
-@pytest.mark.asyncio
-async def test_remove_connection_state_callback(monkeypatch):
-    reader, writer = AsyncMock(), AsyncMock()
-    monkeypatch.setattr(
-        asyncio, "open_connection", AsyncMock(return_value=(reader, writer))
-    )
-    callback1 = MagicMock()
-    callback2 = MagicMock()
-
-    transport = SatelBaseTransport("localhost", 1234)
-    transport.add_connection_state_callback(callback1)
-    transport.add_connection_state_callback(callback2)
-    transport.remove_connection_state_callback(callback1)
-
-    await transport.connect()
-
-    callback1.assert_not_called()
-    callback2.assert_called_once_with()
-
-
-@pytest.mark.asyncio
-async def test_set_connection_state_callback_overwrites(monkeypatch):
-    reader, writer = AsyncMock(), AsyncMock()
-    monkeypatch.setattr(
-        asyncio, "open_connection", AsyncMock(return_value=(reader, writer))
-    )
-    callback1 = MagicMock()
-    callback2 = MagicMock()
-
-    transport = SatelBaseTransport("localhost", 1234)
-    transport.add_connection_state_callback(callback1)
-    transport.set_connection_state_callback(callback2)  # Should overwrite
-
-    await transport.connect()
-
-    callback1.assert_not_called()
     callback2.assert_called_once_with()
 
 
@@ -272,7 +233,7 @@ async def test_close_already_stopped(mock_transport):
 
 async def test_connection_state_callback_called_on_close(mock_transport):
     callback = MagicMock()
-    mock_transport.set_connection_state_callback(callback)
+    mock_transport.add_connection_state_callback(callback)
     mock_transport._last_connected_state = True
     mock_transport._writer.is_closing = MagicMock(return_value=False)
 

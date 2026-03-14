@@ -2,7 +2,7 @@
 
 import asyncio
 import logging
-from collections.abc import Callable, Awaitable
+from collections.abc import Callable
 
 from satel_integra.const import FRAME_END
 from satel_integra.encryption import EncryptedCommunicationHandler
@@ -21,7 +21,7 @@ class SatelBaseTransport:
         self._writer: asyncio.StreamWriter | None = None
 
         self._connection_event = asyncio.Event()
-        self._connection_state_callbacks: list[Callable[[], Awaitable[None]]] = []
+        self._connection_state_callbacks: list[Callable[[], None]] = []
         self._last_connected_state = False
 
     @property
@@ -40,7 +40,7 @@ class SatelBaseTransport:
 
         self._last_connected_state = connected
         for callback in self._connection_state_callbacks:
-            await callback()
+            callback()
 
     def _reset_connection(self) -> None:
         """Reset transport connection handles and clear connection event."""

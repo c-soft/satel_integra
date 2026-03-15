@@ -2,7 +2,7 @@
 
 import asyncio
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable
 
 from satel_integra.commands import SatelWriteCommand
 from satel_integra.const import MESSAGE_RESPONSE_TIMEOUT
@@ -64,9 +64,7 @@ class SatelConnection:
         if self.stopped:
             raise SatelConnectionStoppedError("Connection is stopped")
 
-    def add_connection_state_callback(
-        self, callback: Callable[[], Awaitable[None]]
-    ) -> None:
+    def add_connection_state_callback(self, callback: Callable[[], None]) -> None:
         """Register callback called when connection status changes."""
         self._transport.add_connection_state_callback(callback)
 

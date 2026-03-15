@@ -2,7 +2,7 @@
 
 import asyncio
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Awaitable
 
 from satel_integra.const import FRAME_END
 from satel_integra.encryption import EncryptedCommunicationHandler
@@ -21,7 +21,7 @@ class SatelBaseTransport:
         self._writer: asyncio.StreamWriter | None = None
 
         self._connection_event = asyncio.Event()
-        self._connection_state_callbacks: list[Callable[[], None]] = []
+        self._connection_state_callbacks: list[Callable[[], Awaitable[None]]] = []
         self._last_connected_state = False
 
     @property
@@ -29,7 +29,9 @@ class SatelBaseTransport:
         """Return True if connected to the panel."""
         return self._reader is not None and self._writer is not None
 
-    def add_connection_state_callback(self, callback: Callable[[], None]) -> None:
+    def add_connection_state_callback(
+        self, callback: Callable[[], Awaitable[None]]
+    ) -> None:
         """Add a callback to be called when transport connection status changes."""
         self._connection_state_callbacks.append(callback)
 
@@ -40,7 +42,7 @@ class SatelBaseTransport:
 
         self._last_connected_state = connected
         for callback in self._connection_state_callbacks:
-            callback()
+            await callback()
 
     def _reset_connection(self) -> None:
         """Reset transport connection handles and clear connection event."""

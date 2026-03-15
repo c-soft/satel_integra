@@ -2,7 +2,7 @@
 
 import asyncio
 import logging
-from collections.abc import Callable, Awaitable
+from collections.abc import Awaitable, Callable
 
 from satel_integra.commands import SatelWriteCommand
 from satel_integra.const import MESSAGE_RESPONSE_TIMEOUT

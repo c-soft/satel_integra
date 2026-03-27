@@ -38,33 +38,13 @@ class SatelBaseTransport:
             _LOGGER.debug("TCP connection failed: %s", exc)
             await self.close()
 
-    async def check_connection(self) -> bool:
-        """Check if the connection is valid and the panel is responsive."""
-        if not self._reader or not self._writer:
-            _LOGGER.warning("Cannot check connection, not connected.")
-            return False
+    async def read_initial_data(self) -> bytes | None:
+        """Read raw data available immediately after TCP connect."""
+        if not self._reader:
+            _LOGGER.warning("Cannot read initial data, not connected.")
+            return None
 
-        try:
-            # Try reading to end of file
-            data = await asyncio.wait_for(self._reader.read(-1), timeout=0.1)
-
-            # Satel returns a string starting with "Busy" when another client is connected
-            if b"Busy" in data:
-                _LOGGER.warning("Panel reports busy (another client is connected).")
-                await self.close()
-                return False
-
-            # We assume any other data is fine, but we log it for debugging reasons
-            _LOGGER.debug("Received data after connect: %s", data)
-        except asyncio.TimeoutError:
-            # Timeout is fine, it means we can actually read data
-            pass
-        except Exception as exc:
-            _LOGGER.debug("Connection check failed: %s", exc)
-            await self.close()
-            return False
-
-        return True
+        return await self._reader.read(-1)
 
     async def read_frame(self) -> bytes | None:
         """Template method for reading a frame from the panel."""

@@ -3,6 +3,9 @@
 import asyncio
 import logging
 
+from satel_integra.commands import SatelWriteCommand
+from satel_integra.const import MESSAGE_RESPONSE_TIMEOUT
+from satel_integra.messages import SatelWriteMessage
 from satel_integra.transport import (
     SatelBaseTransport,
     SatelEncryptedTransport,
@@ -48,7 +51,7 @@ class SatelConnection:
         """Return True if the connection is closed."""
         return self._closed
 
-    async def _connect(self, check_busy: bool = True) -> bool:
+    async def _connect(self, verify_connection: bool = True) -> bool:
         """Establish TCP connection. Must be called with _connection_lock held."""
         if self.closed:
             _LOGGER.debug("Connection is closed, skipping connection")
@@ -63,19 +66,29 @@ class SatelConnection:
         await self._transport.connect()
         if not await self._transport.wait_connected():
             _LOGGER.warning("Unable to establish TCP connection.")
+            await self.close()
             return False
 
-        if check_busy:
-            _LOGGER.debug(
-                "TCP connection established, verifying panel responsiveness..."
-            )
-            if not await self._transport.check_connection():
+        if verify_connection:
+            _LOGGER.debug("TCP connection established, verifying panel responsiveness")
+            if not await self._check_connection():
                 _LOGGER.warning("Panel not responsive or busy.")
-                await self._transport.close()
+                await self.close()
                 return False
+
+            _LOGGER.debug("TCP connection established, verifying protocol round-trip")
+            if not await self._verify_protocol():
+                _LOGGER.warning(
+                    "TCP connection opened but startup protocol verification failed. "
+                    "Disabling this client instance; this commonly indicates an "
+                    "encryption mismatch or invalid integration key."
+                )
+                await self.close()
+                return False
+
         else:
             _LOGGER.debug(
-                "TCP connection established, skipping busy/panel responsiveness check."
+                "TCP connection established, skipping connection health check."
             )
 
         _LOGGER.info("Connected to Satel Integra.")
@@ -89,7 +102,7 @@ class SatelConnection:
         self._had_connection = True
         return True
 
-    async def connect(self, check_busy: bool = True) -> bool:
+    async def connect(self, verify_connection: bool = True) -> bool:
         """Establish TCP connection with a single attempt (no retries).
 
         Acquires lock internally. Suitable for setup validation where a single
@@ -100,7 +113,7 @@ class SatelConnection:
                 return False
             if self.connected:
                 return True
-            return await self._connect(check_busy=check_busy)
+            return await self._connect(verify_connection=verify_connection)
 
     async def read_frame(self) -> bytes | None:
         """Read a raw frame from the panel."""
@@ -122,6 +135,9 @@ class SatelConnection:
             # Double-check after acquiring lock
             if self.connected:
                 return True
+
+            if self.closed:
+                return False
 
             _LOGGER.debug("Not connected, attempting reconnection...")
             success = await self._connect()
@@ -155,4 +171,73 @@ class SatelConnection:
 
         self._reconnected_event.clear()
         await self._reconnected_event.wait()
+        return True
+
+    async def _verify_protocol(self) -> bool:
+        """Verify that the panel accepts protocol frames on this transport."""
+        if not self._transport.connected:
+            _LOGGER.warning("Cannot check connection, not connected.")
+            return False
+
+        try:
+            probe = SatelWriteMessage(SatelWriteCommand.RTC_AND_STATUS)
+
+            await self._transport.send_frame(probe.encode_frame())
+            raw_response = await asyncio.wait_for(
+                self._transport.read_frame(), timeout=MESSAGE_RESPONSE_TIMEOUT
+            )
+        except Exception as exc:
+            _LOGGER.warning("Startup protocol verification failed: %s", exc)
+            return False
+
+        if not raw_response:
+            _LOGGER.warning(
+                "Startup protocol verification failed: no response received from panel."
+            )
+            return False
+
+        return True
+
+    async def _check_connection(self) -> bool:
+        """Check if the connection is valid and the panel is responsive."""
+        if not self._transport.connected:
+            _LOGGER.warning("Cannot check connection, not connected.")
+            return False
+
+        try:
+            data = await asyncio.wait_for(
+                self._transport.read_initial_data(), timeout=0.1
+            )
+
+            if data is None:
+                _LOGGER.warning(
+                    "Connection check failed: no initial data could be read."
+                )
+                return False
+
+            # Satel returns a string starting with "Busy" when another client is connected
+            if b"Busy" in data:
+                _LOGGER.warning("Panel reports busy (another client is connected).")
+                return False
+
+            # Log any other data to debug other potential blocking situation
+            _LOGGER.debug("Received data after connect: %s", data)
+
+            # Encrypted panels appear to return opaque bytes immediately when the
+            # session is already occupied. A healthy encrypted connection times out
+            # here instead.
+            if isinstance(self._transport, SatelEncryptedTransport) and data:
+                _LOGGER.warning(
+                    "Encrypted panel returned unexpected initial data; treating "
+                    "connection as busy or unavailable."
+                )
+                return False
+
+        except asyncio.TimeoutError:
+            # Timeout is fine, it means we can actually read data
+            pass
+        except Exception as exc:
+            _LOGGER.debug("Connection check failed: %s", exc)
+            return False
+
         return True

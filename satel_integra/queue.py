@@ -43,7 +43,7 @@ class SatelMessageQueue:
 
         self._current_message: QueuedMessage | None = None
         self._process_task: asyncio.Task | None = None
-        self._closed = False
+        self._stopped = False
 
     async def start(self):
         """Start processing the queue."""
@@ -53,7 +53,7 @@ class SatelMessageQueue:
 
     async def stop(self):
         """Stop the queue gracefully."""
-        self._closed = True
+        self._stopped = True
         if self._process_task:
             self._process_task.cancel()
             try:
@@ -67,7 +67,7 @@ class SatelMessageQueue:
         Queue a message. If wait_for_result is True, wait for and return the result.
         Otherwise, just queue the message and return None
         """
-        if self._closed:
+        if self._stopped:
             raise RuntimeError("Queue is stopped")
 
         _LOGGER.debug("Queueing message: %s", msg)
@@ -88,7 +88,7 @@ class SatelMessageQueue:
         """Process queued commands sequentially."""
         _LOGGER.debug("Message queue worker started")
 
-        while not self._closed:
+        while not self._stopped:
             try:
                 self._current_message = await self._get_next_message()
                 if self._current_message is None:

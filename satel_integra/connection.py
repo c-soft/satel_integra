@@ -34,7 +34,7 @@ class SatelConnection:
             else SatelPlainTransport(host, port)
         )
 
-        self._closed = False
+        self._stopped = False
         self._connection_lock = asyncio.Lock()  # Prevent concurrent connect/close
         self._reconnected_event = (
             asyncio.Event()
@@ -47,13 +47,13 @@ class SatelConnection:
         return self._transport.connected
 
     @property
-    def closed(self) -> bool:
-        """Return True if the connection is closed."""
-        return self._closed
+    def stopped(self) -> bool:
+        """Return True if the connection is stopped."""
+        return self._stopped
 
     async def _connect(self, verify_connection: bool = True) -> bool:
         """Establish TCP connection. Must be called with _connection_lock held."""
-        if self.closed:
+        if self.stopped:
             _LOGGER.debug("Connection is closed, skipping connection")
             return False
 
@@ -66,14 +66,14 @@ class SatelConnection:
         await self._transport.connect()
         if not await self._transport.wait_connected():
             _LOGGER.warning("Unable to establish TCP connection.")
-            await self.close()
+            await self._close_locked()
             return False
 
         if verify_connection:
             _LOGGER.debug("TCP connection established, verifying panel responsiveness")
             if not await self._check_connection():
                 _LOGGER.warning("Panel not responsive or busy.")
-                await self.close()
+                await self._close_locked()
                 return False
 
             _LOGGER.debug("TCP connection established, verifying protocol round-trip")
@@ -83,7 +83,7 @@ class SatelConnection:
                     "Disabling this client instance; this commonly indicates an "
                     "encryption mismatch or invalid integration key."
                 )
-                await self.close()
+                await self._close_locked()
                 return False
 
         else:
@@ -109,7 +109,7 @@ class SatelConnection:
         connection failure should not trigger automatic retries.
         """
         async with self._connection_lock:
-            if self.closed:
+            if self.stopped:
                 return False
             if self.connected:
                 return True
@@ -128,7 +128,7 @@ class SatelConnection:
         if self.connected:
             return True
 
-        if self.closed:
+        if self.stopped:
             return False
 
         async with self._connection_lock:
@@ -136,12 +136,15 @@ class SatelConnection:
             if self.connected:
                 return True
 
-            if self.closed:
+            if self.stopped:
                 return False
 
             _LOGGER.debug("Not connected, attempting reconnection...")
             success = await self._connect()
             if not success:
+                if self.stopped:
+                    return False
+
                 _LOGGER.warning(
                     "Connection failed, retrying in %ss...", self._reconnection_timeout
                 )
@@ -149,29 +152,34 @@ class SatelConnection:
 
             return self.connected
 
+    async def _close_locked(self) -> None:
+        """Close the connection while the connection lock is already held."""
+        if self.stopped:
+            return
+
+        _LOGGER.debug("Closing connection...")
+        await self._transport.close()
+        self._stopped = True
+        self._reconnected_event.set()
+        _LOGGER.info("Connection closed cleanly.")
+
     async def close(self) -> None:
         """Close the connection gracefully and clean up."""
         async with self._connection_lock:
-            if self.closed:
-                return  # already closed, avoid duplicate calls
-
-            _LOGGER.debug("Closing connection...")
-            await self._transport.close()
-            self._closed = True
-            _LOGGER.info("Connection closed cleanly.")
+            await self._close_locked()
 
     async def wait_reconnected(self) -> bool:
         """Wait for connection to be re-established after being lost.
 
         Blocks indefinitely until a reconnection occurs.
-        Returns False if the connection is closed.
+        Returns False if the connection is stopped.
         """
-        if self.closed:
+        if self.stopped:
             return False
 
         self._reconnected_event.clear()
         await self._reconnected_event.wait()
-        return True
+        return not self.stopped
 
     async def _verify_protocol(self) -> bool:
         """Verify that the panel accepts protocol frames on this transport."""

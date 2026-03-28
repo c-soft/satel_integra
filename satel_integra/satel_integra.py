@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+from warnings import deprecated
 from enum import Enum, unique
 from collections.abc import Callable
 
@@ -199,7 +200,8 @@ class AsyncSatel:
     # region Core logic
     async def start(self, enable_monitoring=True):
         """Start the client, including queue, reading loop and keepalive."""
-        await self._connection.ensure_connected()
+        if not await self._connection.ensure_connected():
+            return
 
         # Start reading loop first to ensure we don't miss any messages
         if not self._reading_task or self._reading_task.done():
@@ -227,7 +229,7 @@ class AsyncSatel:
         """
         while True:
             await asyncio.sleep(self._keepalive_timeout)
-            if self.closed:
+            if self.stopped:
                 return
             # Command to read status of the alarm
             data = SatelWriteMessage(
@@ -237,7 +239,7 @@ class AsyncSatel:
 
     async def _reading_loop(self):
         try:
-            while not self.closed:
+            while not self.stopped:
                 await self._connection.ensure_connected()
 
                 msg = await self._read_data()
@@ -268,7 +270,7 @@ class AsyncSatel:
         This task is only created when monitoring is enabled, so we can assume
         monitoring should be restarted on reconnection.
         """
-        while not self.closed:
+        while not self.stopped:
             try:
                 # Wait indefinitely for a reconnection event
                 await self._connection.wait_reconnected()
@@ -391,9 +393,15 @@ class AsyncSatel:
         return self._connection.connected
 
     @property
+    @deprecated("Use stopped instead")
     def closed(self) -> bool:
-        """Return true if connection is closed."""
-        return self._connection.closed
+        """Return true if connection is stopped."""
+        return self._connection.stopped
+
+    @property
+    def stopped(self) -> bool:
+        """Return true if connection is stopped."""
+        return self._connection.stopped
 
     async def connect(self, verify_connection: bool = True) -> bool:
         """Make a TCP connection to the alarm system."""

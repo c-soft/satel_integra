@@ -4,7 +4,7 @@ import asyncio
 import logging
 from warnings import deprecated
 from enum import Enum, unique
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 
 from satel_integra.commands import SatelReadCommand, SatelWriteCommand
 from satel_integra.connection import SatelConnection
@@ -47,9 +47,7 @@ class AsyncSatel:
         """Init the Satel alarm data."""
         self._connection = SatelConnection(host, port, integration_key=integration_key)
         self._queue = SatelMessageQueue(self._send_encoded_frame)
-        self._reading_task: asyncio.Task | None = None
-        self._reconnection_task: asyncio.Task | None = None
-        self._keepalive_task: asyncio.Task | None = None
+        self._running_tasks: set[asyncio.Task[object]] = set()
         self._keepalive_timeout = 20
 
         self._monitored_zones: list[int] = monitored_zones
@@ -203,23 +201,22 @@ class AsyncSatel:
         if not await self._connection.ensure_connected():
             return
 
-        # Start reading loop first to ensure we don't miss any messages
-        if not self._reading_task or self._reading_task.done():
-            self._reading_task = asyncio.create_task(self._reading_loop())
+        self._start_task(self._reading_loop())
 
         await self._queue.start()
 
-        if not self._keepalive_task or self._keepalive_task.done():
-            self._keepalive_task = asyncio.create_task(self._keepalive_loop())
+        self._start_task(self._keepalive_loop())
 
         if enable_monitoring:
-            # Start reconnection monitor only if monitoring is enabled
-            if not self._reconnection_task or self._reconnection_task.done():
-                self._reconnection_task = asyncio.create_task(
-                    self._monitor_reconnection_loop()
-                )
-
+            self._start_task(self._monitor_reconnection_loop())
             await self.start_monitoring()
+
+    def _start_task(self, coro: Awaitable[object]) -> asyncio.Task[object]:
+        """Create and track a background task."""
+        task = asyncio.create_task(coro)
+        self._running_tasks.add(task)
+        task.add_done_callback(self._running_tasks.discard)
+        return task
 
     async def _keepalive_loop(self):
         """A workaround for Satel Integra disconnecting after 25s.
@@ -410,33 +407,26 @@ class AsyncSatel:
         return result
 
     async def close(self):
-        """Stop monitoring and close connection."""
+        """Stop background tasks and close connection."""
+        await self._connection.close()
+
+        await self._cancel_running_tasks()
         await self._queue.stop()
 
-        if self._reading_task:
-            self._reading_task.cancel()
+    async def _cancel_running_tasks(self) -> None:
+        """Cancel all tracked background tasks except the current one."""
+        current_task = asyncio.current_task()
+        tasks = [task for task in self._running_tasks if task is not current_task]
+
+        for task in tasks:
+            task.cancel()
+
+        for task in tasks:
             try:
-                await self._reading_task
+                await task
             except asyncio.CancelledError:
                 pass
-            self._reading_task = None
 
-        if self._reconnection_task:
-            self._reconnection_task.cancel()
-            try:
-                await self._reconnection_task
-            except asyncio.CancelledError:
-                pass
-            self._reconnection_task = None
-
-        if self._keepalive_task:
-            self._keepalive_task.cancel()
-            try:
-                await self._keepalive_task
-            except asyncio.CancelledError:
-                pass
-            self._keepalive_task = None
-
-        await self._connection.close()
+        self._running_tasks.difference_update(tasks)
 
     # endregion

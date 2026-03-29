@@ -5,6 +5,7 @@ import logging
 
 from satel_integra.commands import SatelWriteCommand
 from satel_integra.const import MESSAGE_RESPONSE_TIMEOUT
+from satel_integra.exceptions import SatelConnectionStoppedError
 from satel_integra.messages import SatelWriteMessage
 from satel_integra.transport import (
     SatelBaseTransport,
@@ -35,6 +36,7 @@ class SatelConnection:
         )
 
         self._stopped = False
+        self._stopped_event = asyncio.Event()
         self._connection_lock = asyncio.Lock()  # Prevent concurrent connect/close
         self._reconnected_event = (
             asyncio.Event()
@@ -50,6 +52,11 @@ class SatelConnection:
     def stopped(self) -> bool:
         """Return True if the connection is stopped."""
         return self._stopped
+
+    def _assert_not_stopped(self) -> None:
+        """Raise if the connection is in a terminal stopped state."""
+        if self.stopped:
+            raise SatelConnectionStoppedError("Connection is stopped")
 
     async def _connect(self, verify_connection: bool = True) -> bool:
         """Establish TCP connection. Must be called with _connection_lock held."""
@@ -123,34 +130,29 @@ class SatelConnection:
         """Send a raw frame to the panel."""
         return await self._transport.send_frame(frame)
 
-    async def ensure_connected(self) -> bool:
-        """Reconnect automatically if disconnected."""
-        if self.connected:
-            return True
+    async def ensure_connected(self) -> None:
+        """Reconnect automatically until connected or terminally stopped."""
+        while not self.connected:
+            self._assert_not_stopped()
 
-        if self.stopped:
-            return False
+            async with self._connection_lock:
+                # Double-check after acquiring lock
+                if self.connected:
+                    return
 
-        async with self._connection_lock:
-            # Double-check after acquiring lock
-            if self.connected:
-                return True
+                self._assert_not_stopped()
 
-            if self.stopped:
-                return False
+                _LOGGER.debug("Not connected, attempting reconnection...")
+                success = await self._connect()
 
-            _LOGGER.debug("Not connected, attempting reconnection...")
-            success = await self._connect()
-            if not success:
-                if self.stopped:
-                    return False
+            if success:
+                return
 
-                _LOGGER.warning(
-                    "Connection failed, retrying in %ss...", self._reconnection_timeout
-                )
-                await asyncio.sleep(self._reconnection_timeout)
-
-            return self.connected
+            self._assert_not_stopped()
+            _LOGGER.warning(
+                "Connection failed, retrying in %ss...", self._reconnection_timeout
+            )
+            await asyncio.sleep(self._reconnection_timeout)
 
     async def _close_locked(self) -> None:
         """Close the connection while the connection lock is already held."""
@@ -160,26 +162,44 @@ class SatelConnection:
         _LOGGER.debug("Closing connection...")
         await self._transport.close()
         self._stopped = True
-        self._reconnected_event.set()
+        self._stopped_event.set()
         _LOGGER.info("Connection closed cleanly.")
+
+    async def wait_stopped(self) -> None:
+        """Wait until the connection enters its terminal stopped state."""
+        if self.stopped:
+            return
+
+        await self._stopped_event.wait()
 
     async def close(self) -> None:
         """Close the connection gracefully and clean up."""
         async with self._connection_lock:
             await self._close_locked()
 
-    async def wait_reconnected(self) -> bool:
+    async def wait_reconnected(self) -> None:
         """Wait for connection to be re-established after being lost.
 
         Blocks indefinitely until a reconnection occurs.
-        Returns False if the connection is stopped.
+        Raises if the connection is terminally stopped.
         """
-        if self.stopped:
-            return False
+        self._assert_not_stopped()
 
         self._reconnected_event.clear()
-        await self._reconnected_event.wait()
-        return not self.stopped
+        reconnected_waiter = asyncio.create_task(self._reconnected_event.wait())
+        stopped_waiter = asyncio.create_task(self._stopped_event.wait())
+
+        done, pending = await asyncio.wait(
+            {reconnected_waiter, stopped_waiter},
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+
+        for task in pending:
+            task.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)
+
+        if stopped_waiter in done:
+            self._assert_not_stopped()
 
     async def _verify_protocol(self) -> bool:
         """Verify that the panel accepts protocol frames on this transport."""

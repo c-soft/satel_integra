@@ -8,6 +8,7 @@ from collections.abc import Awaitable, Callable
 
 from satel_integra.commands import SatelReadCommand, SatelWriteCommand
 from satel_integra.connection import SatelConnection
+from satel_integra.exceptions import SatelConnectionStoppedError
 from satel_integra.messages import SatelReadMessage, SatelWriteMessage
 from satel_integra.utils import encode_bitmask_le
 from satel_integra.queue import SatelMessageQueue
@@ -198,9 +199,12 @@ class AsyncSatel:
     # region Core logic
     async def start(self, enable_monitoring=True):
         """Start the client, including queue, reading loop and keepalive."""
-        if not await self._connection.ensure_connected():
+        try:
+            await self._connection.ensure_connected()
+        except SatelConnectionStoppedError:
             return
 
+        self._start_task(self._watch_connection_stopped())
         self._start_task(self._reading_loop())
 
         await self._queue.start()
@@ -234,9 +238,17 @@ class AsyncSatel:
             )
             await self._send_data(data)
 
+    async def _watch_connection_stopped(self):
+        """Stop local background work once the connection becomes terminally stopped."""
+        try:
+            await self._connection.wait_stopped()
+            await self.close()
+        except asyncio.CancelledError:
+            return
+
     async def _reading_loop(self):
         try:
-            while not self.stopped:
+            while True:
                 await self._connection.ensure_connected()
 
                 msg = await self._read_data()
@@ -256,6 +268,8 @@ class AsyncSatel:
                 else:
                     _LOGGER.debug("No handler for command: %s", msg.cmd)
 
+        except SatelConnectionStoppedError:
+            return
         except asyncio.CancelledError:
             _LOGGER.info("_reading_loop loop cancelled.")
         except Exception as ex:
@@ -267,12 +281,14 @@ class AsyncSatel:
         This task is only created when monitoring is enabled, so we can assume
         monitoring should be restarted on reconnection.
         """
-        while not self.stopped:
+        while True:
             try:
                 # Wait indefinitely for a reconnection event
                 await self._connection.wait_reconnected()
                 _LOGGER.info("Connection re-established, reinitializing monitoring...")
                 await self.start_monitoring()
+            except SatelConnectionStoppedError:
+                return
             except asyncio.CancelledError:
                 break
             except Exception as ex:

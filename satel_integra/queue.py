@@ -18,7 +18,7 @@ class QueuedMessage:
         self.message = message
         self.return_result = wait_for_result
 
-        self.processed_future: asyncio.Future[SatelReadMessage] = (
+        self.processed_future: asyncio.Future[SatelReadMessage | None] = (
             asyncio.get_running_loop().create_future()
         )
 
@@ -62,6 +62,8 @@ class SatelMessageQueue:
                 pass
             self._process_task = None
 
+        self._cancel_pending_messages()
+
     async def add_message(self, msg: SatelWriteMessage, wait_for_result: bool = False):
         """
         Queue a message. If wait_for_result is True, wait for and return the result.
@@ -79,10 +81,25 @@ class SatelMessageQueue:
             return
 
         try:
-            return await queued.processed_future
+            return await asyncio.shield(queued.processed_future)
+        except asyncio.CancelledError:
+            if self._stopped or queued.processed_future.cancelled():
+                _LOGGER.debug("Waiting for message result cancelled")
+                return
+            raise
         except Exception as exc:
             _LOGGER.debug("Couldn't wait for message result: %s", exc)
             return
+
+    def _cancel_pending_messages(self) -> None:
+        """Cancel any pending waiters when the queue shuts down."""
+        if self._current_message and not self._current_message.processed_future.done():
+            self._current_message.processed_future.cancel()
+
+        while not self._queue.empty():
+            queued = self._queue.get_nowait()
+            if not queued.processed_future.done():
+                queued.processed_future.cancel()
 
     async def _process_queue(self) -> None:
         """Process queued commands sequentially."""
@@ -133,6 +150,8 @@ class SatelMessageQueue:
             _LOGGER.error(
                 "No response received from panel within %ss", MESSAGE_RESPONSE_TIMEOUT
             )
+            if not queued.processed_future.done():
+                queued.processed_future.cancel()
             return
 
     def on_message_received(self, result: SatelReadMessage):

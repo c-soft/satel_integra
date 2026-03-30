@@ -45,3 +45,9 @@ Changelog="https://github.com/c-soft/satel_integra/blob/master/CHANGELOG.md"
 [tool.pytest.ini_options]
 timeout = 10
 addopts = "--cov --cov-report html"
+
+[tool.ruff.lint]
+extend-select = ["I"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["satel_integra"]

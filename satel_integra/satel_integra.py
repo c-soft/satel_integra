@@ -409,7 +409,7 @@ class AsyncSatel:
     @property
     @deprecated("Use stopped instead")
     def closed(self) -> bool:
-        """Return true if connection is stopped."""
+        """Return true if connection is closed."""
         return self._connection.stopped
 
     @property
@@ -425,7 +425,7 @@ class AsyncSatel:
     async def connect(self, verify_connection: bool = True) -> bool: ...
 
     async def connect(
-        self, verify_connection: bool = True, *, check_busy: bool = True
+        self, verify_connection: bool = True, *, check_busy: bool | None = None
     ) -> bool:
         """Make a TCP connection to the alarm system."""
         if check_busy is not None:
@@ -434,7 +434,7 @@ class AsyncSatel:
                 DeprecationWarning,
                 stacklevel=2,
             )
-        verify_connection = check_busy
+            verify_connection = check_busy
 
         return await self._connection.connect(verify_connection=verify_connection)
 

@@ -2,17 +2,35 @@
 
 import asyncio
 import logging
-from warnings import deprecated, warn
-from enum import Enum, unique
+import sys
 from collections.abc import Awaitable, Callable
+from enum import Enum, unique
+from typing import overload
+from warnings import deprecated, warn
 
 from satel_integra.commands import SatelReadCommand, SatelWriteCommand
 from satel_integra.connection import SatelConnection
-from typing import overload
 from satel_integra.exceptions import SatelConnectionStoppedError
 from satel_integra.messages import SatelReadMessage, SatelWriteMessage
-from satel_integra.utils import encode_bitmask_le
 from satel_integra.queue import SatelMessageQueue
+from satel_integra.utils import encode_bitmask_le
+
+if sys.version_info >= (3, 13):
+    from warnings import deprecated
+else:
+    from functools import wraps
+
+    def deprecated(message):
+        def decorator(func):
+            @wraps(func)
+            def wrapper(*args, **kwargs):
+                warn(message, DeprecationWarning, stacklevel=2)
+                return func(*args, **kwargs)
+
+            return wrapper
+
+        return decorator
+
 
 _LOGGER = logging.getLogger(__name__)
 

@@ -1,13 +1,14 @@
-# """Main module."""
+"""Main module for Satel Integra alarm system client."""
 
 import asyncio
 import logging
-from warnings import deprecated
+from warnings import deprecated, warn
 from enum import Enum, unique
 from collections.abc import Awaitable, Callable
 
 from satel_integra.commands import SatelReadCommand, SatelWriteCommand
 from satel_integra.connection import SatelConnection
+from typing import overload
 from satel_integra.exceptions import SatelConnectionStoppedError
 from satel_integra.messages import SatelReadMessage, SatelWriteMessage
 from satel_integra.utils import encode_bitmask_le
@@ -416,11 +417,26 @@ class AsyncSatel:
         """Return true if connection is stopped."""
         return self._connection.stopped
 
-    async def connect(self, verify_connection: bool = True) -> bool:
-        """Make a TCP connection to the alarm system."""
-        result = await self._connection.connect(verify_connection=verify_connection)
+    @overload
+    @deprecated("Use connect with 'verify_connection' property instead")
+    async def connect(self, *, check_busy: bool = True) -> bool: ...
 
-        return result
+    @overload
+    async def connect(self, verify_connection: bool = True) -> bool: ...
+
+    async def connect(
+        self, verify_connection: bool = True, *, check_busy: bool = True
+    ) -> bool:
+        """Make a TCP connection to the alarm system."""
+        if check_busy is not None:
+            warn(
+                "'check_busy' is deprecated; use 'verify_connection'",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+        verify_connection = check_busy
+
+        return await self._connection.connect(verify_connection=verify_connection)
 
     async def close(self):
         """Stop background tasks and close connection."""

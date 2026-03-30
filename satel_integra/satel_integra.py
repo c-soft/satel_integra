@@ -6,7 +6,7 @@ import sys
 from collections.abc import Awaitable, Callable
 from enum import Enum, unique
 from typing import overload
-from warnings import deprecated, warn
+from warnings import warn
 
 from satel_integra.commands import SatelReadCommand, SatelWriteCommand
 from satel_integra.connection import SatelConnection

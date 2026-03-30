@@ -67,9 +67,22 @@ async def test_stop(mock_queue):
 
     await mock_queue.stop()
 
-    assert mock_queue._closed is True
+    assert mock_queue._stopped is True
     assert task.cancelled()
     assert mock_queue._process_task is None
+
+
+@pytest.mark.asyncio
+async def test_stop_unblocks_waiting_message(mock_queue, write_msg):
+    await mock_queue.start()
+
+    waiter = asyncio.create_task(mock_queue.add_message(write_msg, True))
+    await asyncio.sleep(0)
+
+    await mock_queue.stop()
+
+    result = await asyncio.wait_for(waiter, timeout=1.0)
+    assert result is None
 
 
 @pytest.mark.asyncio
@@ -112,7 +125,7 @@ async def test_stop_cancels_task(mock_queue):
     await mock_queue.start()
     await mock_queue.stop()
     assert mock_queue._process_task is None
-    assert mock_queue._closed is True
+    assert mock_queue._stopped is True
 
 
 @pytest.mark.asyncio
@@ -210,7 +223,7 @@ async def test_process_queue(mock_queue, write_msg):
     queued = QueuedMessage(write_msg, True)
 
     def close_queue_and_return():
-        mock_queue._closed = True
+        mock_queue._stopped = True
         return queued
 
     mock_queue._send_and_wait_response = AsyncMock()
@@ -230,7 +243,7 @@ async def test_process_queue_with_exception(mock_queue, write_msg, caplog):
     queued = QueuedMessage(write_msg, True)
 
     def close_queue_and_return(msg):
-        mock_queue._closed = True
+        mock_queue._stopped = True
         raise Exception("Test exception")
 
     mock_queue._send_and_wait_response = AsyncMock(side_effect=close_queue_and_return)
@@ -246,7 +259,7 @@ async def test_process_queue_with_exception(mock_queue, write_msg, caplog):
 @pytest.mark.asyncio
 async def test_process_queue_skips_none(mock_queue):
     def close_queue():
-        mock_queue._closed = True
+        mock_queue._stopped = True
 
     mock_queue._send_and_wait_response = AsyncMock()
     mock_queue._get_next_message = AsyncMock(side_effect=close_queue, return_value=None)

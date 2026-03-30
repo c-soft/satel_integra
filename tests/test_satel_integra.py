@@ -1,9 +1,10 @@
 import asyncio
 import logging
-from unittest.mock import AsyncMock, MagicMock, PropertyMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from satel_integra.exceptions import SatelConnectionStoppedError
 from satel_integra.satel_integra import AlarmState, AsyncSatel
 
 
@@ -11,7 +12,10 @@ from satel_integra.satel_integra import AlarmState, AsyncSatel
 def mock_connection():
     conn = AsyncMock()
     conn.connected = True
-    conn.closed = False
+    conn.stopped = False
+    conn.ensure_connected = AsyncMock(return_value=True)
+    conn.wait_reconnected = AsyncMock(return_value=True)
+    conn.wait_stopped = AsyncMock(return_value=None)
     return conn
 
 
@@ -145,13 +149,13 @@ async def test_send_methods_call_queue_add(satel, mock_queue, method, args):
 
 @pytest.mark.asyncio
 async def test_close_cancels_tasks(satel):
-    satel._reading_task = asyncio.create_task(asyncio.sleep(999))
-    satel._keepalive_task = asyncio.create_task(asyncio.sleep(999))
+    reading_task = asyncio.create_task(asyncio.sleep(999))
+    keepalive_task = asyncio.create_task(asyncio.sleep(999))
+    satel._running_tasks = {reading_task, keepalive_task}
 
     await satel.close()
 
-    assert satel._reading_task is None
-    assert satel._keepalive_task is None
+    assert not satel._running_tasks
 
 
 @pytest.mark.asyncio
@@ -164,50 +168,56 @@ async def test_read_data_exception_returns_none(satel):
 
 @pytest.mark.asyncio
 async def test_start_starts_background_tasks(satel):
-    satel._reading_task = None
-    satel._keepalive_task = None
-    satel._reconnection_task = None
-
+    satel._watch_connection_stopped = AsyncMock()
     satel._reading_loop = AsyncMock()
     satel._keepalive_loop = AsyncMock()
     satel._monitor_reconnection_loop = AsyncMock()
+    satel._start_task = MagicMock(side_effect=lambda coro: asyncio.create_task(coro))
     satel.start_monitoring = AsyncMock()
 
     await satel.start(enable_monitoring=True)
 
-    # Tasks are created
-    assert satel._reading_task is not None
-    assert satel._keepalive_task is not None
-    assert satel._reconnection_task is not None
-
-    # Monitoring called
+    assert satel._start_task.call_count == 4
+    satel._connection.ensure_connected.assert_awaited_once()
+    satel._queue.start.assert_awaited_once()
     satel.start_monitoring.assert_awaited()
 
 
 @pytest.mark.asyncio
 async def test_start_skips_monitoring(satel):
-    satel._reading_task = None
-    satel._keepalive_task = None
-    satel._reconnection_task = None
-
+    satel._watch_connection_stopped = AsyncMock()
     satel._reading_loop = AsyncMock()
     satel._keepalive_loop = AsyncMock()
+    satel._start_task = MagicMock(side_effect=lambda coro: asyncio.create_task(coro))
     satel.start_monitoring = AsyncMock()
 
     await satel.start(enable_monitoring=False)
 
-    assert satel._reconnection_task is None
-
+    assert satel._start_task.call_count == 3
     satel.start_monitoring.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_keepalive_loop_sends_message(satel):
-    satel._keepalive_timeout = 0.01
-    satel._send_data = AsyncMock()
+async def test_start_returns_early_when_initial_connection_fails(satel, mock_queue):
+    satel._connection.ensure_connected.side_effect = SatelConnectionStoppedError
+    satel._connection.stopped = True
+    satel._start_task = MagicMock()
+    satel.start_monitoring = AsyncMock()
 
-    # Close after 1 call
-    type(satel).closed = PropertyMock(side_effect=[False, True])
+    await satel.start(enable_monitoring=True)
+
+    satel._start_task.assert_not_called()
+    mock_queue.stop.assert_not_awaited()
+    mock_queue.start.assert_not_awaited()
+    satel.start_monitoring.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_keepalive_loop_stops_when_connection_closes(satel, mock_connection):
+    satel._keepalive_timeout = 0.01
+    satel._send_data = AsyncMock(
+        side_effect=lambda *args, **kwargs: setattr(mock_connection, "stopped", True)
+    )
 
     await satel._keepalive_loop()
 
@@ -215,13 +225,14 @@ async def test_keepalive_loop_sends_message(satel):
 
 
 @pytest.mark.asyncio
-async def test_reading_loop_processes_message(satel):
-    type(satel).closed = PropertyMock(side_effect=[False, True])
-
+async def test_reading_loop_processes_message(satel, mock_connection):
     msg = MagicMock()
     msg.cmd = 1
 
-    satel._read_data = AsyncMock(side_effect=[msg, None])  # Return one msg then None
+    satel._connection.ensure_connected = AsyncMock(
+        side_effect=[None, SatelConnectionStoppedError]
+    )
+    satel._read_data = AsyncMock(return_value=msg)
 
     cmd_handler = MagicMock()
 
@@ -233,7 +244,48 @@ async def test_reading_loop_processes_message(satel):
 
 
 @pytest.mark.asyncio
-async def test_connect_passes_check_busy_flag(satel, mock_connection):
-    await satel.connect(check_busy=False)
+async def test_reading_loop_stops_when_reconnect_closes_connection(
+    satel, mock_connection
+):
+    satel._connection.ensure_connected = AsyncMock(
+        side_effect=SatelConnectionStoppedError
+    )
+    satel._read_data = AsyncMock()
 
-    mock_connection.connect.assert_awaited_once_with(check_busy=False)
+    await satel._reading_loop()
+
+    satel._read_data.assert_not_awaited()
+    satel._queue.stop.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_monitor_reconnection_loop_exits_when_connection_closes(satel):
+    satel._connection.wait_reconnected.side_effect = SatelConnectionStoppedError
+    satel._connection.stopped = True
+    satel.start_monitoring = AsyncMock()
+
+    await satel._monitor_reconnection_loop()
+
+    satel._queue.stop.assert_not_awaited()
+    satel.start_monitoring.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_watch_connection_stopped_stops_queue_and_tasks(satel):
+    satel._running_tasks = {
+        asyncio.create_task(asyncio.sleep(999)),
+        asyncio.create_task(asyncio.sleep(999)),
+        asyncio.create_task(asyncio.sleep(999)),
+    }
+
+    await satel._watch_connection_stopped()
+
+    assert not satel._running_tasks
+    satel._queue.stop.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_connect_passes_verify_connection_flag(satel, mock_connection):
+    await satel.connect(verify_connection=False)
+
+    mock_connection.connect.assert_awaited_once_with(verify_connection=False)

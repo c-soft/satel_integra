@@ -72,39 +72,24 @@ async def test_connect_failure(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_check_connection_busy_message(mock_transport, caplog):
-    mock_transport._reader.read.return_value = (
-        b"\x10Busy!\r\n\xd8\xa5\xa5\xa5\xa5\xa5\xa5\xa5"
-    )
+async def test_read_initial_data(mock_transport):
+    mock_transport._reader.read.return_value = b"Busy!\r\n"
+
+    result = await mock_transport.read_initial_data()
+
+    assert result == b"Busy!\r\n"
+    mock_transport._reader.read.assert_awaited_once_with(-1)
+
+
+@pytest.mark.asyncio
+async def test_read_initial_data_not_connected(caplog):
+    transport = SatelBaseTransport("h", 1)
 
     with caplog.at_level(logging.WARNING):
-        assert await mock_transport.check_connection() is False
+        result = await transport.read_initial_data()
 
-    assert "Panel reports busy (another client is connected)." in caplog.text
-    assert not mock_transport.connected
-
-
-@pytest.mark.asyncio
-async def test_check_connection_read_exception(mock_transport, caplog):
-    mock_transport._reader.read = AsyncMock(side_effect=Exception("Test exception"))
-
-    with caplog.at_level(logging.DEBUG):
-        assert await mock_transport.check_connection() is False
-
-    assert "Connection check failed:" in caplog.text
-    assert not mock_transport.connected
-
-
-@pytest.mark.asyncio
-async def test_check_connection_read_timeout(mock_transport, caplog):
-    async def long_read(length):
-        await asyncio.sleep(999)
-        return ""
-
-    mock_transport._reader.read = AsyncMock(side_effect=long_read)
-
-    assert await mock_transport.check_connection() is True
-    assert mock_transport.connected
+    assert result is None
+    assert "Cannot read initial data, not connected." in caplog.text
 
 
 @pytest.mark.asyncio
@@ -190,8 +175,8 @@ async def test_close_success(mock_transport):
 
 
 @pytest.mark.asyncio
-async def test_close_already_closed(mock_transport):
-    mock_transport.closed = True
+async def test_close_already_stopped(mock_transport):
+    mock_transport.stopped = True
     await mock_transport.close()  # should not raise or call anything
 
 

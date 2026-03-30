@@ -1,7 +1,9 @@
 import asyncio
 import logging
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
 from satel_integra.const import FRAME_END
 from satel_integra.transport import SatelBaseTransport, SatelEncryptedTransport
 

@@ -1,6 +1,8 @@
 import asyncio
-import pytest
 from unittest.mock import AsyncMock, MagicMock, PropertyMock
+
+import pytest
+
 from satel_integra.connection import SatelConnection
 
 

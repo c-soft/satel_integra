@@ -1,8 +1,7 @@
 import asyncio
-from satel_integra import AsyncSatel
-
-
 import logging
+
+from satel_integra import AsyncSatel
 
 
 async def main(host: str, port: int, integration_key: str | None = None) -> None:

@@ -72,7 +72,7 @@ class SatelConnection:
 
         if not await self._transport.connect():
             _LOGGER.warning("Unable to establish TCP connection.")
-            await self._close_locked()
+            await self._close_locked(stop=False)
             return False
 
         if verify_connection:
@@ -83,7 +83,7 @@ class SatelConnection:
                     "Another client may already be connected, or the panel may "
                     "still be busy."
                 )
-                await self._close_locked()
+                await self._close_locked(stop=False)
                 return False
 
             _LOGGER.debug("TCP connection established, verifying protocol round-trip")
@@ -93,7 +93,7 @@ class SatelConnection:
                     "Check that the integration key and encryption settings match "
                     "the panel configuration."
                 )
-                await self._close_locked()
+                await self._close_locked(stop=False)
                 return False
 
         else:
@@ -157,16 +157,18 @@ class SatelConnection:
             )
             await asyncio.sleep(self._reconnection_timeout)
 
-    async def _close_locked(self) -> None:
-        """Close the connection while the connection lock is already held."""
+    async def _close_locked(self, stop: bool = True) -> None:
+        """Close the connection while the lock is already held."""
         if self.stopped:
             return
 
         _LOGGER.debug("Closing connection...")
         await self._transport.close()
-        self._stopped = True
-        self._stopped_event.set()
-        _LOGGER.info("Connection closed cleanly.")
+
+        if stop:
+            self._stopped = True
+            self._stopped_event.set()
+            _LOGGER.debug("Connection closed cleanly.")
 
     async def wait_stopped(self) -> None:
         """Wait until the connection enters its terminal stopped state."""

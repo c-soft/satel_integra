@@ -55,7 +55,7 @@ async def test_connect_config_failure(mock_connection, mock_transport):
 
     result = await mock_connection.connect()
     assert result is False
-    assert mock_connection.stopped is True
+    assert mock_connection.stopped is False
 
     mock_transport.connect.assert_awaited_once()
     mock_transport.read_initial_data.assert_not_awaited()
@@ -70,7 +70,7 @@ async def test_connect_device_busy_failure(mock_connection, mock_transport):
 
     result = await mock_connection.connect()
     assert result is False
-    assert mock_connection.stopped is True
+    assert mock_connection.stopped is False
 
     mock_transport.read_initial_data.assert_awaited_once()
     mock_transport.close.assert_awaited_once()
@@ -97,7 +97,7 @@ async def test_connect_protocol_probe_failure_closes_connection(
     result = await mock_connection.connect()
 
     assert result is False
-    assert mock_connection.stopped is True
+    assert mock_connection.stopped is False
 
     mock_transport.send_frame.assert_awaited_once()
     mock_transport.read_frame.assert_awaited_once()
@@ -113,7 +113,7 @@ async def test_connect_protocol_probe_timeout_closes_connection(
     result = await mock_connection.connect()
 
     assert result is False
-    assert mock_connection.stopped is True
+    assert mock_connection.stopped is False
     mock_transport.close.assert_awaited_once()
 
 
@@ -158,6 +158,33 @@ async def test_ensure_connected_already_connected(mock_connection, mock_transpor
 async def test_ensure_connected_reconnect(mock_connection, mock_transport):
     await mock_connection.ensure_connected()
     assert mock_transport.connect.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_ensure_connected_retries_after_transient_connect_failure(
+    mock_connection, mock_transport, monkeypatch
+):
+    attempts = 0
+
+    async def flaky_connect():
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            mock_transport.connected = False
+            return False
+
+        mock_transport.connected = True
+        return True
+
+    mock_transport.connect = AsyncMock(side_effect=flaky_connect)
+    sleep_mock = AsyncMock()
+    monkeypatch.setattr(asyncio, "sleep", sleep_mock)
+
+    await asyncio.wait_for(mock_connection.ensure_connected(), timeout=1.0)
+
+    assert attempts == 2
+    assert mock_connection.stopped is False
+    sleep_mock.assert_awaited_once_with(mock_connection._reconnection_timeout)
 
 
 @pytest.mark.asyncio

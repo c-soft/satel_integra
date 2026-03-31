@@ -70,8 +70,7 @@ class SatelConnection:
 
         _LOGGER.debug("Connecting to Satel Integra at %s:%s...", self._host, self._port)
 
-        await self._transport.connect()
-        if not await self._transport.wait_connected():
+        if not await self._transport.connect():
             _LOGGER.warning("Unable to establish TCP connection.")
             await self._close_locked()
             return False

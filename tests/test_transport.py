@@ -1,7 +1,9 @@
 import asyncio
 import logging
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
 from satel_integra.const import FRAME_END
 from satel_integra.transport import SatelBaseTransport, SatelEncryptedTransport
 
@@ -16,7 +18,6 @@ def mock_transport():
 
     transport = SatelBaseTransport("localhost", 1234)
 
-    transport._connection_event.set()
     transport._reader = reader
     transport._writer = writer
 
@@ -57,7 +58,6 @@ async def test_connect_success(monkeypatch):
     transport = SatelBaseTransport("localhost", 1234)
     await transport.connect()
     assert transport.connected
-    assert await transport.wait_connected() is True
 
 
 @pytest.mark.asyncio
@@ -68,7 +68,6 @@ async def test_connect_failure(monkeypatch):
     transport = SatelBaseTransport("localhost", 1234)
     await transport.connect()
     assert not transport.connected
-    assert await transport.wait_connected(timeout=0.01) is False
 
 
 @pytest.mark.asyncio
@@ -164,14 +163,12 @@ async def test_close_success(mock_transport):
 
     # Verify initial state
     assert mock_transport.connected
-    assert mock_transport._connection_event.is_set()
 
     await mock_transport.close()
 
     assert not mock_transport.connected
     assert mock_transport._reader is None
     assert mock_transport._writer is None
-    assert not mock_transport._connection_event.is_set()
 
 
 @pytest.mark.asyncio

@@ -1,6 +1,7 @@
 import asyncio
-import pytest
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from satel_integra.connection import SatelConnection
 from satel_integra.exceptions import SatelConnectionStoppedError
@@ -14,12 +15,12 @@ def mock_transport():
 
     async def connect():
         transport.connected = True
+        return True
 
     async def close():
         transport.connected = False
 
     transport.connect = AsyncMock(side_effect=connect)
-    transport.wait_connected = AsyncMock(return_value=True)
     transport.read_initial_data = AsyncMock(return_value=b"")
     transport.send_frame = AsyncMock(return_value=True)
     transport.read_frame = AsyncMock(return_value=b"probe-response")
@@ -42,7 +43,6 @@ async def test_connect_success(mock_connection, mock_transport):
     assert result is True
 
     mock_transport.connect.assert_awaited_once()
-    mock_transport.wait_connected.assert_awaited_once()
     mock_transport.read_initial_data.assert_awaited_once()
     mock_transport.send_frame.assert_awaited_once()
     mock_transport.read_frame.assert_awaited_once()
@@ -51,14 +51,13 @@ async def test_connect_success(mock_connection, mock_transport):
 
 @pytest.mark.asyncio
 async def test_connect_config_failure(mock_connection, mock_transport):
-    mock_transport.wait_connected.return_value = False
+    mock_transport.connect.side_effect = [False]
 
     result = await mock_connection.connect()
     assert result is False
     assert mock_connection.stopped is True
 
     mock_transport.connect.assert_awaited_once()
-    mock_transport.wait_connected.assert_awaited_once()
     mock_transport.read_initial_data.assert_not_awaited()
     mock_transport.send_frame.assert_not_awaited()
     mock_transport.read_frame.assert_not_awaited()
@@ -128,7 +127,6 @@ async def test_connect_skips_startup_validation_when_disabled(
     assert result is True
 
     mock_transport.connect.assert_awaited_once()
-    mock_transport.wait_connected.assert_awaited_once()
     mock_transport.read_initial_data.assert_not_awaited()
     mock_transport.send_frame.assert_not_awaited()
     mock_transport.read_frame.assert_not_awaited()

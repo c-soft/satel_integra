@@ -5,6 +5,7 @@ import logging
 
 from satel_integra.const import FRAME_END
 from satel_integra.encryption import EncryptedCommunicationHandler
+from satel_integra.exceptions import SatelConnectFailedError
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -25,7 +26,6 @@ class SatelBaseTransport:
 
     async def connect(self) -> bool:
         """Establish TCP connection."""
-
         try:
             self._reader, self._writer = await asyncio.open_connection(
                 self._host, self._port
@@ -38,7 +38,9 @@ class SatelBaseTransport:
                 "TCP connection to %s:%s failed: %s", self._host, self._port, exc
             )
             await self.close()
-            return False
+            raise SatelConnectFailedError(
+                f"Unable to establish TCP connection to {self._host}:{self._port}"
+            ) from exc
 
     async def read_initial_data(self) -> bytes | None:
         """Read raw data available immediately after TCP connect."""

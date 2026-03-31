@@ -4,7 +4,10 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from satel_integra.connection import SatelConnection
-from satel_integra.exceptions import SatelConnectionStoppedError
+from satel_integra.exceptions import (
+    SatelConnectFailedError,
+    SatelConnectionStoppedError,
+)
 from satel_integra.transport import SatelEncryptedTransport
 
 
@@ -51,7 +54,7 @@ async def test_connect_success(mock_connection, mock_transport):
 
 @pytest.mark.asyncio
 async def test_connect_config_failure(mock_connection, mock_transport):
-    mock_transport.connect.side_effect = [False]
+    mock_transport.connect.side_effect = SatelConnectFailedError("boom")
 
     result = await mock_connection.connect()
     assert result is False

@@ -5,7 +5,10 @@ import logging
 
 from satel_integra.commands import SatelWriteCommand
 from satel_integra.const import MESSAGE_RESPONSE_TIMEOUT
-from satel_integra.exceptions import SatelConnectionStoppedError
+from satel_integra.exceptions import (
+    SatelConnectFailedError,
+    SatelConnectionStoppedError,
+)
 from satel_integra.messages import SatelWriteMessage
 from satel_integra.transport import (
     SatelBaseTransport,
@@ -70,7 +73,9 @@ class SatelConnection:
 
         _LOGGER.debug("Connecting to Satel Integra at %s:%s...", self._host, self._port)
 
-        if not await self._transport.connect():
+        try:
+            await self._transport.connect()
+        except SatelConnectFailedError:
             _LOGGER.warning("Unable to establish TCP connection.")
             await self._close_locked(stop=False)
             return False

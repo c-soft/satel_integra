@@ -9,5 +9,9 @@ class SatelConnectionError(SatelIntegraError):
     """Raised when transport connection setup fails."""
 
 
+class SatelConnectFailedError(SatelConnectionError):
+    """Raised when the TCP connection to the panel cannot be established."""
+
+
 class SatelConnectionStoppedError(SatelConnectionError):
     """Raised when the connection has been terminally stopped."""

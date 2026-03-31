@@ -1,10 +1,8 @@
 """Queue class for Satel Integra"""
 
 import asyncio
-from collections.abc import Callable
-
 import logging
-from collections.abc import Awaitable
+from collections.abc import Awaitable, Callable
 
 from satel_integra.commands import SatelReadCommand
 from satel_integra.const import MESSAGE_RESPONSE_TIMEOUT
@@ -18,7 +16,7 @@ class QueuedMessage:
         self.message = message
         self.return_result = wait_for_result
 
-        self.processed_future: asyncio.Future[SatelReadMessage] = (
+        self.processed_future: asyncio.Future[SatelReadMessage | None] = (
             asyncio.get_running_loop().create_future()
         )
 
@@ -43,7 +41,7 @@ class SatelMessageQueue:
 
         self._current_message: QueuedMessage | None = None
         self._process_task: asyncio.Task | None = None
-        self._closed = False
+        self._stopped = False
 
     async def start(self):
         """Start processing the queue."""
@@ -53,7 +51,7 @@ class SatelMessageQueue:
 
     async def stop(self):
         """Stop the queue gracefully."""
-        self._closed = True
+        self._stopped = True
         if self._process_task:
             self._process_task.cancel()
             try:
@@ -62,12 +60,14 @@ class SatelMessageQueue:
                 pass
             self._process_task = None
 
+        self._cancel_pending_messages()
+
     async def add_message(self, msg: SatelWriteMessage, wait_for_result: bool = False):
         """
         Queue a message. If wait_for_result is True, wait for and return the result.
         Otherwise, just queue the message and return None
         """
-        if self._closed:
+        if self._stopped:
             raise RuntimeError("Queue is stopped")
 
         _LOGGER.debug("Queueing message: %s", msg)
@@ -79,16 +79,31 @@ class SatelMessageQueue:
             return
 
         try:
-            return await queued.processed_future
+            return await asyncio.shield(queued.processed_future)
+        except asyncio.CancelledError:
+            if self._stopped or queued.processed_future.cancelled():
+                _LOGGER.debug("Waiting for message result cancelled")
+                return
+            raise
         except Exception as exc:
             _LOGGER.debug("Couldn't wait for message result: %s", exc)
             return
+
+    def _cancel_pending_messages(self) -> None:
+        """Cancel any pending waiters when the queue shuts down."""
+        if self._current_message and not self._current_message.processed_future.done():
+            self._current_message.processed_future.cancel()
+
+        while not self._queue.empty():
+            queued = self._queue.get_nowait()
+            if not queued.processed_future.done():
+                queued.processed_future.cancel()
 
     async def _process_queue(self) -> None:
         """Process queued commands sequentially."""
         _LOGGER.debug("Message queue worker started")
 
-        while not self._closed:
+        while not self._stopped:
             try:
                 self._current_message = await self._get_next_message()
                 if self._current_message is None:
@@ -133,6 +148,8 @@ class SatelMessageQueue:
             _LOGGER.error(
                 "No response received from panel within %ss", MESSAGE_RESPONSE_TIMEOUT
             )
+            if not queued.processed_future.done():
+                queued.processed_future.cancel()
             return
 
     def on_message_received(self, result: SatelReadMessage):

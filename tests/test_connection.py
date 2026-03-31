@@ -1,19 +1,30 @@
 import asyncio
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock, PropertyMock
+
 from satel_integra.connection import SatelConnection
+from satel_integra.exceptions import SatelConnectionStoppedError
+from satel_integra.transport import SatelEncryptedTransport
 
 
 @pytest.fixture
 def mock_transport():
     transport = MagicMock()
-    type(transport).closed = PropertyMock(return_value=False)
-    type(transport).connected = PropertyMock(return_value=False)
+    transport.connected = False
 
-    transport.connect = AsyncMock(return_value=None)
-    transport.wait_connected = AsyncMock(return_value=True)
-    transport.check_connection = AsyncMock(return_value=True)
-    transport.close = AsyncMock()
+    async def connect():
+        transport.connected = True
+        return True
+
+    async def close():
+        transport.connected = False
+
+    transport.connect = AsyncMock(side_effect=connect)
+    transport.read_initial_data = AsyncMock(return_value=b"")
+    transport.send_frame = AsyncMock(return_value=True)
+    transport.read_frame = AsyncMock(return_value=b"probe-response")
+    transport.close = AsyncMock(side_effect=close)
 
     return transport
 
@@ -32,97 +43,237 @@ async def test_connect_success(mock_connection, mock_transport):
     assert result is True
 
     mock_transport.connect.assert_awaited_once()
-    mock_transport.wait_connected.assert_awaited_once()
-    mock_transport.check_connection.assert_awaited_once()
+    mock_transport.read_initial_data.assert_awaited_once()
+    mock_transport.send_frame.assert_awaited_once()
+    mock_transport.read_frame.assert_awaited_once()
     mock_transport.close.assert_not_awaited()
 
 
 @pytest.mark.asyncio
 async def test_connect_config_failure(mock_connection, mock_transport):
-    mock_transport.wait_connected.return_value = False
+    mock_transport.connect.side_effect = [False]
 
     result = await mock_connection.connect()
     assert result is False
+    assert mock_connection.stopped is False
 
     mock_transport.connect.assert_awaited_once()
-    mock_transport.wait_connected.assert_awaited_once()
-    mock_transport.check_connection.assert_not_awaited()
-
-
-@pytest.mark.asyncio
-async def test_connect_device_busy_failure(mock_connection, mock_transport):
-    mock_transport.check_connection.return_value = False
-
-    result = await mock_connection.connect()
-    assert result is False
-
-    mock_transport.check_connection.assert_awaited_once()
+    mock_transport.read_initial_data.assert_not_awaited()
+    mock_transport.send_frame.assert_not_awaited()
+    mock_transport.read_frame.assert_not_awaited()
     mock_transport.close.assert_awaited_once()
 
 
 @pytest.mark.asyncio
-async def test_connect_skips_busy_check_when_disabled(mock_connection, mock_transport):
-    mock_transport.check_connection.return_value = False
+async def test_connect_device_busy_failure(mock_connection, mock_transport):
+    mock_transport.read_initial_data.return_value = b"Busy!\r\n"
 
-    result = await mock_connection.connect(check_busy=False)
+    result = await mock_connection.connect()
+    assert result is False
+    assert mock_connection.stopped is False
+
+    mock_transport.read_initial_data.assert_awaited_once()
+    mock_transport.close.assert_awaited_once()
+    mock_transport.send_frame.assert_not_awaited()
+    mock_transport.read_frame.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_connect_can_skip_startup_verification(mock_connection, mock_transport):
+    result = await mock_connection.connect(verify_connection=False)
+
+    assert result is True
+    mock_transport.read_initial_data.assert_not_awaited()
+    mock_transport.send_frame.assert_not_awaited()
+    mock_transport.read_frame.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_connect_protocol_probe_failure_closes_connection(
+    mock_connection, mock_transport
+):
+    mock_transport.read_frame.return_value = None
+
+    result = await mock_connection.connect()
+
+    assert result is False
+    assert mock_connection.stopped is False
+
+    mock_transport.send_frame.assert_awaited_once()
+    mock_transport.read_frame.assert_awaited_once()
+    mock_transport.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_connect_protocol_probe_timeout_closes_connection(
+    mock_connection, mock_transport
+):
+    mock_transport.read_frame.side_effect = asyncio.TimeoutError
+
+    result = await mock_connection.connect()
+
+    assert result is False
+    assert mock_connection.stopped is False
+    mock_transport.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_connect_skips_startup_validation_when_disabled(
+    mock_connection, mock_transport
+):
+    mock_transport.read_initial_data.return_value = b"Busy!\r\n"
+
+    result = await mock_connection.connect(verify_connection=False)
     assert result is True
 
     mock_transport.connect.assert_awaited_once()
-    mock_transport.wait_connected.assert_awaited_once()
-    mock_transport.check_connection.assert_not_awaited()
+    mock_transport.read_initial_data.assert_not_awaited()
+    mock_transport.send_frame.assert_not_awaited()
+    mock_transport.read_frame.assert_not_awaited()
     mock_transport.close.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_connect_skipped_when_closed(mock_connection, mock_transport):
-    mock_connection._closed = True
+async def test_connect_skipped_when_stopped(mock_connection, mock_transport):
+    mock_connection._stopped = True
 
     result = await mock_connection.connect()
     assert result is False
 
     mock_transport.connect.assert_not_awaited()
-    mock_transport.check_connection.assert_not_awaited()
+    mock_transport.read_initial_data.assert_not_awaited()
     mock_transport.close.assert_not_awaited()
 
 
 @pytest.mark.asyncio
 async def test_ensure_connected_already_connected(mock_connection, mock_transport):
-    type(mock_transport).connected = PropertyMock(return_value=True)
+    mock_transport.connected = True
 
-    result = await mock_connection.ensure_connected()
-    assert result is True
+    await mock_connection.ensure_connected()
 
     mock_transport.connect.assert_not_awaited()
 
 
 @pytest.mark.asyncio
 async def test_ensure_connected_reconnect(mock_connection, mock_transport):
-    # Simulate disconnected state first, then connected after retry
-    type(mock_transport).connected = PropertyMock(
-        side_effect=[False, False, False, True, True]
-    )
+    await mock_connection.ensure_connected()
+    assert mock_transport.connect.await_count == 1
 
-    result = await mock_connection.ensure_connected()
+
+@pytest.mark.asyncio
+async def test_ensure_connected_retries_after_transient_connect_failure(
+    mock_connection, mock_transport, monkeypatch
+):
+    attempts = 0
+
+    async def flaky_connect():
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            mock_transport.connected = False
+            return False
+
+        mock_transport.connected = True
+        return True
+
+    mock_transport.connect = AsyncMock(side_effect=flaky_connect)
+    sleep_mock = AsyncMock()
+    monkeypatch.setattr(asyncio, "sleep", sleep_mock)
+
+    await asyncio.wait_for(mock_connection.ensure_connected(), timeout=1.0)
+
+    assert attempts == 2
+    assert mock_connection.stopped is False
+    sleep_mock.assert_awaited_once_with(mock_connection._reconnection_timeout)
+
+
+@pytest.mark.asyncio
+async def test_ensure_connected_raises_when_stopped(mock_connection):
+    mock_connection._stopped = True
+
+    with pytest.raises(SatelConnectionStoppedError):
+        await mock_connection.ensure_connected()
+
+
+@pytest.mark.asyncio
+async def test_check_connection_read_exception(mock_connection, mock_transport):
+    mock_transport.connected = True
+    mock_transport.read_initial_data.side_effect = Exception("boom")
+
+    result = await mock_connection._check_connection()
+
+    assert result is False
+    assert mock_connection.stopped is False
+    mock_transport.close.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_check_connection_returns_false_when_initial_read_unavailable(
+    mock_connection, mock_transport
+):
+    mock_transport.connected = True
+    mock_transport.read_initial_data.return_value = None
+
+    result = await mock_connection._check_connection()
+
+    assert result is False
+    mock_transport.close.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_encrypted_check_connection_treats_unexpected_data_as_busy(
+    mock_connection, mock_transport
+):
+    mock_transport.read_initial_data.return_value = b"\x93\xaa\x10\x01"
+    mock_connection._transport = SatelEncryptedTransport(
+        "127.0.0.1", 7094, "abcdefghijkl"
+    )
+    mock_connection._transport.read_initial_data = mock_transport.read_initial_data
+    mock_connection._transport.close = mock_transport.close
+    mock_connection._transport._reader = object()
+    mock_connection._transport._writer = object()
+
+    result = await mock_connection._check_connection()
+
+    assert result is False
+    mock_transport.close.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_encrypted_check_connection_timeout_is_healthy(
+    mock_connection, mock_transport
+):
+    async def long_read():
+        await asyncio.sleep(999)
+        return b""
+
+    mock_connection._transport = SatelEncryptedTransport(
+        "127.0.0.1", 7094, "abcdefghijkl"
+    )
+    mock_connection._transport.read_initial_data = AsyncMock(side_effect=long_read)
+    mock_connection._transport.close = mock_transport.close
+    mock_connection._transport._reader = object()
+    mock_connection._transport._writer = object()
+
+    result = await mock_connection._check_connection()
 
     assert result is True
-    assert mock_transport.connect.await_count >= 1
+    mock_transport.close.assert_not_awaited()
 
 
 @pytest.mark.asyncio
 async def test_close_success(mock_connection, mock_transport):
-    type(mock_transport).connected = PropertyMock(return_value=True)
-
-    assert mock_transport.closed is False
-    assert mock_transport.connected is True
+    mock_transport.connected = True
 
     await mock_connection.close()
 
     mock_transport.close.assert_awaited_once()
+    assert mock_connection.stopped is True
 
 
 @pytest.mark.asyncio
-async def test_close_already_closed(mock_connection, mock_transport):
-    mock_connection._closed = True
+async def test_close_already_stopped(mock_connection, mock_transport):
+    mock_connection._stopped = True
 
     await mock_connection.close()  # should not raise or call anything
 
@@ -152,7 +303,7 @@ async def test_reconnection_event_set_on_subsequent_connect(
     mock_connection._reconnected_event.clear()
 
     # Simulate disconnected state at start of second connect
-    type(mock_transport).connected = PropertyMock(return_value=False)
+    mock_transport.connected = False
 
     await mock_connection.connect()
 
@@ -163,9 +314,7 @@ async def test_reconnection_event_set_on_subsequent_connect(
 async def test_wait_reconnected_blocks_and_returns_true(
     mock_connection, mock_transport
 ):
-    """`wait_reconnected()` should block until `_reconnected_event` is set
-    and then return True (when not closed).
-    """
+    """`wait_reconnected()` should block until `_reconnected_event` is set."""
     # Ensure we've had an initial connection so wait_reconnected will wait for
     # a later reconnection.
     await mock_connection.connect()
@@ -178,5 +327,31 @@ async def test_wait_reconnected_blocks_and_returns_true(
     # Now signal reconnection and await the waiter result
     mock_connection._reconnected_event.set()
 
-    result = await asyncio.wait_for(waiter, timeout=1.0)
-    assert result is True
+    await asyncio.wait_for(waiter, timeout=1.0)
+
+
+@pytest.mark.asyncio
+async def test_wait_reconnected_raises_when_connection_closes(
+    mock_connection, mock_transport
+):
+    await mock_connection.connect()
+
+    waiter = asyncio.create_task(mock_connection.wait_reconnected())
+
+    await asyncio.sleep(0)
+    await mock_connection.close()
+
+    with pytest.raises(SatelConnectionStoppedError):
+        await asyncio.wait_for(waiter, timeout=1.0)
+
+
+@pytest.mark.asyncio
+async def test_wait_stopped_blocks_until_connection_closes(
+    mock_connection, mock_transport
+):
+    waiter = asyncio.create_task(mock_connection.wait_stopped())
+
+    await asyncio.sleep(0)
+    await mock_connection.close()
+
+    await asyncio.wait_for(waiter, timeout=1.0)

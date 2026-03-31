@@ -1,4 +1,5 @@
 import os
+
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
 BLOCK_LENGTH = 16

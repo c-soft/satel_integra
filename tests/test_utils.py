@@ -1,6 +1,6 @@
-from satel_integra.utils import checksum, decode_bitmask_le, encode_bitmask_le
-
 import pytest
+
+from satel_integra.utils import checksum, decode_bitmask_le, encode_bitmask_le
 
 # List values, byte data, length
 test_frames: list[tuple[list[int], bytearray, int]] = [

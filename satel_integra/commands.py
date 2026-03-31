@@ -54,6 +54,7 @@ class SatelWriteCommand(SatelBaseCommand):
     OUTPUTS_ON = 0x88
     OUTPUTS_OFF = 0x89
     READ_DEVICE_NAME = 0xEE
+    RTC_AND_STATUS = 0x1A
 
 
 # Write commands that echo themselves back instead of returning RESULT

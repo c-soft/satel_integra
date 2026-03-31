@@ -1,15 +1,36 @@
-# """Main module."""
+"""Main module for Satel Integra alarm system client."""
 
 import asyncio
 import logging
+import sys
+from collections.abc import Awaitable, Callable
 from enum import Enum, unique
-from collections.abc import Callable
+from typing import overload
+from warnings import warn
 
 from satel_integra.commands import SatelReadCommand, SatelWriteCommand
 from satel_integra.connection import SatelConnection
+from satel_integra.exceptions import SatelConnectionStoppedError
 from satel_integra.messages import SatelReadMessage, SatelWriteMessage
-from satel_integra.utils import encode_bitmask_le
 from satel_integra.queue import SatelMessageQueue
+from satel_integra.utils import encode_bitmask_le
+
+if sys.version_info >= (3, 13):
+    from warnings import deprecated
+else:
+    from functools import wraps
+
+    def deprecated(message):
+        def decorator(func):
+            @wraps(func)
+            def wrapper(*args, **kwargs):
+                warn(message, DeprecationWarning, stacklevel=2)
+                return func(*args, **kwargs)
+
+            return wrapper
+
+        return decorator
+
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -46,9 +67,7 @@ class AsyncSatel:
         """Init the Satel alarm data."""
         self._connection = SatelConnection(host, port, integration_key=integration_key)
         self._queue = SatelMessageQueue(self._send_encoded_frame)
-        self._reading_task: asyncio.Task | None = None
-        self._reconnection_task: asyncio.Task | None = None
-        self._keepalive_task: asyncio.Task | None = None
+        self._running_tasks: set[asyncio.Task[object]] = set()
         self._keepalive_timeout = 20
 
         self._monitored_zones: list[int] = monitored_zones
@@ -199,25 +218,28 @@ class AsyncSatel:
     # region Core logic
     async def start(self, enable_monitoring=True):
         """Start the client, including queue, reading loop and keepalive."""
-        await self._connection.ensure_connected()
+        try:
+            await self._connection.ensure_connected()
+        except SatelConnectionStoppedError:
+            return
 
-        # Start reading loop first to ensure we don't miss any messages
-        if not self._reading_task or self._reading_task.done():
-            self._reading_task = asyncio.create_task(self._reading_loop())
+        self._start_task(self._watch_connection_stopped())
+        self._start_task(self._reading_loop())
 
         await self._queue.start()
 
-        if not self._keepalive_task or self._keepalive_task.done():
-            self._keepalive_task = asyncio.create_task(self._keepalive_loop())
+        self._start_task(self._keepalive_loop())
 
         if enable_monitoring:
-            # Start reconnection monitor only if monitoring is enabled
-            if not self._reconnection_task or self._reconnection_task.done():
-                self._reconnection_task = asyncio.create_task(
-                    self._monitor_reconnection_loop()
-                )
-
+            self._start_task(self._monitor_reconnection_loop())
             await self.start_monitoring()
+
+    def _start_task(self, coro: Awaitable[object]) -> asyncio.Task[object]:
+        """Create and track a background task."""
+        task = asyncio.create_task(coro)
+        self._running_tasks.add(task)
+        task.add_done_callback(self._running_tasks.discard)
+        return task
 
     async def _keepalive_loop(self):
         """A workaround for Satel Integra disconnecting after 25s.
@@ -227,7 +249,7 @@ class AsyncSatel:
         """
         while True:
             await asyncio.sleep(self._keepalive_timeout)
-            if self.closed:
+            if self.stopped:
                 return
             # Command to read status of the alarm
             data = SatelWriteMessage(
@@ -235,9 +257,17 @@ class AsyncSatel:
             )
             await self._send_data(data)
 
+    async def _watch_connection_stopped(self):
+        """Stop local background work once the connection becomes terminally stopped."""
+        try:
+            await self._connection.wait_stopped()
+            await self.close()
+        except asyncio.CancelledError:
+            return
+
     async def _reading_loop(self):
         try:
-            while not self.closed:
+            while True:
                 await self._connection.ensure_connected()
 
                 msg = await self._read_data()
@@ -257,6 +287,8 @@ class AsyncSatel:
                 else:
                     _LOGGER.debug("No handler for command: %s", msg.cmd)
 
+        except SatelConnectionStoppedError:
+            return
         except asyncio.CancelledError:
             _LOGGER.info("_reading_loop loop cancelled.")
         except Exception as ex:
@@ -268,12 +300,14 @@ class AsyncSatel:
         This task is only created when monitoring is enabled, so we can assume
         monitoring should be restarted on reconnection.
         """
-        while not self.closed:
+        while True:
             try:
                 # Wait indefinitely for a reconnection event
                 await self._connection.wait_reconnected()
                 _LOGGER.info("Connection re-established, reinitializing monitoring...")
                 await self.start_monitoring()
+            except SatelConnectionStoppedError:
+                return
             except asyncio.CancelledError:
                 break
             except Exception as ex:
@@ -391,44 +425,58 @@ class AsyncSatel:
         return self._connection.connected
 
     @property
+    @deprecated("Use stopped instead")
     def closed(self) -> bool:
         """Return true if connection is closed."""
-        return self._connection.closed
+        return self._connection.stopped
 
-    async def connect(self, check_busy: bool = True) -> bool:
+    @property
+    def stopped(self) -> bool:
+        """Return true if connection is stopped."""
+        return self._connection.stopped
+
+    @overload
+    @deprecated("Use connect with 'verify_connection' property instead")
+    async def connect(self, *, check_busy: bool = True) -> bool: ...
+
+    @overload
+    async def connect(self, verify_connection: bool = True) -> bool: ...
+
+    async def connect(
+        self, verify_connection: bool = True, *, check_busy: bool | None = None
+    ) -> bool:
         """Make a TCP connection to the alarm system."""
-        result = await self._connection.connect(check_busy=check_busy)
+        if check_busy is not None:
+            warn(
+                "'check_busy' is deprecated; use 'verify_connection'",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            verify_connection = check_busy
 
-        return result
+        return await self._connection.connect(verify_connection=verify_connection)
 
     async def close(self):
-        """Stop monitoring and close connection."""
+        """Stop background tasks and close connection."""
+        await self._connection.close()
+
+        await self._cancel_running_tasks()
         await self._queue.stop()
 
-        if self._reading_task:
-            self._reading_task.cancel()
+    async def _cancel_running_tasks(self) -> None:
+        """Cancel all tracked background tasks except the current one."""
+        current_task = asyncio.current_task()
+        tasks = [task for task in self._running_tasks if task is not current_task]
+
+        for task in tasks:
+            task.cancel()
+
+        for task in tasks:
             try:
-                await self._reading_task
+                await task
             except asyncio.CancelledError:
                 pass
-            self._reading_task = None
 
-        if self._reconnection_task:
-            self._reconnection_task.cancel()
-            try:
-                await self._reconnection_task
-            except asyncio.CancelledError:
-                pass
-            self._reconnection_task = None
-
-        if self._keepalive_task:
-            self._keepalive_task.cancel()
-            try:
-                await self._keepalive_task
-            except asyncio.CancelledError:
-                pass
-            self._keepalive_task = None
-
-        await self._connection.close()
+        self._running_tasks.difference_update(tasks)
 
     # endregion

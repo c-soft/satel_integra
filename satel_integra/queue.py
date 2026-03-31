@@ -1,10 +1,8 @@
 """Queue class for Satel Integra"""
 
 import asyncio
-from collections.abc import Callable
-
 import logging
-from collections.abc import Awaitable
+from collections.abc import Awaitable, Callable
 
 from satel_integra.commands import SatelReadCommand
 from satel_integra.const import MESSAGE_RESPONSE_TIMEOUT

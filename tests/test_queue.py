@@ -1,11 +1,12 @@
 import asyncio
 import logging
 from unittest.mock import AsyncMock, Mock
+
 import pytest
 
-from satel_integra.queue import SatelMessageQueue, QueuedMessage
-from satel_integra.messages import SatelReadMessage, SatelWriteMessage
 from satel_integra.commands import SatelReadCommand, SatelWriteCommand
+from satel_integra.messages import SatelReadMessage, SatelWriteMessage
+from satel_integra.queue import QueuedMessage, SatelMessageQueue
 
 
 @pytest.fixture

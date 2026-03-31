@@ -7,7 +7,9 @@ from satel_integra.commands import SatelWriteCommand
 from satel_integra.const import MESSAGE_RESPONSE_TIMEOUT
 from satel_integra.exceptions import (
     SatelConnectFailedError,
+    SatelConnectionInitializationError,
     SatelConnectionStoppedError,
+    SatelPanelBusyError,
 )
 from satel_integra.messages import SatelWriteMessage
 from satel_integra.transport import (
@@ -81,8 +83,17 @@ class SatelConnection:
             return False
 
         if verify_connection:
-            _LOGGER.debug("TCP connection established, verifying panel responsiveness")
-            if not await self._check_connection():
+            try:
+                _LOGGER.debug(
+                    "TCP connection established, verifying panel responsiveness"
+                )
+                await self._check_connection()
+
+                _LOGGER.debug(
+                    "TCP connection established, verifying protocol round-trip"
+                )
+                await self._verify_protocol()
+            except SatelPanelBusyError:
                 _LOGGER.warning(
                     "Connected to the panel, but it is not ready for use. "
                     "Another client may already be connected, or the panel may "
@@ -90,9 +101,7 @@ class SatelConnection:
                 )
                 await self._close_locked(stop=False)
                 return False
-
-            _LOGGER.debug("TCP connection established, verifying protocol round-trip")
-            if not await self._verify_protocol():
+            except SatelConnectionInitializationError:
                 _LOGGER.warning(
                     "Connected to the panel, but startup validation failed. "
                     "Check that the integration key and encryption settings match "
@@ -211,13 +220,15 @@ class SatelConnection:
         if stopped_waiter in done:
             self._assert_not_stopped()
 
-    async def _verify_protocol(self) -> bool:
+    async def _verify_protocol(self) -> None:
         """Verify that the panel accepts protocol frames on this transport."""
         if not self._transport.connected:
             _LOGGER.info(
                 "Skipping protocol verification because the transport is not connected."
             )
-            return False
+            raise SatelConnectionInitializationError(
+                "Cannot verify protocol without an active transport connection"
+            )
 
         try:
             probe = SatelWriteMessage(SatelWriteCommand.RTC_AND_STATUS)
@@ -226,6 +237,17 @@ class SatelConnection:
             raw_response = await asyncio.wait_for(
                 self._transport.read_frame(), timeout=MESSAGE_RESPONSE_TIMEOUT
             )
+        except asyncio.TimeoutError as exc:
+            _LOGGER.info(
+                "Startup protocol verification timed out after %ss while waiting "
+                "for the probe response. This can happen when the connection "
+                "settings do not match the panel, for example when encrypted "
+                "frames are sent to an unencrypted panel.",
+                MESSAGE_RESPONSE_TIMEOUT,
+            )
+            raise SatelConnectionInitializationError(
+                "Panel did not respond to the startup protocol probe before timeout"
+            ) from exc
         except Exception as exc:
             _LOGGER.info(
                 "Startup protocol verification failed while sending or reading "
@@ -233,62 +255,69 @@ class SatelConnection:
                 exc,
                 exc_info=True,
             )
-            return False
+            raise SatelConnectionInitializationError(
+                "Panel did not complete startup protocol verification"
+            ) from exc
 
         if not raw_response:
             _LOGGER.info(
                 "Startup protocol verification failed: no response received from the "
                 "panel."
             )
-            return False
+            raise SatelConnectionInitializationError(
+                "Panel did not return a startup protocol response"
+            )
 
-        return True
-
-    async def _check_connection(self) -> bool:
+    async def _check_connection(self) -> None:
         """Check if the connection is valid and the panel is responsive."""
         if not self._transport.connected:
             _LOGGER.info(
                 "Skipping connection check because the transport is not connected."
             )
-            return False
+            raise SatelConnectionInitializationError(
+                "Cannot validate the panel without an active transport connection"
+            )
 
         try:
             data = await asyncio.wait_for(
                 self._transport.read_initial_data(), timeout=0.1
             )
-
-            if data is None:
-                _LOGGER.info("Connection check failed: no initial data could be read.")
-                return False
-
-            # Satel returns a string starting with "Busy" when another client is connected
-            if b"Busy" in data:
-                _LOGGER.info(
-                    "Connection check failed: panel reports busy because another "
-                    "client is connected."
-                )
-                return False
-
-            # Log any other data to debug other potential blocking situation
-            _LOGGER.debug(
-                "Connection check received initial data after connect: %s", data
-            )
-
-            # Encrypted panels appear to return opaque bytes immediately when the
-            # session is already occupied. A healthy encrypted connection times out
-            # here instead.
-            if isinstance(self._transport, SatelEncryptedTransport) and data:
-                _LOGGER.info(
-                    "Connection check failed: encrypted panel returned unexpected "
-                    "initial data, so the session is treated as busy or unavailable."
-                )
-                return False
-
         except asyncio.TimeoutError:
             # Timeout is fine, it means we can actually read data
-            pass
+            return
         except Exception as exc:
             _LOGGER.debug("Connection check failed: %s", exc, exc_info=True)
-            return False
+            raise SatelConnectionInitializationError(
+                "Panel failed connection readiness checks"
+            ) from exc
 
-        return True
+        if data is None:
+            _LOGGER.info("Connection check failed: no initial data could be read.")
+            raise SatelConnectionInitializationError(
+                "Panel did not provide startup data during connection check"
+            )
+
+        # Satel returns a string starting with "Busy" when another client is connected
+        if b"Busy" in data:
+            _LOGGER.info(
+                "Connection check failed: panel reports busy because another "
+                "client is connected."
+            )
+            raise SatelPanelBusyError(
+                "Panel reports busy because another client is connected"
+            )
+
+        # Log any other data to debug other potential blocking situation
+        _LOGGER.debug("Connection check received initial data after connect: %s", data)
+
+        # Encrypted panels appear to return opaque bytes immediately when the
+        # session is already occupied. A healthy encrypted connection times out
+        # here instead.
+        if isinstance(self._transport, SatelEncryptedTransport) and data:
+            _LOGGER.info(
+                "Connection check failed: encrypted panel returned unexpected "
+                "initial data, so the session is treated as busy or unavailable."
+            )
+            raise SatelPanelBusyError(
+                "Encrypted panel returned startup data indicating the session is busy"
+            )

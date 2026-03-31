@@ -6,7 +6,9 @@ import pytest
 from satel_integra.connection import SatelConnection
 from satel_integra.exceptions import (
     SatelConnectFailedError,
+    SatelConnectionInitializationError,
     SatelConnectionStoppedError,
+    SatelPanelBusyError,
 )
 from satel_integra.transport import SatelEncryptedTransport
 
@@ -79,6 +81,20 @@ async def test_connect_device_busy_failure(mock_connection, mock_transport):
     mock_transport.close.assert_awaited_once()
     mock_transport.send_frame.assert_not_awaited()
     mock_transport.read_frame.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_check_connection_raises_busy_when_panel_reports_busy(
+    mock_connection, mock_transport
+):
+    mock_transport.connected = True
+    mock_transport.read_initial_data.return_value = b"Busy!\r\n"
+
+    with pytest.raises(
+        SatelPanelBusyError,
+        match="Panel reports busy because another client is connected",
+    ):
+        await mock_connection._check_connection()
 
 
 @pytest.mark.asyncio
@@ -203,23 +219,29 @@ async def test_check_connection_read_exception(mock_connection, mock_transport):
     mock_transport.connected = True
     mock_transport.read_initial_data.side_effect = Exception("boom")
 
-    result = await mock_connection._check_connection()
+    with pytest.raises(
+        SatelConnectionInitializationError,
+        match="Panel failed connection readiness checks",
+    ):
+        await mock_connection._check_connection()
 
-    assert result is False
     assert mock_connection.stopped is False
     mock_transport.close.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_check_connection_returns_false_when_initial_read_unavailable(
+async def test_check_connection_raises_when_initial_read_unavailable(
     mock_connection, mock_transport
 ):
     mock_transport.connected = True
     mock_transport.read_initial_data.return_value = None
 
-    result = await mock_connection._check_connection()
+    with pytest.raises(
+        SatelConnectionInitializationError,
+        match="Panel did not provide startup data during connection check",
+    ):
+        await mock_connection._check_connection()
 
-    assert result is False
     mock_transport.close.assert_not_awaited()
 
 
@@ -236,9 +258,12 @@ async def test_encrypted_check_connection_treats_unexpected_data_as_busy(
     mock_connection._transport._reader = object()
     mock_connection._transport._writer = object()
 
-    result = await mock_connection._check_connection()
+    with pytest.raises(
+        SatelPanelBusyError,
+        match="Encrypted panel returned startup data indicating the session is busy",
+    ):
+        await mock_connection._check_connection()
 
-    assert result is False
     mock_transport.close.assert_not_awaited()
 
 
@@ -260,8 +285,34 @@ async def test_encrypted_check_connection_timeout_is_healthy(
 
     result = await mock_connection._check_connection()
 
-    assert result is True
+    assert result is None
     mock_transport.close.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_verify_protocol_raises_when_panel_returns_no_response(
+    mock_connection, mock_transport
+):
+    mock_transport.connected = True
+    mock_transport.read_frame.return_value = None
+
+    with pytest.raises(
+        SatelConnectionInitializationError,
+        match="Panel did not return a startup protocol response",
+    ):
+        await mock_connection._verify_protocol()
+
+
+@pytest.mark.asyncio
+async def test_verify_protocol_raises_on_read_timeout(mock_connection, mock_transport):
+    mock_transport.connected = True
+    mock_transport.read_frame.side_effect = asyncio.TimeoutError
+
+    with pytest.raises(
+        SatelConnectionInitializationError,
+        match="Panel did not respond to the startup protocol probe before timeout",
+    ):
+        await mock_connection._verify_protocol()
 
 
 @pytest.mark.asyncio

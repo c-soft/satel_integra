@@ -79,16 +79,20 @@ class SatelConnection:
         if verify_connection:
             _LOGGER.debug("TCP connection established, verifying panel responsiveness")
             if not await self._check_connection():
-                _LOGGER.warning("Panel not responsive or busy.")
+                _LOGGER.warning(
+                    "Connected to the panel, but it is not ready for use. "
+                    "Another client may already be connected, or the panel may "
+                    "still be busy."
+                )
                 await self._close_locked()
                 return False
 
             _LOGGER.debug("TCP connection established, verifying protocol round-trip")
             if not await self._verify_protocol():
                 _LOGGER.warning(
-                    "TCP connection opened but startup protocol verification failed. "
-                    "Disabling this client instance; this commonly indicates an "
-                    "encryption mismatch or invalid integration key."
+                    "Connected to the panel, but startup validation failed. "
+                    "Check that the integration key and encryption settings match "
+                    "the panel configuration."
                 )
                 await self._close_locked()
                 return False
@@ -204,7 +208,9 @@ class SatelConnection:
     async def _verify_protocol(self) -> bool:
         """Verify that the panel accepts protocol frames on this transport."""
         if not self._transport.connected:
-            _LOGGER.warning("Cannot check connection, not connected.")
+            _LOGGER.info(
+                "Skipping protocol verification because the transport is not connected."
+            )
             return False
 
         try:
@@ -215,12 +221,18 @@ class SatelConnection:
                 self._transport.read_frame(), timeout=MESSAGE_RESPONSE_TIMEOUT
             )
         except Exception as exc:
-            _LOGGER.warning("Startup protocol verification failed: %s", exc)
+            _LOGGER.info(
+                "Startup protocol verification failed while sending or reading "
+                "the probe response: %s",
+                exc,
+                exc_info=True,
+            )
             return False
 
         if not raw_response:
-            _LOGGER.warning(
-                "Startup protocol verification failed: no response received from panel."
+            _LOGGER.info(
+                "Startup protocol verification failed: no response received from the "
+                "panel."
             )
             return False
 
@@ -229,7 +241,9 @@ class SatelConnection:
     async def _check_connection(self) -> bool:
         """Check if the connection is valid and the panel is responsive."""
         if not self._transport.connected:
-            _LOGGER.warning("Cannot check connection, not connected.")
+            _LOGGER.info(
+                "Skipping connection check because the transport is not connected."
+            )
             return False
 
         try:
@@ -238,26 +252,29 @@ class SatelConnection:
             )
 
             if data is None:
-                _LOGGER.warning(
-                    "Connection check failed: no initial data could be read."
-                )
+                _LOGGER.info("Connection check failed: no initial data could be read.")
                 return False
 
             # Satel returns a string starting with "Busy" when another client is connected
             if b"Busy" in data:
-                _LOGGER.warning("Panel reports busy (another client is connected).")
+                _LOGGER.info(
+                    "Connection check failed: panel reports busy because another "
+                    "client is connected."
+                )
                 return False
 
             # Log any other data to debug other potential blocking situation
-            _LOGGER.debug("Received data after connect: %s", data)
+            _LOGGER.debug(
+                "Connection check received initial data after connect: %s", data
+            )
 
             # Encrypted panels appear to return opaque bytes immediately when the
             # session is already occupied. A healthy encrypted connection times out
             # here instead.
             if isinstance(self._transport, SatelEncryptedTransport) and data:
-                _LOGGER.warning(
-                    "Encrypted panel returned unexpected initial data; treating "
-                    "connection as busy or unavailable."
+                _LOGGER.info(
+                    "Connection check failed: encrypted panel returned unexpected "
+                    "initial data, so the session is treated as busy or unavailable."
                 )
                 return False
 
@@ -265,7 +282,7 @@ class SatelConnection:
             # Timeout is fine, it means we can actually read data
             pass
         except Exception as exc:
-            _LOGGER.debug("Connection check failed: %s", exc)
+            _LOGGER.debug("Connection check failed: %s", exc, exc_info=True)
             return False
 
         return True

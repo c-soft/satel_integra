@@ -5,7 +5,10 @@ import logging
 
 from satel_integra.const import FRAME_END
 from satel_integra.encryption import EncryptedCommunicationHandler
-from satel_integra.exceptions import SatelConnectFailedError
+from satel_integra.exceptions import (
+    SatelConnectFailedError,
+    SatelTransportDisconnectedError,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -46,36 +49,55 @@ class SatelBaseTransport:
         """Read raw data available immediately after TCP connect."""
         if not self._reader:
             _LOGGER.warning("Cannot read initial data, not connected.")
-            return None
+            raise SatelTransportDisconnectedError(
+                "Cannot read initial data because the transport is not connected"
+            )
 
-        return await self._reader.read(-1)
+        try:
+            return await self._reader.read(-1)
+        except Exception as exc:
+            _LOGGER.warning("Initial data read failed: %s", exc)
+            await self.close()
+            raise SatelTransportDisconnectedError(
+                "Transport connection was lost while reading initial data"
+            ) from exc
 
     async def read_frame(self) -> bytes | None:
         """Template method for reading a frame from the panel."""
         if not self._reader:
             _LOGGER.warning("Cannot read, not connected.")
-            return None
+            raise SatelTransportDisconnectedError(
+                "Cannot read a frame because the transport is not connected"
+            )
 
         try:
             raw_data = await self._read_from_transport()
+        except SatelTransportDisconnectedError:
+            raise
+        except asyncio.IncompleteReadError as exc:
+            _LOGGER.warning("Read failed: connection closed while reading a frame.")
+            await self.close()
+            raise SatelTransportDisconnectedError(
+                "Transport connection was lost while reading a frame"
+            ) from exc
+        except Exception as exc:
+            _LOGGER.warning("Read failed: %s", exc)
+            await self.close()
+            raise SatelTransportDisconnectedError(
+                "Transport connection was lost while reading a frame"
+            ) from exc
 
-            if raw_data is None:
-                return None
+        if raw_data is None:
+            return None
 
-            frame = self._process_frame(raw_data)
+        frame = self._process_frame(raw_data)
 
-            if frame and FRAME_END in frame:
-                frame = frame.split(FRAME_END)[0] + FRAME_END
-                _LOGGER.debug("Received raw frame: %s", frame.hex())
-                return frame
-            else:
-                _LOGGER.warning("Read failed, no frame end marker found.")
-        except asyncio.IncompleteReadError:
-            # Incomplete read due to connection closing
-            pass
-        except Exception as e:
-            _LOGGER.warning("Read failed: %s", e)
+        if frame and FRAME_END in frame:
+            frame = frame.split(FRAME_END)[0] + FRAME_END
+            _LOGGER.debug("Received raw frame: %s", frame.hex())
+            return frame
 
+        _LOGGER.warning("Read failed, no frame end marker found.")
         await self.close()
         return None
 
@@ -91,24 +113,27 @@ class SatelBaseTransport:
         """Template method for writing a frame to the panel."""
         if not self._writer:
             _LOGGER.warning("Cannot write, not connected.")
-            return False
+            raise SatelTransportDisconnectedError(
+                "Cannot write a frame because the transport is not connected"
+            )
+
+        data = self._prepare_frame(frame)
+        if not data:
+            raise ValueError("Frame preparation failed or returned empty data")
 
         try:
-            data = self._prepare_frame(frame)
-            if not data:
-                raise ValueError("Frame preparation failed or returned empty data")
-
             self._writer.write(data)
             await self._writer.drain()
 
             _LOGGER.debug("Sent raw fame: %s", data.hex())
             return True
 
-        except Exception as e:
-            _LOGGER.debug("Write failed: %s", e)
+        except Exception as exc:
+            _LOGGER.debug("Write failed: %s", exc)
             await self.close()
-
-            raise
+            raise SatelTransportDisconnectedError(
+                "Transport connection was lost while writing a frame"
+            ) from exc
 
     def _prepare_frame(self, frame: bytes) -> bytes | None:
         """Prepare frame for writing (e.g., encrypt). Override in subclass if needed."""
@@ -152,19 +177,22 @@ class SatelEncryptedTransport(SatelBaseTransport):
         """Read encrypted frame end decrypt it."""
 
         if not self._reader:
-            _LOGGER.warning("Cannot read, not connected.")
-            return None
+            raise SatelTransportDisconnectedError(
+                "Cannot read an encrypted frame because the transport is not connected"
+            )
 
         # first byte tells about data length
         data_len_bytes = await self._reader.read(1)
 
         if not data_len_bytes:
             await self.close()
-            raise ValueError("No data length received, possibly wrong integration key")
+            raise SatelTransportDisconnectedError(
+                "Transport connection was lost while reading encrypted frame length"
+            )
 
         data_len = data_len_bytes[0]
 
-        return await self._reader.read(data_len)
+        return await self._reader.readexactly(data_len)
 
     def _process_frame(self, raw_data: bytes) -> bytes | None:
         _LOGGER.debug("Encrypted frame: %s", raw_data.hex())

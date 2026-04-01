@@ -5,7 +5,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from satel_integra.const import FRAME_END
-from satel_integra.exceptions import SatelConnectFailedError
+from satel_integra.exceptions import (
+    SatelConnectFailedError,
+    SatelTransportDisconnectedError,
+)
 from satel_integra.transport import SatelBaseTransport, SatelEncryptedTransport
 
 
@@ -92,9 +95,12 @@ async def test_read_initial_data_not_connected(caplog):
     transport = SatelBaseTransport("h", 1)
 
     with caplog.at_level(logging.WARNING):
-        result = await transport.read_initial_data()
+        with pytest.raises(
+            SatelTransportDisconnectedError,
+            match="Cannot read initial data because the transport is not connected",
+        ):
+            await transport.read_initial_data()
 
-    assert result is None
     assert "Cannot read initial data, not connected." in caplog.text
 
 
@@ -113,27 +119,43 @@ async def test_read_frame_success(mock_transport):
 @pytest.mark.asyncio
 async def test_read_frame_not_connected():
     transport = SatelBaseTransport("h", 1)
-    result = await transport.read_frame()
-    assert result is None
+
+    with pytest.raises(
+        SatelTransportDisconnectedError,
+        match="Cannot read a frame because the transport is not connected",
+    ):
+        await transport.read_frame()
 
 
 @pytest.mark.asyncio
-async def test_read_frame_failure(mock_transport):
-    mock_transport._read_from_transport = AsyncMock(side_effect=Exception("boom"))
+async def test_read_frame_peer_reset_raises_disconnected(mock_transport):
+    mock_transport._read_from_transport = AsyncMock(
+        side_effect=ConnectionResetError("boom")
+    )
 
-    result = await mock_transport.read_frame()
-    assert result is None
+    with pytest.raises(
+        SatelTransportDisconnectedError,
+        match="Transport connection was lost while reading a frame",
+    ):
+        await mock_transport.read_frame()
+
     assert not mock_transport.connected
 
 
 @pytest.mark.asyncio
-async def test_read_frame_timeout(mock_transport):
-    mock_transport._read_from_transport = AsyncMock(side_effect=asyncio.TimeoutError)
+async def test_read_frame_incomplete_read_raises_disconnected(mock_transport):
+    mock_transport._read_from_transport = AsyncMock(
+        side_effect=asyncio.IncompleteReadError(partial=b"", expected=1)
+    )
 
-    result = await mock_transport.read_frame()
-    assert result is None
+    with pytest.raises(
+        SatelTransportDisconnectedError,
+        match="Transport connection was lost while reading a frame",
+    ):
+        await mock_transport.read_frame()
+
     mock_transport._read_from_transport.assert_awaited_once()
-    assert not mock_transport.connected  # Should disconnect on timeout
+    assert not mock_transport.connected
 
 
 @pytest.mark.asyncio
@@ -149,18 +171,25 @@ async def test_send_frame_success(mock_transport):
 @pytest.mark.asyncio
 async def test_send_frame_not_connected():
     transport = SatelBaseTransport("h", 1)
-    result = await transport.send_frame(b"x")
-    assert result is False
+
+    with pytest.raises(
+        SatelTransportDisconnectedError,
+        match="Cannot write a frame because the transport is not connected",
+    ):
+        await transport.send_frame(b"x")
 
 
 @pytest.mark.asyncio
 async def test_send_frame_failure(mock_transport):
-    mock_transport._writer.drain.side_effect = Exception("fail")
+    mock_transport._writer.drain.side_effect = ConnectionResetError("fail")
 
-    with pytest.raises(Exception) as excinfo:
+    with pytest.raises(
+        SatelTransportDisconnectedError,
+        match="Transport connection was lost while writing a frame",
+    ) as excinfo:
         await mock_transport.send_frame(b"x")
 
-    assert "fail" in str(excinfo.value)
+    assert isinstance(excinfo.value.__cause__, ConnectionResetError)
     assert not mock_transport.connected
 
 
@@ -202,16 +231,31 @@ async def test_read_encrypted(encryption_handler, mock_encrypted_transport):
 
     encrypted_frame_length = 0xAA
     mock_encrypted_transport._reader.read.side_effect = [
-        bytes([encrypted_frame_length]),
-        b"some_encrypted_data",
+        bytes([encrypted_frame_length])
     ]
+    mock_encrypted_transport._reader.readexactly.return_value = b"some_encrypted_data"
 
     result = await mock_encrypted_transport.read_frame()
     assert result == decrypted_data + FRAME_END
-    mock_encrypted_transport._reader.read.assert_awaited_with(encrypted_frame_length)
+    mock_encrypted_transport._reader.readexactly.assert_awaited_with(
+        encrypted_frame_length
+    )
     encryption_handler_inst.extract_data_from_pdu.assert_called_with(
         b"some_encrypted_data"
     )
+
+
+@pytest.mark.asyncio
+async def test_read_encrypted_eof_raises_disconnected(mock_encrypted_transport):
+    mock_encrypted_transport._reader.read.return_value = b""
+
+    with pytest.raises(
+        SatelTransportDisconnectedError,
+        match="Transport connection was lost while reading encrypted frame length",
+    ):
+        await mock_encrypted_transport.read_frame()
+
+    assert not mock_encrypted_transport.connected
 
 
 @pytest.mark.asyncio

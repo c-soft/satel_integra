@@ -13,6 +13,10 @@ class SatelConnectFailedError(SatelConnectionError):
     """Raised when the TCP connection to the panel cannot be established."""
 
 
+class SatelTransportDisconnectedError(SatelConnectionError):
+    """Raised when an established transport connection is lost or unusable."""
+
+
 class SatelConnectionSetupError(SatelConnectionError):
     """Raised when a TCP connection cannot be prepared for use."""
 

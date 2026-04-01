@@ -6,6 +6,7 @@ from collections.abc import Awaitable, Callable
 
 from satel_integra.commands import SatelReadCommand
 from satel_integra.const import MESSAGE_RESPONSE_TIMEOUT
+from satel_integra.exceptions import SatelQueueStoppedError, SatelResponseTimeoutError
 from satel_integra.messages import SatelReadMessage, SatelWriteMessage
 
 _LOGGER = logging.getLogger(__name__)
@@ -68,7 +69,7 @@ class SatelMessageQueue:
         Otherwise, just queue the message and return None
         """
         if self._stopped:
-            raise RuntimeError("Queue is stopped")
+            raise SatelQueueStoppedError("Queue is stopped")
 
         _LOGGER.debug("Queueing message: %s", msg)
 
@@ -78,26 +79,39 @@ class SatelMessageQueue:
         if not wait_for_result:
             return
 
-        try:
-            return await asyncio.shield(queued.processed_future)
-        except asyncio.CancelledError:
-            if self._stopped or queued.processed_future.cancelled():
-                _LOGGER.debug("Waiting for message result cancelled")
-                return
-            raise
-        except Exception as exc:
-            _LOGGER.debug("Couldn't wait for message result: %s", exc)
+        return await asyncio.shield(queued.processed_future)
+
+    def _finish_queued_message(
+        self,
+        queued: QueuedMessage,
+        *,
+        result: SatelReadMessage | None = None,
+        exception: Exception | None = None,
+    ) -> None:
+        """Resolve a queued message future without leaking unhandled exceptions."""
+        if queued.processed_future.done():
             return
 
+        if exception is not None and queued.return_result:
+            queued.processed_future.set_exception(exception)
+            return
+
+        queued.processed_future.set_result(result)
+
     def _cancel_pending_messages(self) -> None:
-        """Cancel any pending waiters when the queue shuts down."""
-        if self._current_message and not self._current_message.processed_future.done():
-            self._current_message.processed_future.cancel()
+        """Resolve any pending waiters when the queue shuts down."""
+        if self._current_message:
+            self._finish_queued_message(
+                self._current_message,
+                exception=SatelQueueStoppedError("Queue is stopped"),
+            )
 
         while not self._queue.empty():
             queued = self._queue.get_nowait()
-            if not queued.processed_future.done():
-                queued.processed_future.cancel()
+            self._finish_queued_message(
+                queued,
+                exception=SatelQueueStoppedError("Queue is stopped"),
+            )
 
     async def _process_queue(self) -> None:
         """Process queued commands sequentially."""
@@ -134,22 +148,25 @@ class SatelMessageQueue:
             await self._send_func(queued.message)
         except Exception as exc:
             _LOGGER.debug("Error while sending message: %s", exc)
-            if not queued.processed_future.done():
-                queued.processed_future.set_exception(exc)
-
+            self._finish_queued_message(queued, exception=exc)
             return
 
         # Wait for the RESULT (the future will be completed by on_message_received).
         try:
             await asyncio.wait_for(
-                queued.processed_future, timeout=MESSAGE_RESPONSE_TIMEOUT
+                asyncio.shield(queued.processed_future),
+                timeout=MESSAGE_RESPONSE_TIMEOUT,
             )
         except asyncio.TimeoutError:
             _LOGGER.error(
                 "No response received from panel within %ss", MESSAGE_RESPONSE_TIMEOUT
             )
-            if not queued.processed_future.done():
-                queued.processed_future.cancel()
+            self._finish_queued_message(
+                queued,
+                exception=SatelResponseTimeoutError(
+                    f"No response received from panel within {MESSAGE_RESPONSE_TIMEOUT}s"
+                ),
+            )
             return
 
     def on_message_received(self, result: SatelReadMessage):
@@ -173,4 +190,4 @@ class SatelMessageQueue:
             )
             return
 
-        self._current_message.processed_future.set_result(result)
+        self._finish_queued_message(self._current_message, result=result)

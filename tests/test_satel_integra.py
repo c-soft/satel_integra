@@ -4,7 +4,10 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from satel_integra.exceptions import SatelConnectionStoppedError
+from satel_integra.exceptions import (
+    SatelConnectionStoppedError,
+    SatelResponseTimeoutError,
+)
 from satel_integra.satel_integra import AlarmState, AsyncSatel
 
 
@@ -66,6 +69,15 @@ async def test_start_monitoring_rejected(satel, mock_queue, caplog):
     await satel.start_monitoring()
 
     assert "Monitoring not accepted" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_start_monitoring_timeout_logs_no_data(satel, mock_queue, caplog):
+    mock_queue.add_message.side_effect = SatelResponseTimeoutError("timeout")
+
+    await satel.start_monitoring()
+
+    assert "Start monitoring - no data!" in caplog.text
 
 
 def test_zones_violated_callback(satel):

@@ -10,7 +10,10 @@ from warnings import warn
 
 from satel_integra.commands import SatelReadCommand, SatelWriteCommand
 from satel_integra.connection import SatelConnection
-from satel_integra.exceptions import SatelConnectionStoppedError
+from satel_integra.exceptions import (
+    SatelConnectionStoppedError,
+    SatelResponseTimeoutError,
+)
 from satel_integra.messages import SatelReadMessage, SatelWriteMessage
 from satel_integra.queue import SatelMessageQueue
 from satel_integra.utils import encode_bitmask_le
@@ -148,7 +151,11 @@ class AsyncSatel:
             raw_data=bytearray(monitored_commands_bitmask),
         )
 
-        monitoring_result = await self._send_data_and_wait(msg)
+        try:
+            monitoring_result = await self._send_data_and_wait(msg)
+        except SatelResponseTimeoutError:
+            _LOGGER.warning("Start monitoring - no data!")
+            return
 
         if monitoring_result is None:
             _LOGGER.warning("Start monitoring - no data!")

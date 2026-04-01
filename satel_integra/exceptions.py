@@ -31,3 +31,15 @@ class SatelConnectionInitializationError(SatelConnectionSetupError):
 
 class SatelConnectionStoppedError(SatelConnectionError):
     """Raised when the connection has been terminally stopped."""
+
+
+class SatelQueueError(SatelIntegraError):
+    """Base exception for queue-related failures."""
+
+
+class SatelQueueStoppedError(SatelQueueError):
+    """Raised when a message is queued after the queue has stopped."""
+
+
+class SatelResponseTimeoutError(SatelQueueError):
+    """Raised when the panel does not return a response before the timeout."""

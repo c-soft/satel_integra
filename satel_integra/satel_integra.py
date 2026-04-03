@@ -11,7 +11,10 @@ from warnings import warn
 from satel_integra.commands import SatelReadCommand, SatelWriteCommand
 from satel_integra.connection import SatelConnection
 from satel_integra.exceptions import (
+    SatelConnectFailedError,
+    SatelConnectionInitializationError,
     SatelConnectionStoppedError,
+    SatelPanelBusyError,
     SatelProtocolError,
     SatelResponseTimeoutError,
     SatelTransportDisconnectedError,
@@ -125,6 +128,32 @@ class AsyncSatel:
             ),
             SatelReadCommand.RESULT: self._command_result,
         }
+
+    def _should_raise_exceptions(
+        self,
+        method_name: str,
+        raise_exceptions: bool | None,
+    ) -> bool:
+        """Resolve compatibility behavior for public exception handling."""
+        if raise_exceptions is None:
+            warn(
+                f"Calling '{method_name}' without 'raise_exceptions' is deprecated; "
+                "pass raise_exceptions=True to opt in to future behavior.",
+                DeprecationWarning,
+                stacklevel=3,
+            )
+            return False
+
+        if raise_exceptions is False:
+            warn(
+                f"Calling '{method_name}' with raise_exceptions=False is deprecated "
+                "and will change in a future release.",
+                DeprecationWarning,
+                stacklevel=3,
+            )
+            return False
+
+        return True
 
     async def start_monitoring(self):
         """Start monitoring for interesting events."""
@@ -444,13 +473,27 @@ class AsyncSatel:
 
     @overload
     @deprecated("Use connect with 'verify_connection' property instead")
-    async def connect(self, *, check_busy: bool = True) -> bool: ...
+    async def connect(
+        self,
+        *,
+        check_busy: bool = True,
+        raise_exceptions: bool | None = None,
+    ) -> bool: ...
 
     @overload
-    async def connect(self, verify_connection: bool = True) -> bool: ...
+    async def connect(
+        self,
+        verify_connection: bool = True,
+        *,
+        raise_exceptions: bool | None = None,
+    ) -> bool: ...
 
     async def connect(
-        self, verify_connection: bool = True, *, check_busy: bool | None = None
+        self,
+        verify_connection: bool = True,
+        *,
+        check_busy: bool | None = None,
+        raise_exceptions: bool | None = None,
     ) -> bool:
         """Make a TCP connection to the alarm system."""
         if check_busy is not None:
@@ -461,7 +504,20 @@ class AsyncSatel:
             )
             verify_connection = check_busy
 
-        return await self._connection.connect(verify_connection=verify_connection)
+        should_raise = self._should_raise_exceptions("connect", raise_exceptions)
+        try:
+            await self._connection.connect(verify_connection=verify_connection)
+        except (
+            SatelConnectFailedError,
+            SatelConnectionInitializationError,
+            SatelPanelBusyError,
+            SatelConnectionStoppedError,
+        ):
+            if should_raise:
+                raise
+            return False
+
+        return True
 
     async def close(self):
         """Stop background tasks and close connection."""

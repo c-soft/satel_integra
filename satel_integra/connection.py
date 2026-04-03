@@ -63,15 +63,15 @@ class SatelConnection:
         if self.stopped:
             raise SatelConnectionStoppedError("Connection is stopped")
 
-    async def _connect(self, verify_connection: bool = True) -> bool:
+    async def _connect(self, verify_connection: bool = True) -> None:
         """Establish TCP connection. Must be called with _connection_lock held."""
         if self.stopped:
             _LOGGER.debug("Connection is closed, skipping connection")
-            return False
+            raise SatelConnectionStoppedError("Connection is stopped")
 
         if self.connected:
             _LOGGER.debug("Already connected, skipping connection")
-            return True
+            return
 
         _LOGGER.debug("Connecting to Satel Integra at %s:%s...", self._host, self._port)
 
@@ -80,7 +80,7 @@ class SatelConnection:
         except SatelConnectFailedError:
             _LOGGER.warning("Unable to establish TCP connection.")
             await self._close_locked(stop=False)
-            return False
+            raise
 
         if verify_connection:
             try:
@@ -100,7 +100,7 @@ class SatelConnection:
                     "still be busy."
                 )
                 await self._close_locked(stop=False)
-                return False
+                raise
             except SatelConnectionInitializationError:
                 _LOGGER.warning(
                     "Connected to the panel, but startup validation failed. "
@@ -108,7 +108,7 @@ class SatelConnection:
                     "the panel configuration."
                 )
                 await self._close_locked(stop=False)
-                return False
+                raise
 
         else:
             _LOGGER.debug(
@@ -124,9 +124,8 @@ class SatelConnection:
             self._reconnected_event.set()
 
         self._had_connection = True
-        return True
 
-    async def connect(self, verify_connection: bool = True) -> bool:
+    async def connect(self, verify_connection: bool = True) -> None:
         """Establish TCP connection with a single attempt (no retries).
 
         Acquires lock internally. Suitable for setup validation where a single
@@ -134,10 +133,10 @@ class SatelConnection:
         """
         async with self._connection_lock:
             if self.stopped:
-                return False
+                raise SatelConnectionStoppedError("Connection is stopped")
             if self.connected:
-                return True
-            return await self._connect(verify_connection=verify_connection)
+                return
+            await self._connect(verify_connection=verify_connection)
 
     async def read_frame(self) -> bytes | None:
         """Read a raw frame from the panel."""
@@ -160,10 +159,15 @@ class SatelConnection:
                 self._assert_not_stopped()
 
                 _LOGGER.debug("Not connected, attempting reconnection...")
-                success = await self._connect()
-
-            if success:
-                return
+                try:
+                    await self._connect()
+                    return
+                except (
+                    SatelConnectFailedError,
+                    SatelPanelBusyError,
+                    SatelConnectionInitializationError,
+                ):
+                    self._assert_not_stopped()
 
             self._assert_not_stopped()
             _LOGGER.warning(

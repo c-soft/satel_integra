@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from satel_integra.exceptions import (
+    SatelConnectionInitializationError,
     SatelConnectionStoppedError,
     SatelFrameDecodeError,
     SatelResponseTimeoutError,
@@ -189,7 +190,7 @@ async def test_start_starts_background_tasks(satel):
     satel._start_task = MagicMock(side_effect=lambda coro: asyncio.create_task(coro))
     satel.start_monitoring = AsyncMock()
 
-    await satel.start(enable_monitoring=True)
+    await satel.start(enable_monitoring=True, raise_exceptions=False)
 
     assert satel._start_task.call_count == 4
     satel._connection.ensure_connected.assert_awaited_once()
@@ -205,10 +206,29 @@ async def test_start_skips_monitoring(satel):
     satel._start_task = MagicMock(side_effect=lambda coro: asyncio.create_task(coro))
     satel.start_monitoring = AsyncMock()
 
-    await satel.start(enable_monitoring=False)
+    await satel.start(enable_monitoring=False, raise_exceptions=False)
 
     assert satel._start_task.call_count == 3
     satel.start_monitoring.assert_not_awaited()
+
+
+def test_connect_warns_when_raise_exceptions_not_provided(satel, mock_connection):
+    with pytest.deprecated_call(match="Calling 'connect' without 'raise_exceptions'"):
+        asyncio.run(satel.connect())
+
+
+@pytest.mark.asyncio
+async def test_connect_warns_when_raise_exceptions_false(satel):
+    with pytest.deprecated_call(match="Calling 'connect' with raise_exceptions=False"):
+        await satel.connect(raise_exceptions=False)
+
+
+@pytest.mark.asyncio
+async def test_connect_raises_when_enabled(satel, mock_connection):
+    mock_connection.connect.side_effect = SatelConnectionInitializationError("boom")
+
+    with pytest.raises(SatelConnectionInitializationError, match="boom"):
+        await satel.connect(raise_exceptions=True)
 
 
 @pytest.mark.asyncio
@@ -218,7 +238,7 @@ async def test_start_returns_early_when_initial_connection_fails(satel, mock_que
     satel._start_task = MagicMock()
     satel.start_monitoring = AsyncMock()
 
-    await satel.start(enable_monitoring=True)
+    await satel.start(enable_monitoring=True, raise_exceptions=False)
 
     satel._start_task.assert_not_called()
     mock_queue.stop.assert_not_awaited()
@@ -332,6 +352,6 @@ async def test_watch_connection_stopped_stops_queue_and_tasks(satel):
 
 @pytest.mark.asyncio
 async def test_connect_passes_verify_connection_flag(satel, mock_connection):
-    await satel.connect(verify_connection=False)
+    await satel.connect(verify_connection=False, raise_exceptions=False)
 
     mock_connection.connect.assert_awaited_once_with(verify_connection=False)

@@ -7,6 +7,7 @@ from satel_integra.const import FRAME_END
 from satel_integra.encryption import EncryptedCommunicationHandler
 from satel_integra.exceptions import (
     SatelConnectFailedError,
+    SatelFrameDecodeError,
     SatelTransportDisconnectedError,
 )
 
@@ -99,7 +100,7 @@ class SatelBaseTransport:
 
         _LOGGER.warning("Read failed, no frame end marker found.")
         await self.close()
-        return None
+        raise SatelFrameDecodeError("Received frame without end marker")
 
     async def _read_from_transport(self) -> bytes | None:
         """Read raw bytes from the transport. Implement in subclass."""

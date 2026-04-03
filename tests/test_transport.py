@@ -7,6 +7,7 @@ import pytest
 from satel_integra.const import FRAME_END
 from satel_integra.exceptions import (
     SatelConnectFailedError,
+    SatelFrameDecodeError,
     SatelTransportDisconnectedError,
 )
 from satel_integra.transport import SatelBaseTransport, SatelEncryptedTransport
@@ -136,6 +137,19 @@ async def test_read_frame_peer_reset_raises_disconnected(mock_transport):
     with pytest.raises(
         SatelTransportDisconnectedError,
         match="Transport connection was lost while reading a frame",
+    ):
+        await mock_transport.read_frame()
+
+    assert not mock_transport.connected
+
+
+@pytest.mark.asyncio
+async def test_read_frame_without_end_marker_raises_decode_error(mock_transport):
+    mock_transport._read_from_transport = AsyncMock(return_value=b"not-a-frame")
+
+    with pytest.raises(
+        SatelFrameDecodeError,
+        match="Received frame without end marker",
     ):
         await mock_transport.read_frame()
 

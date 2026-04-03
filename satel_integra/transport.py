@@ -28,14 +28,13 @@ class SatelBaseTransport:
         """Return True if connected to the panel."""
         return self._reader is not None and self._writer is not None
 
-    async def connect(self) -> bool:
+    async def connect(self) -> None:
         """Establish TCP connection."""
         try:
             self._reader, self._writer = await asyncio.open_connection(
                 self._host, self._port
             )
             _LOGGER.debug("TCP connection established to %s:%s", self._host, self._port)
-            return True
 
         except Exception as exc:
             _LOGGER.debug(
@@ -110,7 +109,7 @@ class SatelBaseTransport:
         """Process the frame (e.g., decrypt). Override in subclass if needed."""
         return raw_data
 
-    async def send_frame(self, frame: bytes) -> bool:
+    async def send_frame(self, frame: bytes) -> None:
         """Template method for writing a frame to the panel."""
         if not self._writer:
             _LOGGER.warning("Cannot write, not connected.")
@@ -127,7 +126,6 @@ class SatelBaseTransport:
             await self._writer.drain()
 
             _LOGGER.debug("Sent raw fame: %s", data.hex())
-            return True
 
         except Exception as exc:
             _LOGGER.debug("Write failed: %s", exc)
@@ -170,9 +168,9 @@ class SatelEncryptedTransport(SatelBaseTransport):
         self._encryption_handler: EncryptedCommunicationHandler
         super().__init__(host, port)
 
-    async def connect(self) -> bool:
+    async def connect(self) -> None:
         self._encryption_handler = EncryptedCommunicationHandler(self._integration_key)
-        return await super().connect()
+        await super().connect()
 
     async def _read_from_transport(self) -> bytes | None:
         """Read encrypted frame end decrypt it."""

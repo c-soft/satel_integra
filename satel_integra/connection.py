@@ -142,7 +142,7 @@ class SatelConnection:
         """Read a raw frame from the panel."""
         return await self._transport.read_frame()
 
-    async def send_frame(self, frame: bytes) -> bool:
+    async def send_frame(self, frame: bytes) -> None:
         """Send a raw frame to the panel."""
         return await self._transport.send_frame(frame)
 

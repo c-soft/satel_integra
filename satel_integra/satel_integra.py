@@ -14,7 +14,7 @@ from satel_integra.exceptions import (
     SatelConnectFailedError,
     SatelConnectionInitializationError,
     SatelConnectionStoppedError,
-    SatelMonitoringError,
+    SatelIntegraError,
     SatelMonitoringRejectedError,
     SatelPanelBusyError,
     SatelProtocolError,
@@ -271,18 +271,15 @@ class AsyncSatel:
         if enable_monitoring:
             try:
                 await self._start_monitoring()
-            except SatelResponseTimeoutError:
+            except SatelIntegraError as ex:
                 if should_raise:
                     await self._cancel_running_tasks()
                     await self._queue.stop_processing()
                     raise
-                _LOGGER.warning("Start monitoring - no data!")
-            except SatelMonitoringError as ex:
-                if should_raise:
-                    await self._cancel_running_tasks()
-                    await self._queue.stop_processing()
-                    raise
-                _LOGGER.warning("%s", ex)
+                if isinstance(ex, SatelResponseTimeoutError):
+                    _LOGGER.warning("Start monitoring - no data!")
+                else:
+                    _LOGGER.warning("%s", ex)
 
         self._start_task(self._keepalive_loop())
 

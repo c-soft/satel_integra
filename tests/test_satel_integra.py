@@ -296,6 +296,16 @@ async def test_start_swallows_monitoring_setup_failure_in_compat_mode(
 
 
 @pytest.mark.asyncio
+async def test_start_swallows_monitoring_transport_failure_in_compat_mode(
+    satel, mock_queue
+):
+    mock_queue.add_message.side_effect = SatelTransportDisconnectedError("temporary")
+
+    with pytest.deprecated_call(match="Calling 'start' with raise_exceptions=False"):
+        await satel.start(enable_monitoring=True, raise_exceptions=False)
+
+
+@pytest.mark.asyncio
 async def test_start_warns_when_raise_exceptions_false(satel):
     with pytest.deprecated_call(match="Calling 'start' with raise_exceptions=False"):
         await satel.start(raise_exceptions=False)

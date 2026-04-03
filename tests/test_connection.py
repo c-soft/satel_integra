@@ -9,6 +9,7 @@ from satel_integra.exceptions import (
     SatelConnectionInitializationError,
     SatelConnectionStoppedError,
     SatelPanelBusyError,
+    SatelTransportDisconnectedError,
 )
 from satel_integra.transport import SatelEncryptedTransport
 
@@ -112,11 +113,10 @@ async def test_connect_can_skip_startup_verification(mock_connection, mock_trans
 async def test_connect_protocol_probe_failure_closes_connection(
     mock_connection, mock_transport
 ):
-    mock_transport.read_frame.return_value = None
-
+    mock_transport.read_frame.side_effect = SatelTransportDisconnectedError("boom")
     with pytest.raises(
         SatelConnectionInitializationError,
-        match="Panel did not return a startup protocol response",
+        match="Panel did not complete startup protocol verification",
     ):
         await mock_connection.connect()
 
@@ -174,11 +174,10 @@ async def test_connect_raises_when_stopped_and_raise_exceptions_enabled(
 async def test_connect_raises_startup_failure_when_raise_exceptions_enabled(
     mock_connection, mock_transport
 ):
-    mock_transport.read_frame.return_value = None
-
+    mock_transport.read_frame.side_effect = SatelTransportDisconnectedError("boom")
     with pytest.raises(
         SatelConnectionInitializationError,
-        match="Panel did not return a startup protocol response",
+        match="Panel did not complete startup protocol verification",
     ):
         await mock_connection.connect()
 
@@ -263,22 +262,6 @@ async def test_check_connection_read_exception(mock_connection, mock_transport):
 
 
 @pytest.mark.asyncio
-async def test_check_connection_raises_when_initial_read_unavailable(
-    mock_connection, mock_transport
-):
-    mock_transport.connected = True
-    mock_transport.read_initial_data.return_value = None
-
-    with pytest.raises(
-        SatelConnectionInitializationError,
-        match="Panel did not provide startup data during connection check",
-    ):
-        await mock_connection._check_connection()
-
-    mock_transport.close.assert_not_awaited()
-
-
-@pytest.mark.asyncio
 async def test_encrypted_check_connection_treats_unexpected_data_as_busy(
     mock_connection, mock_transport
 ):
@@ -323,15 +306,14 @@ async def test_encrypted_check_connection_timeout_is_healthy(
 
 
 @pytest.mark.asyncio
-async def test_verify_protocol_raises_when_panel_returns_no_response(
+async def test_verify_protocol_raises_when_probe_read_fails(
     mock_connection, mock_transport
 ):
     mock_transport.connected = True
-    mock_transport.read_frame.return_value = None
-
+    mock_transport.read_frame.side_effect = SatelTransportDisconnectedError("boom")
     with pytest.raises(
         SatelConnectionInitializationError,
-        match="Panel did not return a startup protocol response",
+        match="Panel did not complete startup protocol verification",
     ):
         await mock_connection._verify_protocol()
 

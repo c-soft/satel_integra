@@ -138,7 +138,7 @@ class SatelConnection:
                 return
             await self._connect(verify_connection=verify_connection)
 
-    async def read_frame(self) -> bytes | None:
+    async def read_frame(self) -> bytes:
         """Read a raw frame from the panel."""
         return await self._transport.read_frame()
 
@@ -238,7 +238,7 @@ class SatelConnection:
             probe = SatelWriteMessage(SatelWriteCommand.RTC_AND_STATUS)
 
             await self._transport.send_frame(probe.encode_frame())
-            raw_response = await asyncio.wait_for(
+            await asyncio.wait_for(
                 self._transport.read_frame(), timeout=MESSAGE_RESPONSE_TIMEOUT
             )
         except asyncio.TimeoutError as exc:
@@ -263,15 +263,6 @@ class SatelConnection:
                 "Panel did not complete startup protocol verification"
             ) from exc
 
-        if not raw_response:
-            _LOGGER.info(
-                "Startup protocol verification failed: no response received from the "
-                "panel."
-            )
-            raise SatelConnectionInitializationError(
-                "Panel did not return a startup protocol response"
-            )
-
     async def _check_connection(self) -> None:
         """Check if the connection is valid and the panel is responsive."""
         if not self._transport.connected:
@@ -294,12 +285,6 @@ class SatelConnection:
             raise SatelConnectionInitializationError(
                 "Panel failed connection readiness checks"
             ) from exc
-
-        if data is None:
-            _LOGGER.info("Connection check failed: no initial data could be read.")
-            raise SatelConnectionInitializationError(
-                "Panel did not provide startup data during connection check"
-            )
 
         # Satel returns a string starting with "Busy" when another client is connected
         if b"Busy" in data:

@@ -186,9 +186,6 @@ class AsyncSatel:
 
         monitoring_result = await self._send_data_and_wait(msg)
 
-        if monitoring_result is None:
-            raise SatelMonitoringError("Start monitoring - no data!")
-
         if monitoring_result.msg_data != b"\xff":
             raise SatelMonitoringRejectedError("Monitoring not accepted.")
 
@@ -328,9 +325,6 @@ class AsyncSatel:
                     _LOGGER.info("Connection lost while reading data, reconnecting.")
                     continue
 
-                if not msg:
-                    continue
-
                 # Only notify queue of command responses
                 if msg.cmd == SatelReadCommand.RESULT or getattr(
                     msg.cmd, "expects_same_cmd_response", False
@@ -445,7 +439,7 @@ class AsyncSatel:
         """Add message to the queue."""
         await self._queue.add_message(msg, False)
 
-    async def _send_data_and_wait(self, msg: SatelWriteMessage):
+    async def _send_data_and_wait(self, msg: SatelWriteMessage) -> SatelReadMessage:
         """Add message to the queue and wait for the result."""
         return await self._queue.add_message(msg, True)
 
@@ -455,12 +449,9 @@ class AsyncSatel:
 
         await self._connection.send_frame(data)
 
-    async def _read_data(self) -> SatelReadMessage | None:
+    async def _read_data(self) -> SatelReadMessage:
         """Read data from the alarm."""
         data = await self._connection.read_frame()
-
-        if not data:
-            return None
 
         msg = SatelReadMessage.decode_frame(data)
         _LOGGER.debug("Received command: %s", msg)

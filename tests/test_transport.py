@@ -176,8 +176,7 @@ async def test_read_frame_incomplete_read_raises_disconnected(mock_transport):
 async def test_send_frame_success(mock_transport):
     frame = b"abc"
 
-    result = await mock_transport.send_frame(frame)
-    assert result
+    await mock_transport.send_frame(frame)
     mock_transport._writer.write.assert_called_once_with(frame)
     mock_transport._writer.drain.assert_awaited_once()
 
@@ -288,8 +287,7 @@ async def test_write_encrypted(encryption_handler, mock_encrypted_transport):
 
     assert mock_encrypted_transport._encryption_handler is not None
 
-    result = await mock_encrypted_transport.send_frame(b"some_plain_data")
-    assert result
+    await mock_encrypted_transport.send_frame(b"some_plain_data")
     encryption_handler_inst.prepare_pdu.assert_called_with(b"some_plain_data")
     mock_encrypted_transport._writer.write.assert_called_once_with(
         bytes([len(encrypted_data)]) + encrypted_data

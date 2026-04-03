@@ -45,7 +45,7 @@ class SatelBaseTransport:
                 f"Unable to establish TCP connection to {self._host}:{self._port}"
             ) from exc
 
-    async def read_initial_data(self) -> bytes | None:
+    async def read_initial_data(self) -> bytes:
         """Read raw data available immediately after TCP connect."""
         if not self._reader:
             _LOGGER.warning("Cannot read initial data, not connected.")
@@ -62,7 +62,7 @@ class SatelBaseTransport:
                 "Transport connection was lost while reading initial data"
             ) from exc
 
-    async def read_frame(self) -> bytes | None:
+    async def read_frame(self) -> bytes:
         """Template method for reading a frame from the panel."""
         if not self._reader:
             _LOGGER.warning("Cannot read, not connected.")
@@ -87,9 +87,6 @@ class SatelBaseTransport:
                 "Transport connection was lost while reading a frame"
             ) from exc
 
-        if raw_data is None:
-            return None
-
         frame = self._process_frame(raw_data)
 
         if frame and FRAME_END in frame:
@@ -101,11 +98,11 @@ class SatelBaseTransport:
         await self.close()
         raise SatelFrameDecodeError("Received frame without end marker")
 
-    async def _read_from_transport(self) -> bytes | None:
+    async def _read_from_transport(self) -> bytes:
         """Read raw bytes from the transport. Implement in subclass."""
         raise NotImplementedError
 
-    def _process_frame(self, raw_data: bytes) -> bytes | None:
+    def _process_frame(self, raw_data: bytes) -> bytes:
         """Process the frame (e.g., decrypt). Override in subclass if needed."""
         return raw_data
 
@@ -134,7 +131,7 @@ class SatelBaseTransport:
                 "Transport connection was lost while writing a frame"
             ) from exc
 
-    def _prepare_frame(self, frame: bytes) -> bytes | None:
+    def _prepare_frame(self, frame: bytes) -> bytes:
         """Prepare frame for writing (e.g., encrypt). Override in subclass if needed."""
         return frame
 
@@ -152,10 +149,12 @@ class SatelBaseTransport:
 
 
 class SatelPlainTransport(SatelBaseTransport):
-    async def _read_from_transport(self) -> bytes | None:
+    async def _read_from_transport(self) -> bytes:
         """Read until frame end marker."""
         if self._reader is None:
-            return None
+            raise SatelTransportDisconnectedError(
+                "Cannot read a frame because the transport is not connected"
+            )
 
         return await self._reader.readuntil(FRAME_END)
 
@@ -172,7 +171,7 @@ class SatelEncryptedTransport(SatelBaseTransport):
         self._encryption_handler = EncryptedCommunicationHandler(self._integration_key)
         await super().connect()
 
-    async def _read_from_transport(self) -> bytes | None:
+    async def _read_from_transport(self) -> bytes:
         """Read encrypted frame end decrypt it."""
 
         if not self._reader:
@@ -193,13 +192,13 @@ class SatelEncryptedTransport(SatelBaseTransport):
 
         return await self._reader.readexactly(data_len)
 
-    def _process_frame(self, raw_data: bytes) -> bytes | None:
+    def _process_frame(self, raw_data: bytes) -> bytes:
         _LOGGER.debug("Encrypted frame: %s", raw_data.hex())
         decrypted_frame = self._encryption_handler.extract_data_from_pdu(raw_data)
         _LOGGER.debug("Decrypted frame: %s", decrypted_frame.hex())
         return decrypted_frame
 
-    def _prepare_frame(self, frame: bytes) -> bytes | None:
+    def _prepare_frame(self, frame: bytes) -> bytes:
         """Send a raw frame to the panel."""
         _LOGGER.debug("Frame before encryption: %s", frame.hex())
         encrypted_frame = self._encryption_handler.prepare_pdu(frame)

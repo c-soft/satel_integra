@@ -8,7 +8,6 @@ from satel_integra.exceptions import (
     SatelConnectionInitializationError,
     SatelConnectionStoppedError,
     SatelFrameDecodeError,
-    SatelMonitoringError,
     SatelMonitoringRejectedError,
     SatelResponseTimeoutError,
     SatelTransportDisconnectedError,
@@ -72,14 +71,6 @@ async def test_internal_start_monitoring_rejected_raises(satel, mock_queue):
     mock_queue.add_message.return_value = mock_msg
 
     with pytest.raises(SatelMonitoringRejectedError, match="Monitoring not accepted"):
-        await satel._start_monitoring()
-
-
-@pytest.mark.asyncio
-async def test_internal_start_monitoring_no_data_raises(satel, mock_queue):
-    mock_queue.add_message.return_value = None
-
-    with pytest.raises(SatelMonitoringError, match="Start monitoring - no data!"):
         await satel._start_monitoring()
 
 

@@ -7,6 +7,7 @@ import pytest
 from satel_integra.exceptions import (
     SatelConnectionInitializationError,
     SatelConnectionStoppedError,
+    SatelEncryptionStateError,
     SatelFrameDecodeError,
     SatelMonitoringRejectedError,
     SatelResponseTimeoutError,
@@ -387,9 +388,31 @@ async def test_reading_loop_retries_after_temporary_disconnect(satel, mock_conne
 
 
 @pytest.mark.asyncio
-async def test_reading_loop_closes_on_unexpected_receive_error(satel, mock_connection):
+async def test_reading_loop_ignores_frame_decode_error_and_continues(
+    satel, mock_connection
+):
+    msg = MagicMock()
+    msg.cmd = 1
+
+    satel._connection.ensure_connected = AsyncMock(
+        side_effect=[None, None, SatelConnectionStoppedError]
+    )
+    satel._read_data = AsyncMock(side_effect=[SatelFrameDecodeError("bad frame"), msg])
+
+    cmd_handler = MagicMock()
+    satel._message_handlers = {1: cmd_handler}
+
+    await satel._reading_loop()
+
+    cmd_handler.assert_called_once_with(msg)
+    satel._connection.close.assert_not_awaited()
+    satel._queue.stop.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_reading_loop_closes_on_encryption_state_error(satel, mock_connection):
     satel._connection.ensure_connected = AsyncMock(side_effect=[None])
-    satel._read_data = AsyncMock(side_effect=SatelFrameDecodeError("bad frame"))
+    satel._read_data = AsyncMock(side_effect=SatelEncryptionStateError("bad state"))
 
     await satel._reading_loop()
 

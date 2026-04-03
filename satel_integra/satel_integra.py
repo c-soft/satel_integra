@@ -14,6 +14,8 @@ from satel_integra.exceptions import (
     SatelConnectFailedError,
     SatelConnectionInitializationError,
     SatelConnectionStoppedError,
+    SatelEncryptionStateError,
+    SatelFrameDecodeError,
     SatelIntegraError,
     SatelMonitoringRejectedError,
     SatelPanelBusyError,
@@ -327,6 +329,11 @@ class AsyncSatel:
                 except SatelTransportDisconnectedError:
                     _LOGGER.info("Connection lost while reading data, reconnecting.")
                     continue
+                except SatelFrameDecodeError as ex:
+                    _LOGGER.warning(
+                        "Ignoring unreadable frame in _reading_loop: %s", ex
+                    )
+                    continue
 
                 # Only notify queue of command responses
                 if msg.cmd == SatelReadCommand.RESULT or getattr(
@@ -342,6 +349,9 @@ class AsyncSatel:
 
         except SatelConnectionStoppedError:
             return
+        except SatelEncryptionStateError as ex:
+            _LOGGER.exception("Fatal encryption state error in _reading_loop, %s", ex)
+            await self.close()
         except SatelProtocolError as ex:
             _LOGGER.exception("Fatal protocol error in _reading_loop, %s", ex)
             await self.close()

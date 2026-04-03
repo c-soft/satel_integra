@@ -247,6 +247,31 @@ async def test_start_raises_when_enabled_and_monitoring_setup_fails(satel):
 
 
 @pytest.mark.asyncio
+async def test_start_cleans_up_started_runtime_when_monitoring_setup_fails_in_strict_mode(
+    satel,
+):
+    satel._watch_connection_stopped = AsyncMock()
+    satel._reading_loop = AsyncMock()
+    satel._keepalive_loop = AsyncMock()
+    satel._monitor_reconnection_loop = AsyncMock()
+    satel._start_task = MagicMock(side_effect=lambda coro: asyncio.create_task(coro))
+    satel._cancel_running_tasks = AsyncMock()
+    satel._start_monitoring = AsyncMock(
+        side_effect=SatelResponseTimeoutError("timeout")
+    )
+
+    with pytest.raises(SatelResponseTimeoutError, match="timeout"):
+        await satel.start(enable_monitoring=True, raise_exceptions=True)
+
+    assert satel._start_task.call_count == 2
+    satel._queue.start.assert_awaited_once()
+    satel._queue.stop_processing.assert_awaited_once()
+    satel._cancel_running_tasks.assert_awaited_once()
+    satel._keepalive_loop.assert_not_awaited()
+    satel._monitor_reconnection_loop.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_start_swallows_monitoring_rejection_in_compat_mode(
     satel, mock_queue, caplog
 ):

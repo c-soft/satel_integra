@@ -53,6 +53,12 @@ class SatelMessageQueue:
     async def stop(self):
         """Stop the queue gracefully."""
         self._stopped = True
+        await self.stop_processing()
+
+        self._cancel_pending_messages()
+
+    async def stop_processing(self):
+        """Stop the queue worker without terminally stopping the queue."""
         if self._process_task:
             self._process_task.cancel()
             try:
@@ -61,7 +67,7 @@ class SatelMessageQueue:
                 pass
             self._process_task = None
 
-        self._cancel_pending_messages()
+        self._current_message = None
 
     async def add_message(self, msg: SatelWriteMessage, wait_for_result: bool = False):
         """

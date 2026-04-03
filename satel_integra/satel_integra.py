@@ -268,20 +268,26 @@ class AsyncSatel:
 
         await self._queue.start()
 
-        self._start_task(self._keepalive_loop())
-
         if enable_monitoring:
-            self._start_task(self._monitor_reconnection_loop())
             try:
                 await self._start_monitoring()
             except SatelResponseTimeoutError:
                 if should_raise:
+                    await self._cancel_running_tasks()
+                    await self._queue.stop_processing()
                     raise
                 _LOGGER.warning("Start monitoring - no data!")
             except SatelMonitoringError as ex:
                 if should_raise:
+                    await self._cancel_running_tasks()
+                    await self._queue.stop_processing()
                     raise
                 _LOGGER.warning("%s", ex)
+
+        self._start_task(self._keepalive_loop())
+
+        if enable_monitoring:
+            self._start_task(self._monitor_reconnection_loop())
 
     def _start_task(self, coro: Awaitable[object]) -> asyncio.Task[object]:
         """Create and track a background task."""

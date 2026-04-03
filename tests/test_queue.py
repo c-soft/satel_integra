@@ -78,6 +78,22 @@ async def test_stop(mock_queue):
 
 
 @pytest.mark.asyncio
+async def test_stop_processing_cancels_worker_without_stopping_queue(mock_queue):
+    async def dummy_coro():
+        await asyncio.sleep(999)
+
+    task = asyncio.create_task(dummy_coro())
+
+    mock_queue._process_task = task
+
+    await mock_queue.stop_processing()
+
+    assert mock_queue._stopped is False
+    assert task.cancelled()
+    assert mock_queue._process_task is None
+
+
+@pytest.mark.asyncio
 async def test_stop_unblocks_waiting_message(mock_queue, write_msg):
     await mock_queue.start()
 

@@ -107,6 +107,21 @@ async def test_stop_unblocks_waiting_message(mock_queue, write_msg):
 
 
 @pytest.mark.asyncio
+async def test_stop_processing_unblocks_in_flight_waiting_message(
+    mock_queue, write_msg
+):
+    await mock_queue.start()
+
+    waiter = asyncio.create_task(mock_queue.add_message(write_msg, True))
+    await asyncio.sleep(0.05)
+
+    await mock_queue.stop_processing()
+
+    with pytest.raises(SatelQueueStoppedError, match="Queue processing stopped"):
+        await asyncio.wait_for(waiter, timeout=1.0)
+
+
+@pytest.mark.asyncio
 async def test_queued_message_init(write_msg):
     message = QueuedMessage(write_msg, False)
 

@@ -53,12 +53,18 @@ class SatelMessageQueue:
     async def stop(self):
         """Stop the queue gracefully."""
         self._stopped = True
-        await self.stop_processing()
+        await self.stop_processing(SatelQueueStoppedError("Queue is stopped"))
 
-        self._cancel_pending_messages()
-
-    async def stop_processing(self):
+    async def stop_processing(
+        self,
+        exception: Exception | None = None,
+    ):
         """Stop the queue worker without terminally stopping the queue."""
+        if exception is None:
+            exception = SatelQueueStoppedError("Queue processing stopped")
+
+        queued_messages = self._take_pending_messages()
+
         if self._process_task:
             self._process_task.cancel()
             try:
@@ -68,6 +74,7 @@ class SatelMessageQueue:
             self._process_task = None
 
         self._current_message = None
+        self._resolve_pending_messages(queued_messages, exception)
 
     async def add_message(self, msg: SatelWriteMessage, wait_for_result: bool = False):
         """
@@ -104,20 +111,26 @@ class SatelMessageQueue:
 
         queued.processed_future.set_result(result)
 
-    def _cancel_pending_messages(self) -> None:
-        """Resolve any pending waiters when the queue shuts down."""
-        if self._current_message:
-            self._finish_queued_message(
-                self._current_message,
-                exception=SatelQueueStoppedError("Queue is stopped"),
-            )
+    def _take_pending_messages(self) -> list[QueuedMessage]:
+        """Remove and return the current and queued messages."""
+        queued_messages: list[QueuedMessage] = []
+
+        if self._current_message is not None:
+            queued_messages.append(self._current_message)
 
         while not self._queue.empty():
-            queued = self._queue.get_nowait()
-            self._finish_queued_message(
-                queued,
-                exception=SatelQueueStoppedError("Queue is stopped"),
-            )
+            queued_messages.append(self._queue.get_nowait())
+
+        return queued_messages
+
+    def _resolve_pending_messages(
+        self,
+        queued_messages: list[QueuedMessage],
+        exception: Exception,
+    ) -> None:
+        """Resolve queued message futures during queue shutdown or restart."""
+        for queued in queued_messages:
+            self._finish_queued_message(queued, exception=exception)
 
     async def _process_queue(self) -> None:
         """Process queued commands sequentially."""

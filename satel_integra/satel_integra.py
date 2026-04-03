@@ -14,6 +14,8 @@ from satel_integra.exceptions import (
     SatelConnectFailedError,
     SatelConnectionInitializationError,
     SatelConnectionStoppedError,
+    SatelMonitoringError,
+    SatelMonitoringRejectedError,
     SatelPanelBusyError,
     SatelProtocolError,
     SatelResponseTimeoutError,
@@ -155,7 +157,7 @@ class AsyncSatel:
 
         return True
 
-    async def start_monitoring(self):
+    async def _start_monitoring(self) -> None:
         """Start monitoring for interesting events."""
 
         monitored_commands = [
@@ -182,19 +184,13 @@ class AsyncSatel:
             raw_data=bytearray(monitored_commands_bitmask),
         )
 
-        try:
-            monitoring_result = await self._send_data_and_wait(msg)
-        except SatelResponseTimeoutError:
-            _LOGGER.warning("Start monitoring - no data!")
-            return
+        monitoring_result = await self._send_data_and_wait(msg)
 
         if monitoring_result is None:
-            _LOGGER.warning("Start monitoring - no data!")
-            return
+            raise SatelMonitoringError("Start monitoring - no data!")
 
         if monitoring_result.msg_data != b"\xff":
-            _LOGGER.warning("Monitoring not accepted.")
-            return
+            raise SatelMonitoringRejectedError("Monitoring not accepted.")
 
         _LOGGER.debug("Monitoring started")
 
@@ -254,11 +250,20 @@ class AsyncSatel:
             self._alarm_status_callback()
 
     # region Core logic
-    async def start(self, enable_monitoring=True):
+    async def start(
+        self,
+        enable_monitoring: bool = True,
+        *,
+        raise_exceptions: bool | None = None,
+    ):
         """Start the client, including queue, reading loop and keepalive."""
+        should_raise = self._should_raise_exceptions("start", raise_exceptions)
+
         try:
             await self._connection.ensure_connected()
         except SatelConnectionStoppedError:
+            if should_raise:
+                raise
             return
 
         self._start_task(self._watch_connection_stopped())
@@ -270,7 +275,16 @@ class AsyncSatel:
 
         if enable_monitoring:
             self._start_task(self._monitor_reconnection_loop())
-            await self.start_monitoring()
+            try:
+                await self._start_monitoring()
+            except SatelResponseTimeoutError:
+                if should_raise:
+                    raise
+                _LOGGER.warning("Start monitoring - no data!")
+            except SatelMonitoringError as ex:
+                if should_raise:
+                    raise
+                _LOGGER.warning("%s", ex)
 
     def _start_task(self, coro: Awaitable[object]) -> asyncio.Task[object]:
         """Create and track a background task."""
@@ -351,7 +365,7 @@ class AsyncSatel:
                 # Wait indefinitely for a reconnection event
                 await self._connection.wait_reconnected()
                 _LOGGER.info("Connection re-established, reinitializing monitoring...")
-                await self.start_monitoring()
+                await self._start_monitoring()
             except SatelConnectionStoppedError:
                 return
             except asyncio.CancelledError:

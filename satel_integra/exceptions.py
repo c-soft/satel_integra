@@ -33,6 +33,14 @@ class SatelConnectionStoppedError(SatelConnectionError):
     """Raised when the connection has been terminally stopped."""
 
 
+class SatelMonitoringError(SatelIntegraError):
+    """Raised when monitoring setup does not complete successfully."""
+
+
+class SatelMonitoringRejectedError(SatelMonitoringError):
+    """Raised when the panel rejects a monitoring setup request."""
+
+
 class SatelProtocolError(SatelIntegraError):
     """Base exception for malformed or incompatible protocol data."""
 

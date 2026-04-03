@@ -2,6 +2,8 @@ import os
 
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
+from satel_integra.exceptions import SatelEncryptionStateError
+
 BLOCK_LENGTH = 16
 
 
@@ -146,7 +148,7 @@ class EncryptedCommunicationHandler:
         data = decrypted_pdu[6:]
         self._id_r = header[4]
         if (self._id_s & 0xFF) != decrypted_pdu[5]:
-            raise RuntimeError(
+            raise SatelEncryptionStateError(
                 f"Incorrect value of ID_S, received \\x{decrypted_pdu[5]:x} but expected \\x{self._id_s:x}\n"
                 "Decrypted data: %s" % "".join(f"\\x{x:02x}" for x in decrypted_pdu)
             )

@@ -33,6 +33,18 @@ class SatelConnectionStoppedError(SatelConnectionError):
     """Raised when the connection has been terminally stopped."""
 
 
+class SatelProtocolError(SatelIntegraError):
+    """Base exception for malformed or incompatible protocol data."""
+
+
+class SatelFrameDecodeError(SatelProtocolError):
+    """Raised when a received frame cannot be decoded successfully."""
+
+
+class SatelEncryptionStateError(SatelProtocolError):
+    """Raised when encrypted session state is invalid or inconsistent."""
+
+
 class SatelQueueError(SatelIntegraError):
     """Base exception for queue-related failures."""
 

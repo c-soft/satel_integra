@@ -6,7 +6,9 @@ import pytest
 
 from satel_integra.exceptions import (
     SatelConnectionStoppedError,
+    SatelFrameDecodeError,
     SatelResponseTimeoutError,
+    SatelTransportDisconnectedError,
 )
 from satel_integra.satel_integra import AlarmState, AsyncSatel
 
@@ -171,11 +173,11 @@ async def test_close_cancels_tasks(satel):
 
 
 @pytest.mark.asyncio
-async def test_read_data_exception_returns_none(satel):
+async def test_read_data_exception_raises(satel):
     satel._connection.read_frame.side_effect = Exception("boom")
 
-    result = await satel._read_data()
-    assert result is None
+    with pytest.raises(Exception, match="boom"):
+        await satel._read_data()
 
 
 @pytest.mark.asyncio
@@ -253,6 +255,38 @@ async def test_reading_loop_processes_message(satel, mock_connection):
     await satel._reading_loop()
 
     cmd_handler.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_reading_loop_retries_after_temporary_disconnect(satel, mock_connection):
+    msg = MagicMock()
+    msg.cmd = 1
+
+    satel._connection.ensure_connected = AsyncMock(
+        side_effect=[None, None, SatelConnectionStoppedError]
+    )
+    satel._read_data = AsyncMock(
+        side_effect=[SatelTransportDisconnectedError("temporary"), msg]
+    )
+    cmd_handler = MagicMock()
+    satel._message_handlers = {1: cmd_handler}
+
+    await satel._reading_loop()
+
+    assert satel._read_data.await_count == 2
+    cmd_handler.assert_called_once_with(msg)
+    satel._connection.close.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_reading_loop_closes_on_unexpected_receive_error(satel, mock_connection):
+    satel._connection.ensure_connected = AsyncMock(side_effect=[None])
+    satel._read_data = AsyncMock(side_effect=SatelFrameDecodeError("bad frame"))
+
+    await satel._reading_loop()
+
+    satel._connection.close.assert_awaited_once()
+    satel._queue.stop.assert_awaited_once()
 
 
 @pytest.mark.asyncio

@@ -12,7 +12,9 @@ from satel_integra.commands import SatelReadCommand, SatelWriteCommand
 from satel_integra.connection import SatelConnection
 from satel_integra.exceptions import (
     SatelConnectionStoppedError,
+    SatelProtocolError,
     SatelResponseTimeoutError,
+    SatelTransportDisconnectedError,
 )
 from satel_integra.messages import SatelReadMessage, SatelWriteMessage
 from satel_integra.queue import SatelMessageQueue
@@ -277,7 +279,11 @@ class AsyncSatel:
             while True:
                 await self._connection.ensure_connected()
 
-                msg = await self._read_data()
+                try:
+                    msg = await self._read_data()
+                except SatelTransportDisconnectedError:
+                    _LOGGER.info("Connection lost while reading data, reconnecting.")
+                    continue
 
                 if not msg:
                     continue
@@ -296,10 +302,14 @@ class AsyncSatel:
 
         except SatelConnectionStoppedError:
             return
+        except SatelProtocolError as ex:
+            _LOGGER.exception("Fatal protocol error in _reading_loop, %s", ex)
+            await self.close()
         except asyncio.CancelledError:
             _LOGGER.info("_reading_loop loop cancelled.")
         except Exception as ex:
             _LOGGER.exception("Error in _reading_loop loop, %s", ex)
+            await self.close()
 
     async def _monitor_reconnection_loop(self):
         """Monitor for reconnection events and reinitialize monitoring.
@@ -404,24 +414,14 @@ class AsyncSatel:
 
     async def _read_data(self) -> SatelReadMessage | None:
         """Read data from the alarm."""
+        data = await self._connection.read_frame()
 
-        try:
-            data = await self._connection.read_frame()
-
-            if not data:
-                return None
-
-            msg = SatelReadMessage.decode_frame(data)
-            _LOGGER.debug("Received command: %s", msg)
-            return msg
-
-        except Exception as e:
-            _LOGGER.exception("Error reading data: %s", e)
+        if not data:
             return None
 
-        finally:
-            if self._alarm_status_callback:
-                self._alarm_status_callback()
+        msg = SatelReadMessage.decode_frame(data)
+        _LOGGER.debug("Received command: %s", msg)
+        return msg
 
     # endregion
 

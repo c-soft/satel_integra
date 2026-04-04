@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.1.0](https://github.com/c-soft/satel_integra/compare/1.0.0...1.1.0) - 2026-03-31
+
+### 1.1.1
+
+#### What’s Changed
+
+- #51 - Allow protocol verification during connect (@Tommatheussen)
+- #50 - Update release action (@Tommatheussen)
+- #49 - Update CI Action (@Tommatheussen)
+- #48 - Update release drafter (@Tommatheussen)
+
 ## [1.0.0](https://github.com/c-soft/satel_integra/compare/0.3.7...1.0.0) - 2026-03-08
 
 This release represents a major internal rewrite of the library. The codebase has been refactored into smaller, dedicated modules, improving maintainability and enabling proper automated testing. This new structure makes it easier to extend the library and allows faster and safer incremental updates going forward.
@@ -45,6 +56,7 @@ self.controller.monitor_status(
     outputs_update_callback,
 )
 
+
 ```
 ##### After
 
@@ -59,6 +71,7 @@ self.controller.register_callbacks(
 )
 
 await self.controller.start(enable_monitoring=True)
+
 
 ```
 #### Callback Signature Changes

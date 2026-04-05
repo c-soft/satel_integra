@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from satel_integra.encryption import EncryptedCommunicationHandler, SatelEncryption
+from satel_integra.exceptions import SatelEncryptionStateError
 
 
 class TestProtocol:
@@ -72,7 +73,7 @@ class TestProtocol:
                 communication_handler.extract_data_from_pdu(
                     b"12345%bsome_message" % current_id_s.to_bytes(1, "big")
                 )
-                with pytest.raises(RuntimeError):
+                with pytest.raises(SatelEncryptionStateError):
                     communication_handler.extract_data_from_pdu(
                         b"12345%bsome_message" % (current_id_s + 1).to_bytes(1, "big")
                     )

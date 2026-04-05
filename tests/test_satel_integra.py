@@ -4,7 +4,15 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from satel_integra.exceptions import SatelConnectionStoppedError
+from satel_integra.exceptions import (
+    SatelConnectionInitializationError,
+    SatelConnectionStoppedError,
+    SatelEncryptionStateError,
+    SatelFrameDecodeError,
+    SatelMonitoringRejectedError,
+    SatelResponseTimeoutError,
+    SatelTransportDisconnectedError,
+)
 from satel_integra.satel_integra import AlarmState, AsyncSatel
 
 
@@ -47,25 +55,32 @@ def satel(monkeypatch, mock_connection, mock_queue):
 
 
 @pytest.mark.asyncio
-async def test_start_monitoring_success(satel, mock_queue):
+async def test_internal_start_monitoring_success(satel, mock_queue):
     mock_msg = MagicMock()
     mock_msg.msg_data = b"\xff"
     mock_queue.add_message.return_value = mock_msg
 
-    await satel.start_monitoring()
+    await satel._start_monitoring()
 
     mock_queue.add_message.assert_awaited_once()
 
 
 @pytest.mark.asyncio
-async def test_start_monitoring_rejected(satel, mock_queue, caplog):
+async def test_internal_start_monitoring_rejected_raises(satel, mock_queue):
     mock_msg = MagicMock()
     mock_msg.msg_data = b"\x00"
     mock_queue.add_message.return_value = mock_msg
 
-    await satel.start_monitoring()
+    with pytest.raises(SatelMonitoringRejectedError, match="Monitoring not accepted"):
+        await satel._start_monitoring()
 
-    assert "Monitoring not accepted" in caplog.text
+
+@pytest.mark.asyncio
+async def test_internal_start_monitoring_timeout_raises(satel, mock_queue):
+    mock_queue.add_message.side_effect = SatelResponseTimeoutError("timeout")
+
+    with pytest.raises(SatelResponseTimeoutError, match="timeout"):
+        await satel._start_monitoring()
 
 
 def test_zones_violated_callback(satel):
@@ -159,11 +174,11 @@ async def test_close_cancels_tasks(satel):
 
 
 @pytest.mark.asyncio
-async def test_read_data_exception_returns_none(satel):
+async def test_read_data_exception_raises(satel):
     satel._connection.read_frame.side_effect = Exception("boom")
 
-    result = await satel._read_data()
-    assert result is None
+    with pytest.raises(Exception, match="boom"):
+        await satel._read_data()
 
 
 @pytest.mark.asyncio
@@ -173,14 +188,14 @@ async def test_start_starts_background_tasks(satel):
     satel._keepalive_loop = AsyncMock()
     satel._monitor_reconnection_loop = AsyncMock()
     satel._start_task = MagicMock(side_effect=lambda coro: asyncio.create_task(coro))
-    satel.start_monitoring = AsyncMock()
+    satel._start_monitoring = AsyncMock()
 
-    await satel.start(enable_monitoring=True)
+    await satel.start(enable_monitoring=True, raise_exceptions=False)
 
     assert satel._start_task.call_count == 4
     satel._connection.ensure_connected.assert_awaited_once()
     satel._queue.start.assert_awaited_once()
-    satel.start_monitoring.assert_awaited()
+    satel._start_monitoring.assert_awaited()
 
 
 @pytest.mark.asyncio
@@ -189,12 +204,120 @@ async def test_start_skips_monitoring(satel):
     satel._reading_loop = AsyncMock()
     satel._keepalive_loop = AsyncMock()
     satel._start_task = MagicMock(side_effect=lambda coro: asyncio.create_task(coro))
-    satel.start_monitoring = AsyncMock()
+    satel._start_monitoring = AsyncMock()
 
-    await satel.start(enable_monitoring=False)
+    await satel.start(enable_monitoring=False, raise_exceptions=False)
 
     assert satel._start_task.call_count == 3
-    satel.start_monitoring.assert_not_awaited()
+    satel._start_monitoring.assert_not_awaited()
+
+
+def test_connect_warns_when_raise_exceptions_not_provided(satel, mock_connection):
+    with pytest.deprecated_call(match="Calling 'connect' without 'raise_exceptions'"):
+        asyncio.run(satel.connect())
+
+
+@pytest.mark.asyncio
+async def test_connect_warns_when_raise_exceptions_false(satel):
+    with pytest.deprecated_call(match="Calling 'connect' with raise_exceptions=False"):
+        await satel.connect(raise_exceptions=False)
+
+
+@pytest.mark.asyncio
+async def test_connect_raises_when_enabled(satel, mock_connection):
+    mock_connection.connect.side_effect = SatelConnectionInitializationError("boom")
+
+    with pytest.raises(SatelConnectionInitializationError, match="boom"):
+        await satel.connect(raise_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_start_warns_when_raise_exceptions_not_provided(satel):
+    with pytest.deprecated_call(match="Calling 'start' without 'raise_exceptions'"):
+        await satel.start()
+
+
+@pytest.mark.asyncio
+async def test_start_raises_when_enabled_and_monitoring_setup_fails(satel):
+    satel._start_monitoring = AsyncMock(
+        side_effect=SatelResponseTimeoutError("timeout")
+    )
+
+    with pytest.raises(SatelResponseTimeoutError, match="timeout"):
+        await satel.start(enable_monitoring=True, raise_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_start_cleans_up_started_runtime_when_monitoring_setup_fails_in_strict_mode(
+    satel,
+):
+    satel._watch_connection_stopped = AsyncMock()
+    satel._reading_loop = AsyncMock()
+    satel._keepalive_loop = AsyncMock()
+    satel._monitor_reconnection_loop = AsyncMock()
+    satel._start_task = MagicMock(side_effect=lambda coro: asyncio.create_task(coro))
+    satel._cancel_running_tasks = AsyncMock()
+    satel._start_monitoring = AsyncMock(
+        side_effect=SatelResponseTimeoutError("timeout")
+    )
+
+    with pytest.raises(SatelResponseTimeoutError, match="timeout"):
+        await satel.start(enable_monitoring=True, raise_exceptions=True)
+
+    assert satel._start_task.call_count == 2
+    satel._queue.start.assert_awaited_once()
+    satel._queue.stop_processing.assert_awaited_once()
+    satel._cancel_running_tasks.assert_awaited_once()
+    satel._keepalive_loop.assert_not_awaited()
+    satel._monitor_reconnection_loop.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_start_swallows_monitoring_rejection_in_compat_mode(
+    satel, mock_queue, caplog
+):
+    mock_msg = MagicMock()
+    mock_msg.msg_data = b"\x00"
+    mock_queue.add_message.return_value = mock_msg
+
+    with pytest.deprecated_call(match="Calling 'start' with raise_exceptions=False"):
+        await satel.start(enable_monitoring=True, raise_exceptions=False)
+
+    assert "Monitoring not accepted." in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_start_swallows_monitoring_setup_failure_in_compat_mode(
+    satel, mock_queue
+):
+    mock_queue.add_message.side_effect = SatelResponseTimeoutError("timeout")
+
+    with pytest.deprecated_call(match="Calling 'start' with raise_exceptions=False"):
+        await satel.start(enable_monitoring=True, raise_exceptions=False)
+
+
+@pytest.mark.asyncio
+async def test_start_swallows_monitoring_transport_failure_in_compat_mode(
+    satel, mock_queue
+):
+    mock_queue.add_message.side_effect = SatelTransportDisconnectedError("temporary")
+
+    with pytest.deprecated_call(match="Calling 'start' with raise_exceptions=False"):
+        await satel.start(enable_monitoring=True, raise_exceptions=False)
+
+
+@pytest.mark.asyncio
+async def test_start_warns_when_raise_exceptions_false(satel):
+    with pytest.deprecated_call(match="Calling 'start' with raise_exceptions=False"):
+        await satel.start(raise_exceptions=False)
+
+
+@pytest.mark.asyncio
+async def test_start_raises_when_enabled_and_connection_is_stopped(satel):
+    satel._connection.ensure_connected.side_effect = SatelConnectionStoppedError("stop")
+
+    with pytest.raises(SatelConnectionStoppedError, match="stop"):
+        await satel.start(raise_exceptions=True)
 
 
 @pytest.mark.asyncio
@@ -202,14 +325,14 @@ async def test_start_returns_early_when_initial_connection_fails(satel, mock_que
     satel._connection.ensure_connected.side_effect = SatelConnectionStoppedError
     satel._connection.stopped = True
     satel._start_task = MagicMock()
-    satel.start_monitoring = AsyncMock()
+    satel._start_monitoring = AsyncMock()
 
-    await satel.start(enable_monitoring=True)
+    await satel.start(enable_monitoring=True, raise_exceptions=False)
 
     satel._start_task.assert_not_called()
     mock_queue.stop.assert_not_awaited()
     mock_queue.start.assert_not_awaited()
-    satel.start_monitoring.assert_not_awaited()
+    satel._start_monitoring.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -244,6 +367,60 @@ async def test_reading_loop_processes_message(satel, mock_connection):
 
 
 @pytest.mark.asyncio
+async def test_reading_loop_retries_after_temporary_disconnect(satel, mock_connection):
+    msg = MagicMock()
+    msg.cmd = 1
+
+    satel._connection.ensure_connected = AsyncMock(
+        side_effect=[None, None, SatelConnectionStoppedError]
+    )
+    satel._read_data = AsyncMock(
+        side_effect=[SatelTransportDisconnectedError("temporary"), msg]
+    )
+    cmd_handler = MagicMock()
+    satel._message_handlers = {1: cmd_handler}
+
+    await satel._reading_loop()
+
+    assert satel._read_data.await_count == 2
+    cmd_handler.assert_called_once_with(msg)
+    satel._connection.close.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_reading_loop_ignores_frame_decode_error_and_continues(
+    satel, mock_connection
+):
+    msg = MagicMock()
+    msg.cmd = 1
+
+    satel._connection.ensure_connected = AsyncMock(
+        side_effect=[None, None, SatelConnectionStoppedError]
+    )
+    satel._read_data = AsyncMock(side_effect=[SatelFrameDecodeError("bad frame"), msg])
+
+    cmd_handler = MagicMock()
+    satel._message_handlers = {1: cmd_handler}
+
+    await satel._reading_loop()
+
+    cmd_handler.assert_called_once_with(msg)
+    satel._connection.close.assert_not_awaited()
+    satel._queue.stop.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_reading_loop_closes_on_encryption_state_error(satel, mock_connection):
+    satel._connection.ensure_connected = AsyncMock(side_effect=[None])
+    satel._read_data = AsyncMock(side_effect=SatelEncryptionStateError("bad state"))
+
+    await satel._reading_loop()
+
+    satel._connection.close.assert_awaited_once()
+    satel._queue.stop.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_reading_loop_stops_when_reconnect_closes_connection(
     satel, mock_connection
 ):
@@ -262,12 +439,12 @@ async def test_reading_loop_stops_when_reconnect_closes_connection(
 async def test_monitor_reconnection_loop_exits_when_connection_closes(satel):
     satel._connection.wait_reconnected.side_effect = SatelConnectionStoppedError
     satel._connection.stopped = True
-    satel.start_monitoring = AsyncMock()
+    satel._start_monitoring = AsyncMock()
 
     await satel._monitor_reconnection_loop()
 
     satel._queue.stop.assert_not_awaited()
-    satel.start_monitoring.assert_not_awaited()
+    satel._start_monitoring.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -286,6 +463,6 @@ async def test_watch_connection_stopped_stops_queue_and_tasks(satel):
 
 @pytest.mark.asyncio
 async def test_connect_passes_verify_connection_flag(satel, mock_connection):
-    await satel.connect(verify_connection=False)
+    await satel.connect(verify_connection=False, raise_exceptions=False)
 
     mock_connection.connect.assert_awaited_once_with(verify_connection=False)

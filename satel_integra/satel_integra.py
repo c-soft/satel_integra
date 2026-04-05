@@ -10,7 +10,19 @@ from warnings import warn
 
 from satel_integra.commands import SatelReadCommand, SatelWriteCommand
 from satel_integra.connection import SatelConnection
-from satel_integra.exceptions import SatelConnectionStoppedError
+from satel_integra.exceptions import (
+    SatelConnectFailedError,
+    SatelConnectionInitializationError,
+    SatelConnectionStoppedError,
+    SatelEncryptionStateError,
+    SatelFrameDecodeError,
+    SatelIntegraError,
+    SatelMonitoringRejectedError,
+    SatelPanelBusyError,
+    SatelProtocolError,
+    SatelResponseTimeoutError,
+    SatelTransportDisconnectedError,
+)
 from satel_integra.messages import SatelReadMessage, SatelWriteMessage
 from satel_integra.queue import SatelMessageQueue
 from satel_integra.utils import encode_bitmask_le
@@ -121,7 +133,33 @@ class AsyncSatel:
             SatelReadCommand.RESULT: self._command_result,
         }
 
-    async def start_monitoring(self):
+    def _should_raise_exceptions(
+        self,
+        method_name: str,
+        raise_exceptions: bool | None,
+    ) -> bool:
+        """Resolve compatibility behavior for public exception handling."""
+        if raise_exceptions is None:
+            warn(
+                f"Calling '{method_name}' without 'raise_exceptions' is deprecated; "
+                "pass raise_exceptions=True to opt in to future behavior.",
+                DeprecationWarning,
+                stacklevel=3,
+            )
+            return False
+
+        if raise_exceptions is False:
+            warn(
+                f"Calling '{method_name}' with raise_exceptions=False is deprecated "
+                "and will change in a future release.",
+                DeprecationWarning,
+                stacklevel=3,
+            )
+            return False
+
+        return True
+
+    async def _start_monitoring(self) -> None:
         """Start monitoring for interesting events."""
 
         monitored_commands = [
@@ -150,13 +188,8 @@ class AsyncSatel:
 
         monitoring_result = await self._send_data_and_wait(msg)
 
-        if monitoring_result is None:
-            _LOGGER.warning("Start monitoring - no data!")
-            return
-
         if monitoring_result.msg_data != b"\xff":
-            _LOGGER.warning("Monitoring not accepted.")
-            return
+            raise SatelMonitoringRejectedError("Monitoring not accepted.")
 
         _LOGGER.debug("Monitoring started")
 
@@ -216,11 +249,20 @@ class AsyncSatel:
             self._alarm_status_callback()
 
     # region Core logic
-    async def start(self, enable_monitoring=True):
+    async def start(
+        self,
+        enable_monitoring: bool = True,
+        *,
+        raise_exceptions: bool | None = None,
+    ):
         """Start the client, including queue, reading loop and keepalive."""
+        should_raise = self._should_raise_exceptions("start", raise_exceptions)
+
         try:
             await self._connection.ensure_connected()
         except SatelConnectionStoppedError:
+            if should_raise:
+                raise
             return
 
         self._start_task(self._watch_connection_stopped())
@@ -228,11 +270,23 @@ class AsyncSatel:
 
         await self._queue.start()
 
+        if enable_monitoring:
+            try:
+                await self._start_monitoring()
+            except SatelIntegraError as ex:
+                if should_raise:
+                    await self._cancel_running_tasks()
+                    await self._queue.stop_processing()
+                    raise
+                if isinstance(ex, SatelResponseTimeoutError):
+                    _LOGGER.warning("Start monitoring - no data!")
+                else:
+                    _LOGGER.warning("%s", ex)
+
         self._start_task(self._keepalive_loop())
 
         if enable_monitoring:
             self._start_task(self._monitor_reconnection_loop())
-            await self.start_monitoring()
 
     def _start_task(self, coro: Awaitable[object]) -> asyncio.Task[object]:
         """Create and track a background task."""
@@ -270,9 +324,15 @@ class AsyncSatel:
             while True:
                 await self._connection.ensure_connected()
 
-                msg = await self._read_data()
-
-                if not msg:
+                try:
+                    msg = await self._read_data()
+                except SatelTransportDisconnectedError:
+                    _LOGGER.info("Connection lost while reading data, reconnecting.")
+                    continue
+                except SatelFrameDecodeError as ex:
+                    _LOGGER.warning(
+                        "Ignoring unreadable frame in _reading_loop: %s", ex
+                    )
                     continue
 
                 # Only notify queue of command responses
@@ -289,10 +349,17 @@ class AsyncSatel:
 
         except SatelConnectionStoppedError:
             return
+        except SatelEncryptionStateError as ex:
+            _LOGGER.exception("Fatal encryption state error in _reading_loop, %s", ex)
+            await self.close()
+        except SatelProtocolError as ex:
+            _LOGGER.exception("Fatal protocol error in _reading_loop, %s", ex)
+            await self.close()
         except asyncio.CancelledError:
             _LOGGER.info("_reading_loop loop cancelled.")
         except Exception as ex:
             _LOGGER.exception("Error in _reading_loop loop, %s", ex)
+            await self.close()
 
     async def _monitor_reconnection_loop(self):
         """Monitor for reconnection events and reinitialize monitoring.
@@ -305,7 +372,7 @@ class AsyncSatel:
                 # Wait indefinitely for a reconnection event
                 await self._connection.wait_reconnected()
                 _LOGGER.info("Connection re-established, reinitializing monitoring...")
-                await self.start_monitoring()
+                await self._start_monitoring()
             except SatelConnectionStoppedError:
                 return
             except asyncio.CancelledError:
@@ -385,7 +452,7 @@ class AsyncSatel:
         """Add message to the queue."""
         await self._queue.add_message(msg, False)
 
-    async def _send_data_and_wait(self, msg: SatelWriteMessage):
+    async def _send_data_and_wait(self, msg: SatelWriteMessage) -> SatelReadMessage:
         """Add message to the queue and wait for the result."""
         return await self._queue.add_message(msg, True)
 
@@ -395,26 +462,13 @@ class AsyncSatel:
 
         await self._connection.send_frame(data)
 
-    async def _read_data(self) -> SatelReadMessage | None:
+    async def _read_data(self) -> SatelReadMessage:
         """Read data from the alarm."""
+        data = await self._connection.read_frame()
 
-        try:
-            data = await self._connection.read_frame()
-
-            if not data:
-                return None
-
-            msg = SatelReadMessage.decode_frame(data)
-            _LOGGER.debug("Received command: %s", msg)
-            return msg
-
-        except Exception as e:
-            _LOGGER.exception("Error reading data: %s", e)
-            return None
-
-        finally:
-            if self._alarm_status_callback:
-                self._alarm_status_callback()
+        msg = SatelReadMessage.decode_frame(data)
+        _LOGGER.debug("Received command: %s", msg)
+        return msg
 
     # endregion
 
@@ -437,13 +491,27 @@ class AsyncSatel:
 
     @overload
     @deprecated("Use connect with 'verify_connection' property instead")
-    async def connect(self, *, check_busy: bool = True) -> bool: ...
+    async def connect(
+        self,
+        *,
+        check_busy: bool = True,
+        raise_exceptions: bool | None = None,
+    ) -> bool: ...
 
     @overload
-    async def connect(self, verify_connection: bool = True) -> bool: ...
+    async def connect(
+        self,
+        verify_connection: bool = True,
+        *,
+        raise_exceptions: bool | None = None,
+    ) -> bool: ...
 
     async def connect(
-        self, verify_connection: bool = True, *, check_busy: bool | None = None
+        self,
+        verify_connection: bool = True,
+        *,
+        check_busy: bool | None = None,
+        raise_exceptions: bool | None = None,
     ) -> bool:
         """Make a TCP connection to the alarm system."""
         if check_busy is not None:
@@ -454,7 +522,20 @@ class AsyncSatel:
             )
             verify_connection = check_busy
 
-        return await self._connection.connect(verify_connection=verify_connection)
+        should_raise = self._should_raise_exceptions("connect", raise_exceptions)
+        try:
+            await self._connection.connect(verify_connection=verify_connection)
+        except (
+            SatelConnectFailedError,
+            SatelConnectionInitializationError,
+            SatelPanelBusyError,
+            SatelConnectionStoppedError,
+        ):
+            if should_raise:
+                raise
+            return False
+
+        return True
 
     async def close(self):
         """Stop background tasks and close connection."""

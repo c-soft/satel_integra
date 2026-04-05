@@ -5,6 +5,10 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from satel_integra.commands import SatelReadCommand, SatelWriteCommand
+from satel_integra.exceptions import (
+    SatelQueueStoppedError,
+    SatelResponseTimeoutError,
+)
 from satel_integra.messages import SatelReadMessage, SatelWriteMessage
 from satel_integra.queue import QueuedMessage, SatelMessageQueue
 
@@ -74,6 +78,22 @@ async def test_stop(mock_queue):
 
 
 @pytest.mark.asyncio
+async def test_stop_processing_cancels_worker_without_stopping_queue(mock_queue):
+    async def dummy_coro():
+        await asyncio.sleep(999)
+
+    task = asyncio.create_task(dummy_coro())
+
+    mock_queue._process_task = task
+
+    await mock_queue.stop_processing()
+
+    assert mock_queue._stopped is False
+    assert task.cancelled()
+    assert mock_queue._process_task is None
+
+
+@pytest.mark.asyncio
 async def test_stop_unblocks_waiting_message(mock_queue, write_msg):
     await mock_queue.start()
 
@@ -82,8 +102,23 @@ async def test_stop_unblocks_waiting_message(mock_queue, write_msg):
 
     await mock_queue.stop()
 
-    result = await asyncio.wait_for(waiter, timeout=1.0)
-    assert result is None
+    with pytest.raises(SatelQueueStoppedError, match="Queue is stopped"):
+        await asyncio.wait_for(waiter, timeout=1.0)
+
+
+@pytest.mark.asyncio
+async def test_stop_processing_unblocks_in_flight_waiting_message(
+    mock_queue, write_msg
+):
+    await mock_queue.start()
+
+    waiter = asyncio.create_task(mock_queue.add_message(write_msg, True))
+    await asyncio.sleep(0.05)
+
+    await mock_queue.stop_processing()
+
+    with pytest.raises(SatelQueueStoppedError, match="Queue processing stopped"):
+        await asyncio.wait_for(waiter, timeout=1.0)
 
 
 @pytest.mark.asyncio
@@ -95,7 +130,7 @@ async def test_queued_message_init(write_msg):
 
 
 @pytest.mark.asyncio
-async def test_queued_message_init_same_cmd():
+async def test_queued_message_uses_echo_response_command_when_needed():
     write_msg = SatelWriteMessage(SatelWriteCommand.READ_DEVICE_NAME)
     message = QueuedMessage(write_msg, True)
 
@@ -130,7 +165,9 @@ async def test_stop_cancels_task(mock_queue):
 
 
 @pytest.mark.asyncio
-async def test_add_message_wait_for_result(mock_queue, write_msg, result_msg):
+async def test_add_message_returns_matching_result_for_waiting_caller(
+    mock_queue, write_msg, result_msg
+):
     await mock_queue.start()
 
     async def complete_result():
@@ -147,7 +184,9 @@ async def test_add_message_wait_for_result(mock_queue, write_msg, result_msg):
 
 
 @pytest.mark.asyncio
-async def test_add_message_no_wait(mock_queue, write_msg):
+async def test_add_message_returns_none_for_fire_and_forget_caller(
+    mock_queue, write_msg
+):
     await mock_queue.start()
     result = await mock_queue.add_message(write_msg, False)
     await asyncio.sleep(0.05)
@@ -163,12 +202,14 @@ async def test_add_message_after_stop_raises(mock_queue, write_msg):
     await mock_queue.start()
     await mock_queue.stop()
 
-    with pytest.raises(RuntimeError, match="Queue is stopped"):
+    with pytest.raises(SatelQueueStoppedError, match="Queue is stopped"):
         await mock_queue.add_message(write_msg)
 
 
 @pytest.mark.asyncio
-async def test_on_message_received_correct(mock_queue, write_msg, result_msg):
+async def test_on_message_received_resolves_current_matching_message(
+    mock_queue, write_msg, result_msg
+):
     queued = QueuedMessage(write_msg, True)
     mock_queue._current_message = queued
 
@@ -178,7 +219,9 @@ async def test_on_message_received_correct(mock_queue, write_msg, result_msg):
 
 
 @pytest.mark.asyncio
-async def test_on_message_received_commmand_mismatch(mock_queue, result_msg, caplog):
+async def test_on_message_received_logs_and_ignores_command_mismatch(
+    mock_queue, result_msg, caplog
+):
     caplog.at_level(logging.WARNING)
 
     queued = QueuedMessage(SatelWriteMessage(SatelWriteCommand.READ_DEVICE_NAME), True)
@@ -220,7 +263,7 @@ async def test_on_message_received_future_already_done(
 
 
 @pytest.mark.asyncio
-async def test_process_queue(mock_queue, write_msg):
+async def test_process_queue_processes_one_message_before_stop(mock_queue, write_msg):
     queued = QueuedMessage(write_msg, True)
 
     def close_queue_and_return():
@@ -238,7 +281,9 @@ async def test_process_queue(mock_queue, write_msg):
 
 
 @pytest.mark.asyncio
-async def test_process_queue_with_exception(mock_queue, write_msg, caplog):
+async def test_process_queue_logs_unexpected_worker_exception(
+    mock_queue, write_msg, caplog
+):
     caplog.at_level(logging.WARNING)
 
     queued = QueuedMessage(write_msg, True)
@@ -272,10 +317,10 @@ async def test_process_queue_skips_none(mock_queue):
 
 
 @pytest.mark.asyncio
-async def test_send_and_wait_response_success(mock_queue, write_msg, result_msg):
-    mock_queue._send_func = AsyncMock()
-
-    queued = QueuedMessage(write_msg, False)
+async def test_send_and_wait_response_awaits_precompleted_result(
+    mock_queue, write_msg, result_msg
+):
+    queued = QueuedMessage(write_msg, True)
     queued.processed_future.set_result(result_msg)
 
     await mock_queue._send_and_wait_response(queued)
@@ -286,12 +331,12 @@ async def test_send_and_wait_response_success(mock_queue, write_msg, result_msg)
 
 
 @pytest.mark.asyncio
-async def test_send_and_wait_response_send_func_exception(
+async def test_send_and_wait_response_sets_send_exception_for_waiting_message(
     mock_queue, write_msg, caplog
 ):
     mock_queue._send_func = AsyncMock(side_effect=ConnectionError("Test exception"))
 
-    queued = QueuedMessage(write_msg, False)
+    queued = QueuedMessage(write_msg, True)
 
     with caplog.at_level(logging.DEBUG):
         await mock_queue._send_and_wait_response(queued)
@@ -304,12 +349,10 @@ async def test_send_and_wait_response_send_func_exception(
 
 
 @pytest.mark.asyncio
-async def test_send_and_wait_response_timeout(
+async def test_send_and_wait_response_sets_timeout_exception_for_waiting_message(
     mock_queue, write_msg, caplog, monkeypatch
 ):
-    mock_queue._send_func = AsyncMock()
-
-    queued = QueuedMessage(write_msg, False)
+    queued = QueuedMessage(write_msg, True)
 
     # Use a very short timeout for faster test
     monkeypatch.setattr("satel_integra.queue.MESSAGE_RESPONSE_TIMEOUT", 0.01)
@@ -319,4 +362,20 @@ async def test_send_and_wait_response_timeout(
 
     assert "No response received from panel within" in caplog.text
     assert queued.processed_future.done()
-    assert queued.processed_future.cancelled()
+    exc = queued.processed_future.exception()
+    assert isinstance(exc, SatelResponseTimeoutError)
+    assert str(exc) == "No response received from panel within 0.01s"
+
+
+@pytest.mark.asyncio
+async def test_send_and_wait_response_timeout_completes_fire_and_forget_message(
+    mock_queue, write_msg, monkeypatch
+):
+    queued = QueuedMessage(write_msg, False)
+
+    monkeypatch.setattr("satel_integra.queue.MESSAGE_RESPONSE_TIMEOUT", 0.01)
+
+    await mock_queue._send_and_wait_response(queued)
+
+    assert queued.processed_future.done()
+    assert queued.processed_future.result() is None

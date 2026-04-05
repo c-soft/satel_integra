@@ -10,6 +10,7 @@ from satel_integra.const import (
     FRAME_SPECIAL_BYTES_REPLACEMENT,
     FRAME_START,
 )
+from satel_integra.exceptions import SatelFrameDecodeError
 from satel_integra.utils import checksum, decode_bitmask_le, encode_bitmask_le
 
 _LOGGER = logging.getLogger(__name__)
@@ -75,10 +76,10 @@ class SatelReadMessage(SatelBaseMessage[SatelReadCommand]):
         """Verify checksum and strip header/footer of received frame."""
         if data[0:2] != FRAME_START:
             _LOGGER.error("Bad header: %s", data.hex())
-            raise ValueError("Invalid frame header")
+            raise SatelFrameDecodeError("Invalid frame header")
         if data[-2:] != FRAME_END:
             _LOGGER.error("Bad footer: %s", data.hex())
-            raise ValueError("Invalid frame footer")
+            raise SatelFrameDecodeError("Invalid frame footer")
 
         output = data[2:-2].replace(
             FRAME_SPECIAL_BYTES_REPLACEMENT, FRAME_SPECIAL_BYTES
@@ -91,7 +92,7 @@ class SatelReadMessage(SatelBaseMessage[SatelReadCommand]):
             _LOGGER.error(
                 "Checksum mismatch: get %s, expected %s", received_sum, calc_sum
             )
-            raise ValueError(msg)
+            raise SatelFrameDecodeError(msg)
 
         cmd_byte, data = output[0], output[1:-2]
         try:
@@ -99,7 +100,7 @@ class SatelReadMessage(SatelBaseMessage[SatelReadCommand]):
             return SatelReadMessage(cmd, bytearray(data))
         except ValueError as ex:
             _LOGGER.error("Unknown command byte: %s", hex(cmd_byte))
-            raise ValueError("Unknown command byte") from ex
+            raise SatelFrameDecodeError("Unknown command byte") from ex
 
     def get_active_bits(self, expected_length: int) -> list[int]:
         """Convenience wrapper around decode_bitmask_le() for this message."""

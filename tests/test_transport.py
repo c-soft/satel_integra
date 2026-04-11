@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from satel_integra.const import FRAME_END
+from satel_integra.exceptions import SatelConnectFailedError
 from satel_integra.transport import SatelBaseTransport, SatelEncryptedTransport
 
 
@@ -66,7 +67,13 @@ async def test_connect_failure(monkeypatch):
         asyncio, "open_connection", AsyncMock(side_effect=OSError("boom"))
     )
     transport = SatelBaseTransport("localhost", 1234)
-    await transport.connect()
+
+    with pytest.raises(
+        SatelConnectFailedError,
+        match="Unable to establish TCP connection to localhost:1234",
+    ):
+        await transport.connect()
+
     assert not transport.connected
 
 
@@ -84,7 +91,7 @@ async def test_read_initial_data(mock_transport):
 async def test_read_initial_data_not_connected(caplog):
     transport = SatelBaseTransport("h", 1)
 
-    with caplog.at_level(logging.WARNING):
+    with caplog.at_level(logging.DEBUG):
         result = await transport.read_initial_data()
 
     assert result is None

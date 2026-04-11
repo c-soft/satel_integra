@@ -4,7 +4,12 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from satel_integra.exceptions import SatelConnectionStoppedError
+from satel_integra.exceptions import (
+    SatelConnectFailedError,
+    SatelConnectionInitializationError,
+    SatelConnectionStoppedError,
+    SatelPanelBusyError,
+)
 from satel_integra.satel_integra import AlarmState, AsyncSatel
 
 
@@ -288,4 +293,45 @@ async def test_watch_connection_stopped_stops_queue_and_tasks(satel):
 async def test_connect_passes_verify_connection_flag(satel, mock_connection):
     await satel.connect(verify_connection=False)
 
-    mock_connection.connect.assert_awaited_once_with(verify_connection=False)
+    mock_connection.connect.assert_awaited_once_with(
+        verify_connection=False,
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "exc_type",
+    [
+        SatelConnectFailedError,
+        SatelPanelBusyError,
+        SatelConnectionInitializationError,
+        SatelConnectionStoppedError,
+    ],
+)
+async def test_connect_returns_false_in_compat_mode_for_connect_exceptions(
+    satel, mock_connection, exc_type
+):
+    mock_connection.connect.side_effect = exc_type("boom")
+
+    result = await satel.connect()
+
+    assert result is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "exc_type",
+    [
+        SatelConnectFailedError,
+        SatelPanelBusyError,
+        SatelConnectionInitializationError,
+        SatelConnectionStoppedError,
+    ],
+)
+async def test_connect_raises_in_strict_mode_for_connect_exceptions(
+    satel, mock_connection, exc_type
+):
+    mock_connection.connect.side_effect = exc_type("boom")
+
+    with pytest.raises(exc_type, match="boom"):
+        await satel.connect(raise_exceptions=True)

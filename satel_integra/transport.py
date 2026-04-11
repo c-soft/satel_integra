@@ -5,6 +5,7 @@ import logging
 
 from satel_integra.const import FRAME_END
 from satel_integra.encryption import EncryptedCommunicationHandler
+from satel_integra.exceptions import SatelConnectFailedError
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -38,12 +39,14 @@ class SatelBaseTransport:
                 "TCP connection to %s:%s failed: %s", self._host, self._port, exc
             )
             await self.close()
-            return False
+            raise SatelConnectFailedError(
+                f"Unable to establish TCP connection to {self._host}:{self._port}"
+            ) from exc
 
     async def read_initial_data(self) -> bytes | None:
         """Read raw data available immediately after TCP connect."""
         if not self._reader:
-            _LOGGER.warning("Cannot read initial data, not connected.")
+            _LOGGER.debug("Cannot read initial data, not connected.")
             return None
 
         return await self._reader.read(-1)
@@ -51,7 +54,7 @@ class SatelBaseTransport:
     async def read_frame(self) -> bytes | None:
         """Template method for reading a frame from the panel."""
         if not self._reader:
-            _LOGGER.warning("Cannot read, not connected.")
+            _LOGGER.debug("Cannot read, not connected.")
             return None
 
         try:
@@ -67,12 +70,12 @@ class SatelBaseTransport:
                 _LOGGER.debug("Received raw frame: %s", frame.hex())
                 return frame
             else:
-                _LOGGER.warning("Read failed, no frame end marker found.")
+                _LOGGER.debug("Read failed, no frame end marker found.")
         except asyncio.IncompleteReadError:
             # Incomplete read due to connection closing
             pass
         except Exception as e:
-            _LOGGER.warning("Read failed: %s", e)
+            _LOGGER.debug("Read failed: %s", e)
 
         await self.close()
         return None
@@ -88,7 +91,7 @@ class SatelBaseTransport:
     async def send_frame(self, frame: bytes) -> bool:
         """Template method for writing a frame to the panel."""
         if not self._writer:
-            _LOGGER.warning("Cannot write, not connected.")
+            _LOGGER.debug("Cannot write, not connected.")
             return False
 
         try:
@@ -119,7 +122,7 @@ class SatelBaseTransport:
                 self._writer.close()
                 await self._writer.wait_closed()
             except Exception as e:
-                _LOGGER.warning("Exception during close: %s", e)
+                _LOGGER.debug("Exception during close: %s", e)
 
         self._reader = None
         self._writer = None
@@ -150,7 +153,7 @@ class SatelEncryptedTransport(SatelBaseTransport):
         """Read encrypted frame end decrypt it."""
 
         if not self._reader:
-            _LOGGER.warning("Cannot read, not connected.")
+            _LOGGER.debug("Cannot read, not connected.")
             return None
 
         # first byte tells about data length

@@ -10,7 +10,12 @@ from warnings import warn
 
 from satel_integra.commands import SatelReadCommand, SatelWriteCommand
 from satel_integra.connection import SatelConnection
-from satel_integra.exceptions import SatelConnectionStoppedError
+from satel_integra.exceptions import (
+    SatelConnectFailedError,
+    SatelConnectionInitializationError,
+    SatelConnectionStoppedError,
+    SatelPanelBusyError,
+)
 from satel_integra.messages import SatelReadMessage, SatelWriteMessage
 from satel_integra.queue import SatelMessageQueue
 from satel_integra.utils import encode_bitmask_le
@@ -440,10 +445,16 @@ class AsyncSatel:
     async def connect(self, *, check_busy: bool = True) -> bool: ...
 
     @overload
-    async def connect(self, verify_connection: bool = True) -> bool: ...
+    async def connect(
+        self, verify_connection: bool = True, *, raise_exceptions: bool = False
+    ) -> bool: ...
 
     async def connect(
-        self, verify_connection: bool = True, *, check_busy: bool | None = None
+        self,
+        verify_connection: bool = True,
+        *,
+        check_busy: bool | None = None,
+        raise_exceptions: bool = False,
     ) -> bool:
         """Make a TCP connection to the alarm system."""
         if check_busy is not None:
@@ -454,7 +465,19 @@ class AsyncSatel:
             )
             verify_connection = check_busy
 
-        return await self._connection.connect(verify_connection=verify_connection)
+        try:
+            await self._connection.connect(verify_connection=verify_connection)
+        except (
+            SatelConnectFailedError,
+            SatelConnectionInitializationError,
+            SatelConnectionStoppedError,
+            SatelPanelBusyError,
+        ):
+            if raise_exceptions:
+                raise
+            return False
+
+        return True
 
     async def close(self):
         """Stop background tasks and close connection."""

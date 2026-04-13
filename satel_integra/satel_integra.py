@@ -435,6 +435,19 @@ class AsyncSatel:
 
         return response.temperature
 
+    async def read_temperatures(self, zone_ids: list[int]) -> dict[int, float | None]:
+        """Read temperatures for multiple zone sensors sequentially."""
+        temperatures: dict[int, float | None] = {}
+
+        for zone_id in zone_ids:
+            try:
+                temperatures[zone_id] = await self.read_temperature(zone_id)
+            except ValueError as err:
+                _LOGGER.debug("Temperature read failed for zone %s: %s", zone_id, err)
+                temperatures[zone_id] = None
+
+        return temperatures
+
     # endregion
 
     # region Data management

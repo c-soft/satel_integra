@@ -419,8 +419,8 @@ class AsyncSatel:
         response = await self._send_data_and_wait(msg)
 
         if response is None:
-            msg = f"No response received for temperature read of zone {zone_id}"
-            raise ValueError(msg)
+            _LOGGER.debug("No temperature response for zone %s", zone_id)
+            return None
 
         if not isinstance(response, SatelZoneTemperatureReadMessage):
             msg = f"Unexpected response type for temperature read: {type(response).__name__}"
@@ -442,7 +442,9 @@ class AsyncSatel:
         for zone_id in zone_ids:
             try:
                 temperatures[zone_id] = await self.read_temperature(zone_id)
-            except ValueError as err:
+            except ValueError:
+                raise
+            except Exception as err:
                 _LOGGER.debug("Temperature read failed for zone %s: %s", zone_id, err)
                 temperatures[zone_id] = None
 

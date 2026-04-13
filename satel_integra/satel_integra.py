@@ -68,7 +68,7 @@ class AsyncSatel:
         self._connection = SatelConnection(host, port, integration_key=integration_key)
         self._queue = SatelMessageQueue(self._send_encoded_frame)
         self._running_tasks: set[asyncio.Task[object]] = set()
-        self._keepalive_timeout = 20
+        self._keepalive_timeout = 15
 
         self._monitored_zones: list[int] = monitored_zones
         self.violated_zones: list[int] = []
@@ -247,15 +247,38 @@ class AsyncSatel:
         Every interval it sends some random question to the device, ignoring
         answer - just to keep connection alive.
         """
+        loop = asyncio.get_running_loop()
+        interval = self._keepalive_timeout
+        next_keepalive = loop.time() + interval
+
         while True:
-            await asyncio.sleep(self._keepalive_timeout)
+            sleep_duration = max(0, next_keepalive - loop.time())
+            await asyncio.sleep(sleep_duration)
             if self.stopped:
                 return
-            # Command to read status of the alarm
+
+            started = loop.time()
             data = SatelWriteMessage(
                 SatelWriteCommand.READ_DEVICE_NAME, raw_data=bytearray([0x01, 0x01])
             )
-            await self._send_data(data)
+
+            try:
+                await self._send_data(data)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                _LOGGER.exception("Keepalive send failed")
+
+            lag = started - next_keepalive
+
+            if lag > 5:
+                _LOGGER.debug("Keepalive woke up late by %.3fs", lag)
+
+            next_keepalive += interval
+
+            if loop.time() > next_keepalive + interval:
+                _LOGGER.debug("Keepalive loop fell behind, resynchronizing")
+                next_keepalive = loop.time() + interval
 
     async def _watch_connection_stopped(self):
         """Stop local background work once the connection becomes terminally stopped."""

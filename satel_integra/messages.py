@@ -10,7 +10,13 @@ from satel_integra.const import (
     FRAME_SPECIAL_BYTES_REPLACEMENT,
     FRAME_START,
 )
-from satel_integra.utils import checksum, decode_bitmask_le, encode_bitmask_le
+from satel_integra.utils import (
+    checksum,
+    decode_bitmask_le,
+    decode_temperature,
+    decode_zone_number,
+    encode_bitmask_le,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -96,6 +102,8 @@ class SatelReadMessage(SatelBaseMessage[SatelReadCommand]):
         cmd_byte, data = output[0], output[1:-2]
         try:
             cmd = SatelReadCommand(cmd_byte)
+            if cmd == SatelReadCommand.ZONE_TEMPERATURE:
+                return SatelZoneTemperatureReadMessage(cmd, bytearray(data))
             return SatelReadMessage(cmd, bytearray(data))
         except ValueError as ex:
             _LOGGER.error("Unknown command byte: %s", hex(cmd_byte))
@@ -104,3 +112,27 @@ class SatelReadMessage(SatelBaseMessage[SatelReadCommand]):
     def get_active_bits(self, expected_length: int) -> list[int]:
         """Convenience wrapper around decode_bitmask_le() for this message."""
         return decode_bitmask_le(self.msg_data, expected_length)
+
+
+class SatelZoneTemperatureReadMessage(SatelReadMessage):
+    """Structured read message for a zone temperature response."""
+
+    def __init__(self, cmd: SatelReadCommand, msg_data: bytearray) -> None:
+        super().__init__(cmd, msg_data)
+
+        if len(self.msg_data) != 3:
+            err = (
+                "Invalid temperature response length: "
+                f"expected 3 bytes, got {len(self.msg_data)}"
+            )
+            raise ValueError(err)
+
+    @property
+    def zone_id(self) -> int:
+        """Return the decoded zone id for this temperature response."""
+        return decode_zone_number(self.msg_data[0])
+
+    @property
+    def temperature(self) -> float | None:
+        """Return the decoded temperature in Celsius."""
+        return decode_temperature(self.msg_data[1], self.msg_data[2])

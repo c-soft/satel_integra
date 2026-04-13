@@ -1,6 +1,13 @@
 import pytest
 
-from satel_integra.utils import checksum, decode_bitmask_le, encode_bitmask_le
+from satel_integra.utils import (
+    checksum,
+    decode_bitmask_le,
+    decode_temperature,
+    decode_zone_number,
+    encode_bitmask_le,
+    encode_zone_number,
+)
 
 # List values, byte data, length
 test_frames: list[tuple[list[int], bytearray, int]] = [
@@ -74,7 +81,6 @@ def test_bitmask_bytes_encoding(
     expected: bytearray,
     length: int,
 ) -> None:
-    """Test encode_bitmask_le function."""
     result = encode_bitmask_le(data, length)
 
     assert isinstance(result, bytes)
@@ -87,8 +93,57 @@ def test_bitmask_bytes_decoding(
     data: bytearray,
     length: int,
 ) -> None:
-    """Test bitmask_bytes_le function."""
     result = decode_bitmask_le(data, length)
 
     assert isinstance(result, list)
     assert result == expected
+
+
+@pytest.mark.parametrize(
+    "zone_number, expected",
+    [
+        (42, 42),
+        (256, 0),
+    ],
+)
+def test_encode_zone_number(zone_number: int, expected: int) -> None:
+    assert encode_zone_number(zone_number) == expected
+
+
+@pytest.mark.parametrize("zone_number", [0, 257])
+def test_encode_zone_number_validates_range(zone_number: int) -> None:
+    with pytest.raises(ValueError, match="zone_number must be between 1 and 256"):
+        encode_zone_number(zone_number)
+
+
+@pytest.mark.parametrize(
+    "encoded_zone_number, expected",
+    [
+        (42, 42),
+        (0, 256),
+    ],
+)
+def test_decode_zone_number(encoded_zone_number: int, expected: int) -> None:
+    assert decode_zone_number(encoded_zone_number) == expected
+
+
+@pytest.mark.parametrize("encoded_zone_number", [-1, 256])
+def test_decode_zone_number_validates_encoded_range(encoded_zone_number: int) -> None:
+    with pytest.raises(
+        ValueError, match="encoded zone_number must be between 0 and 255"
+    ):
+        decode_zone_number(encoded_zone_number)
+
+
+@pytest.mark.parametrize(
+    "high, low, expected",
+    [
+        (0x00, 0x00, -55.0),
+        (0x00, 0x01, -54.5),
+        (0x00, 0x6E, 0.0),
+        (0x00, 0x96, 20.0),
+        (0xFF, 0xFF, None),
+    ],
+)
+def test_decode_temperature(high: int, low: int, expected: float | None) -> None:
+    assert decode_temperature(high, low) == expected

@@ -1,6 +1,15 @@
 """Utility functions for Satel Integra integration."""
 
 
+def decode_temperature(high_byte: int, low_byte: int) -> float | None:
+    """Decode Satel temperature bytes into Celsius."""
+    raw_temperature = (high_byte << 8) | low_byte
+    if raw_temperature == 0xFFFF:
+        return None
+
+    return -55.0 + (raw_temperature * 0.5)
+
+
 def checksum(command):
     """Function to calculate checksum as per Satel manual."""
     crc = 0x147A

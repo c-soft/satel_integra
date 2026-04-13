@@ -68,7 +68,7 @@ class AsyncSatel:
         self._connection = SatelConnection(host, port, integration_key=integration_key)
         self._queue = SatelMessageQueue(self._send_encoded_frame)
         self._running_tasks: set[asyncio.Task[object]] = set()
-        self._keepalive_timeout = 15
+        self._keepalive_timeout = 20
 
         self._monitored_zones: list[int] = monitored_zones
         self.violated_zones: list[int] = []

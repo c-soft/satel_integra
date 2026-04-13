@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.1.1](https://github.com/c-soft/satel_integra/compare/1.1.0...1.1.1) - 2026-04-13
+
+### What’s Changed
+
+- #54 - Harden keepalive loop timing (@Tommatheussen)
+
 ## [1.1.0](https://github.com/c-soft/satel_integra/compare/1.0.0...1.1.0) - 2026-03-31
 
 ### 1.1.1
@@ -57,6 +63,7 @@ self.controller.monitor_status(
 )
 
 
+
 ```
 ##### After
 
@@ -71,6 +78,7 @@ self.controller.register_callbacks(
 )
 
 await self.controller.start(enable_monitoring=True)
+
 
 
 ```

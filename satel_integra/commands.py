@@ -25,6 +25,7 @@ class SatelReadCommand(SatelBaseCommand):
     """Read commands supported by Satel Integra protocol."""
 
     ZONES_VIOLATED = 0x00
+    ZONE_TEMPERATURE = 0x7D
     PARTITIONS_ARMED_SUPPRESSED = 0x09
     PARTITIONS_ARMED_MODE0 = 0x0A
     PARTITIONS_ARMED_MODE2 = 0x0B
@@ -44,6 +45,7 @@ class SatelReadCommand(SatelBaseCommand):
 class SatelWriteCommand(SatelBaseCommand):
     """Write commands supported by Satel Integra protocol."""
 
+    ZONE_TEMPERATURE = 0x7D
     START_MONITORING = 0x7F
     PARTITIONS_ARM_MODE_0 = 0x80
     PARTITIONS_ARM_MODE_1 = 0x81
@@ -60,6 +62,7 @@ class SatelWriteCommand(SatelBaseCommand):
 # Write commands that echo themselves back instead of returning RESULT
 _ECHO_RESPONSE_COMMANDS = frozenset(
     {
+        SatelWriteCommand.ZONE_TEMPERATURE,
         SatelWriteCommand.READ_DEVICE_NAME,
     }
 )

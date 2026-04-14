@@ -134,6 +134,40 @@ async def test_multiple_connection_state_callbacks(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_connection_state_callback_not_called_on_failed_connect(monkeypatch):
+    monkeypatch.setattr(
+        asyncio, "open_connection", AsyncMock(side_effect=OSError("boom"))
+    )
+    callback = AsyncMock()
+
+    transport = SatelBaseTransport("localhost", 1234)
+    transport.add_connection_state_callback(callback)
+
+    with pytest.raises(SatelConnectFailedError):
+        await transport.connect()
+
+    callback.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_connection_state_callback_exception_does_not_fail_connect(monkeypatch):
+    reader, writer = AsyncMock(), AsyncMock()
+    monkeypatch.setattr(
+        asyncio, "open_connection", AsyncMock(return_value=(reader, writer))
+    )
+
+    def bad_callback():
+        raise ValueError("boom")
+
+    transport = SatelBaseTransport("localhost", 1234)
+    transport.add_connection_state_callback(bad_callback)
+
+    await transport.connect()
+
+    assert transport.connected
+
+
+@pytest.mark.asyncio
 async def test_read_frame_success(mock_transport):
     from satel_integra.const import FRAME_END
 
@@ -218,6 +252,7 @@ async def test_connection_state_callback_called_on_close(mock_transport):
     callback = AsyncMock()
     mock_transport.add_connection_state_callback(callback)
     mock_transport._writer.is_closing = MagicMock(return_value=False)
+    mock_transport._connection_event.set()
 
     await mock_transport.close()
 

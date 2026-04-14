@@ -34,10 +34,15 @@ class SatelBaseTransport:
 
     async def _set_connection_state(self, connected: bool) -> None:
         """Set the connection event and notify callbacks."""
+        was_connected = self._connection_event.is_set()
+        if connected == was_connected:
+            return
+
         if connected:
             self._connection_event.set()
         else:
             self._connection_event.clear()
+
         await self._notify_connection_state_changed()
 
     async def _notify_connection_state_changed(self) -> None:

@@ -53,7 +53,7 @@ class SatelBaseTransport:
         self._writer = None
         await self._set_connection_state(False)
 
-    async def connect(self) -> bool:
+    async def connect(self) -> None:
         """Establish TCP connection."""
 
         try:

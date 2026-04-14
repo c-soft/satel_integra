@@ -10,6 +10,7 @@ from warnings import warn
 
 from satel_integra.commands import SatelReadCommand, SatelWriteCommand
 from satel_integra.connection import SatelConnection
+from satel_integra.const import ConnectionStateCallback
 from satel_integra.exceptions import (
     SatelConnectFailedError,
     SatelConnectionInitializationError,
@@ -359,6 +360,10 @@ class AsyncSatel:
             self._zone_changed_callback = zone_changed_callback
         if output_changed_callback:
             self._output_changed_callback = output_changed_callback
+
+    def add_connection_status_callback(self, callback: ConnectionStateCallback) -> None:
+        """Add a callback to be called when connection status changes."""
+        self._connection.add_connection_state_callback(callback)
 
     # endregion
 

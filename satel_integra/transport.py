@@ -1,9 +1,10 @@
 """Connection management for Satel Integra panel."""
 
 import asyncio
+import inspect
 import logging
 
-from satel_integra.const import FRAME_END
+from satel_integra.const import FRAME_END, ConnectionStateCallback
 from satel_integra.encryption import EncryptedCommunicationHandler
 from satel_integra.exceptions import SatelConnectFailedError
 
@@ -19,12 +20,48 @@ class SatelBaseTransport:
         self._reader: asyncio.StreamReader | None = None
         self._writer: asyncio.StreamWriter | None = None
 
+        self._connection_event = asyncio.Event()
+        self._connection_state_callbacks: list[ConnectionStateCallback] = []
+
     @property
     def connected(self) -> bool:
         """Return True if connected to the panel."""
         return self._reader is not None and self._writer is not None
 
-    async def connect(self) -> bool:
+    def add_connection_state_callback(self, callback: ConnectionStateCallback) -> None:
+        """Add a callback to be called when transport connection status changes."""
+        self._connection_state_callbacks.append(callback)
+
+    async def _set_connection_state(self, connected: bool) -> None:
+        """Set the connection event and notify callbacks."""
+        was_connected = self._connection_event.is_set()
+        if connected == was_connected:
+            return
+
+        if connected:
+            self._connection_event.set()
+        else:
+            self._connection_event.clear()
+
+        await self._notify_connection_state_changed()
+
+    async def _notify_connection_state_changed(self) -> None:
+        """Invoke callback when connection state changes."""
+        for callback in self._connection_state_callbacks:
+            try:
+                result = callback()
+                if inspect.isawaitable(result):
+                    await result
+            except Exception as exc:
+                _LOGGER.exception("Error in connection state callback: %s", exc)
+
+    async def _reset_connection(self) -> None:
+        """Reset transport connection handles and clear connection event."""
+        self._reader = None
+        self._writer = None
+        await self._set_connection_state(False)
+
+    async def connect(self) -> None:
         """Establish TCP connection."""
 
         try:
@@ -32,7 +69,7 @@ class SatelBaseTransport:
                 self._host, self._port
             )
             _LOGGER.debug("TCP connection established to %s:%s", self._host, self._port)
-            return True
+            await self._set_connection_state(True)
 
         except Exception as exc:
             _LOGGER.debug(
@@ -124,8 +161,7 @@ class SatelBaseTransport:
             except Exception as e:
                 _LOGGER.debug("Exception during close: %s", e)
 
-        self._reader = None
-        self._writer = None
+        await self._reset_connection()
 
 
 class SatelPlainTransport(SatelBaseTransport):
@@ -145,9 +181,9 @@ class SatelEncryptedTransport(SatelBaseTransport):
         self._encryption_handler: EncryptedCommunicationHandler
         super().__init__(host, port)
 
-    async def connect(self) -> bool:
+    async def connect(self) -> None:
         self._encryption_handler = EncryptedCommunicationHandler(self._integration_key)
-        return await super().connect()
+        await super().connect()
 
     async def _read_from_transport(self) -> bytes | None:
         """Read encrypted frame end decrypt it."""

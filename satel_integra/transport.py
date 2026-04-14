@@ -48,9 +48,12 @@ class SatelBaseTransport:
     async def _notify_connection_state_changed(self) -> None:
         """Invoke callback when connection state changes."""
         for callback in self._connection_state_callbacks:
-            result = callback()
-            if inspect.isawaitable(result):
-                await result
+            try:
+                result = callback()
+                if inspect.isawaitable(result):
+                    await result
+            except Exception as exc:
+                _LOGGER.exception("Error in connection state callback: %s", exc)
 
     async def _reset_connection(self) -> None:
         """Reset transport connection handles and clear connection event."""

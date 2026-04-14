@@ -442,10 +442,10 @@ class AsyncSatel:
         for zone_id in zone_ids:
             try:
                 temperatures[zone_id] = await self.read_temperature(zone_id)
-            except ValueError:
-                raise
             except Exception as err:
-                _LOGGER.debug("Temperature read failed for zone %s: %s", zone_id, err)
+                _LOGGER.warning(
+                    "Error reading temperature for zone %s: %s", zone_id, err
+                )
                 temperatures[zone_id] = None
 
         return temperatures

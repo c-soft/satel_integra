@@ -4,12 +4,14 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from satel_integra.commands import SatelReadCommand
 from satel_integra.exceptions import (
     SatelConnectFailedError,
     SatelConnectionInitializationError,
     SatelConnectionStoppedError,
     SatelPanelBusyError,
 )
+from satel_integra.messages import SatelZoneTemperatureReadMessage
 from satel_integra.satel_integra import AlarmState, AsyncSatel
 
 
@@ -150,6 +152,52 @@ def test_command_result_user_code_not_found(satel, caplog):
 async def test_send_methods_call_queue_add(satel, mock_queue, method, args):
     await getattr(satel, method)(*args)
     mock_queue.add_message.assert_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "zone_number, payload, expected",
+    [
+        (1, bytearray([1, 0x00, 0x96]), 20.0),
+        (1, bytearray([1, 0xFF, 0xFF]), None),
+        (1, None, None),
+    ],
+)
+async def test_read_temperature_returns_expected_value(
+    satel, mock_queue, zone_number, payload, expected
+):
+    mock_queue.add_message.return_value = (
+        SatelZoneTemperatureReadMessage(SatelReadCommand.ZONE_TEMPERATURE, payload)
+        if payload is not None
+        else None
+    )
+
+    result = await satel.read_temperature(zone_number)
+
+    assert result == expected
+    mock_queue.add_message.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "side_effect, expected",
+    [
+        ([20.0, 21.5], {1: 20.0, 2: 21.5}),
+        ([20.0, None], {1: 20.0, 2: None}),
+    ],
+)
+async def test_read_temperatures_returns_expected_values(satel, side_effect, expected):
+    satel.read_temperature = AsyncMock(side_effect=side_effect)
+
+    result = await satel.read_temperatures([1, 2])
+
+    assert result == expected
+
+
+@pytest.mark.asyncio
+async def test_read_temperature_rejects_invalid_zone(satel):
+    with pytest.raises(ValueError, match="zone_number must be between 1 and 256"):
+        await satel.read_temperature(0)
 
 
 @pytest.mark.asyncio

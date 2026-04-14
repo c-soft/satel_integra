@@ -16,9 +16,13 @@ from satel_integra.exceptions import (
     SatelConnectionStoppedError,
     SatelPanelBusyError,
 )
-from satel_integra.messages import SatelReadMessage, SatelWriteMessage
+from satel_integra.messages import (
+    SatelReadMessage,
+    SatelWriteMessage,
+    SatelZoneTemperatureReadMessage,
+)
 from satel_integra.queue import SatelMessageQueue
-from satel_integra.utils import encode_bitmask_le
+from satel_integra.utils import encode_bitmask_le, encode_zone_number
 
 if sys.version_info >= (3, 13):
     from warnings import deprecated
@@ -405,6 +409,46 @@ class AsyncSatel:
         )
         msg = SatelWriteMessage(mode_command, code=code, zones_or_outputs=[output_id])
         await self._send_data(msg)
+
+    async def read_temperature(self, zone_id: int) -> float | None:
+        """Read the temperature for a single zone sensor."""
+        request_zone_id = encode_zone_number(zone_id)
+        msg = SatelWriteMessage(
+            SatelWriteCommand.ZONE_TEMPERATURE, raw_data=bytearray([request_zone_id])
+        )
+        response = await self._send_data_and_wait(msg)
+
+        if response is None:
+            _LOGGER.debug("No temperature response for zone %s", zone_id)
+            return None
+
+        if not isinstance(response, SatelZoneTemperatureReadMessage):
+            msg = f"Unexpected response type for temperature read: {type(response).__name__}"
+            raise ValueError(msg)
+
+        if response.zone_id != zone_id:
+            msg = (
+                "Temperature response zone mismatch: "
+                f"expected {zone_id}, got {response.zone_id}"
+            )
+            raise ValueError(msg)
+
+        return response.temperature
+
+    async def read_temperatures(self, zone_ids: list[int]) -> dict[int, float | None]:
+        """Read temperatures for multiple zone sensors sequentially."""
+        temperatures: dict[int, float | None] = {}
+
+        for zone_id in zone_ids:
+            try:
+                temperatures[zone_id] = await self.read_temperature(zone_id)
+            except Exception as err:
+                _LOGGER.warning(
+                    "Error reading temperature for zone %s: %s", zone_id, err
+                )
+                temperatures[zone_id] = None
+
+        return temperatures
 
     # endregion
 

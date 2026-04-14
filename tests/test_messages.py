@@ -10,7 +10,7 @@ from satel_integra.utils import checksum
 
 
 def test_decode_frame_returns_zone_temperature_message() -> None:
-    payload = bytearray([0x7D, 0x00, 0x01, 0x96])
+    payload = bytearray([0x7D, 0x01, 0x00, 0x96])
     csum = checksum(payload)
     frame = (
         bytearray(FRAME_START)

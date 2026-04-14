@@ -1,10 +1,10 @@
 """Connection management for Satel Integra panel."""
 
 import asyncio
+import inspect
 import logging
-from collections.abc import Callable
 
-from satel_integra.const import FRAME_END
+from satel_integra.const import FRAME_END, ConnectionStateCallback
 from satel_integra.encryption import EncryptedCommunicationHandler
 from satel_integra.exceptions import SatelConnectFailedError
 
@@ -21,14 +21,14 @@ class SatelBaseTransport:
         self._writer: asyncio.StreamWriter | None = None
 
         self._connection_event = asyncio.Event()
-        self._connection_state_callbacks: list[Callable[[], None]] = []
+        self._connection_state_callbacks: list[ConnectionStateCallback] = []
 
     @property
     def connected(self) -> bool:
         """Return True if connected to the panel."""
         return self._reader is not None and self._writer is not None
 
-    def add_connection_state_callback(self, callback: Callable[[], None]) -> None:
+    def add_connection_state_callback(self, callback: ConnectionStateCallback) -> None:
         """Add a callback to be called when transport connection status changes."""
         self._connection_state_callbacks.append(callback)
 
@@ -43,7 +43,9 @@ class SatelBaseTransport:
     async def _notify_connection_state_changed(self) -> None:
         """Invoke callback when connection state changes."""
         for callback in self._connection_state_callbacks:
-            await callback()
+            result = callback()
+            if inspect.isawaitable(result):
+                await result
 
     async def _reset_connection(self) -> None:
         """Reset transport connection handles and clear connection event."""

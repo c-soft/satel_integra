@@ -2,10 +2,9 @@
 
 import asyncio
 import logging
-from collections.abc import Callable
 
 from satel_integra.commands import SatelWriteCommand
-from satel_integra.const import MESSAGE_RESPONSE_TIMEOUT
+from satel_integra.const import MESSAGE_RESPONSE_TIMEOUT, ConnectionStateCallback
 from satel_integra.exceptions import (
     SatelConnectFailedError,
     SatelConnectionInitializationError,
@@ -64,25 +63,9 @@ class SatelConnection:
         if self.stopped:
             raise SatelConnectionStoppedError("Connection is stopped")
 
-    def add_connection_state_callback(self, callback: Callable[[], None]) -> None:
+    def add_connection_state_callback(self, callback: ConnectionStateCallback) -> None:
         """Register callback called when connection status changes."""
         self._transport.add_connection_state_callback(callback)
-
-    def _notify_connection_status_changed(self) -> None:
-        """Notify when connected status changes."""
-        current_state = self.connected
-        if current_state == self._last_connected_state:
-            return
-
-        self._last_connected_state = current_state
-        callback = self._connection_status_callback
-        if callback is None:
-            return
-
-        try:
-            callback(current_state)
-        except Exception as exc:
-            _LOGGER.exception("Error in connection status callback: %s", exc)
 
     async def _connect(self, verify_connection: bool = True) -> None:
         """Establish TCP connection. Must be called with _connection_lock held."""

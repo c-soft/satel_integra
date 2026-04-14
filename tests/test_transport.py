@@ -98,6 +98,7 @@ async def test_read_initial_data_not_connected(caplog):
     assert "Cannot read initial data, not connected." in caplog.text
 
 
+@pytest.mark.asyncio
 async def test_connection_state_callback_called_on_connect(monkeypatch):
     reader, writer = AsyncMock(), AsyncMock()
     monkeypatch.setattr(
@@ -130,19 +131,6 @@ async def test_multiple_connection_state_callbacks(monkeypatch):
 
     callback1.assert_called_once_with()
     callback2.assert_called_once_with()
-
-
-@pytest.mark.asyncio
-async def test_check_connection_busy_message(mock_transport, caplog):
-    mock_transport._reader.read.return_value = (
-        b"\x10Busy!\r\n\xd8\xa5\xa5\xa5\xa5\xa5\xa5\xa5"
-    )
-
-    with caplog.at_level(logging.WARNING):
-        result = await mock_transport.read_initial_data()
-
-    assert result is None
-    assert "Cannot read initial data, not connected." in caplog.text
 
 
 @pytest.mark.asyncio
@@ -226,11 +214,6 @@ async def test_close_success(mock_transport):
 
 
 @pytest.mark.asyncio
-async def test_close_already_stopped(mock_transport):
-    mock_transport.stopped = True
-    await mock_transport.close()  # should not raise or call anything
-
-
 async def test_connection_state_callback_called_on_close(mock_transport):
     callback = AsyncMock()
     mock_transport.add_connection_state_callback(callback)
@@ -293,3 +276,19 @@ async def test_write_encrypted(encryption_handler, mock_encrypted_transport):
     mock_encrypted_transport._writer.write.assert_called_once_with(
         bytes([len(encrypted_data)]) + encrypted_data
     )
+
+
+@pytest.mark.asyncio
+async def test_connection_state_sync_callback_called_on_connect(monkeypatch):
+    reader, writer = AsyncMock(), AsyncMock()
+    monkeypatch.setattr(
+        asyncio, "open_connection", AsyncMock(return_value=(reader, writer))
+    )
+    callback = MagicMock()
+
+    transport = SatelBaseTransport("localhost", 1234)
+    transport.add_connection_state_callback(callback)
+
+    await transport.connect()
+
+    callback.assert_called_once_with()

@@ -181,9 +181,9 @@ class SatelEncryptedTransport(SatelBaseTransport):
         self._encryption_handler: EncryptedCommunicationHandler
         super().__init__(host, port)
 
-    async def connect(self) -> bool:
+    async def connect(self) -> None:
         self._encryption_handler = EncryptedCommunicationHandler(self._integration_key)
-        return await super().connect()
+        await super().connect()
 
     async def _read_from_transport(self) -> bytes | None:
         """Read encrypted frame end decrypt it."""

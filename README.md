@@ -37,7 +37,16 @@ Refer to the [licence file](LICENCE).
 
 ## Features
 
--   TODO
+- [x] Zone violation state
+- [x] Output states + toggling
+- [x] Alarm panel status + arming/disarming
+- [x] Encrypted connections
+- [x] Auto reconnecting
+- [x] Zone temperature reading
+- [ ] Zone tamper/bypass states
+- [ ] System faults (bad battery, AC trouble, other errors)
+- [ ] System info (panel information, firmware version etc)
+- [ ] Event monitoring
 
 ## Credits
 

@@ -269,13 +269,13 @@ async def test_start_returns_early_when_initial_connection_fails(satel, mock_que
 @pytest.mark.asyncio
 async def test_keepalive_loop_stops_when_connection_closes(satel, mock_connection):
     satel._keepalive_timeout = 0.01
-    satel._send_data = AsyncMock(
+    satel._send_data_and_wait = AsyncMock(
         side_effect=lambda *args, **kwargs: setattr(mock_connection, "stopped", True)
     )
 
     await satel._keepalive_loop()
 
-    satel._send_data.assert_called_once()
+    satel._send_data_and_wait.assert_called_once()
 
 
 @pytest.mark.asyncio

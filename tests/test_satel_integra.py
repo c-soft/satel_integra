@@ -290,6 +290,41 @@ async def test_keepalive_timeout_marks_connection_disconnected(satel, mock_conne
 
 
 @pytest.mark.asyncio
+async def test_keepalive_loop_waits_full_interval_while_disconnected(
+    satel, mock_connection, monkeypatch
+):
+    class FakeLoop:
+        def __init__(self):
+            self.now = 0.0
+
+        def time(self):
+            return self.now
+
+    fake_loop = FakeLoop()
+    satel._keepalive_timeout = 5
+    mock_connection.connected = False
+    sleep_calls = []
+
+    async def fake_sleep(duration):
+        sleep_calls.append(duration)
+        fake_loop.now += duration
+        if len(sleep_calls) == 2:
+            mock_connection.connected = True
+
+    monkeypatch.setattr(
+        "satel_integra.satel_integra.asyncio.get_running_loop", lambda: fake_loop
+    )
+    monkeypatch.setattr("satel_integra.satel_integra.asyncio.sleep", fake_sleep)
+    satel._send_data_and_wait = AsyncMock(side_effect=asyncio.CancelledError())
+
+    with pytest.raises(asyncio.CancelledError):
+        await satel._keepalive_loop()
+
+    assert sleep_calls == [5, 5]
+    satel._send_data_and_wait.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_reading_loop_processes_message(satel, mock_connection):
     msg = MagicMock()
     msg.cmd = 1

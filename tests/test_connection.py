@@ -210,6 +210,18 @@ async def test_ensure_connected_raises_when_stopped(mock_connection):
 
 
 @pytest.mark.asyncio
+async def test_disconnect_closes_transport_without_stopping_client(
+    mock_connection, mock_transport
+):
+    mock_transport.connected = True
+
+    await mock_connection.disconnect()
+
+    assert mock_connection.stopped is False
+    mock_transport.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_check_connection_read_exception(mock_connection, mock_transport):
     mock_transport.connected = True
     mock_transport.read_initial_data.side_effect = Exception("boom")

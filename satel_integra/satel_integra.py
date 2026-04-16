@@ -266,6 +266,9 @@ class AsyncSatel:
             await asyncio.sleep(sleep_duration)
             if self.stopped:
                 return
+            if not self.connected:
+                next_keepalive += interval
+                continue
 
             started = loop.time()
             data = SatelWriteMessage(
@@ -273,7 +276,10 @@ class AsyncSatel:
             )
 
             try:
-                await self._send_data(data)
+                result = await self._send_data_and_wait(data)
+                if result is None and self.connected:
+                    _LOGGER.warning("Keepalive timed out, marking connection as lost")
+                    await self._connection.disconnect()
             except asyncio.CancelledError:
                 raise
             except Exception:

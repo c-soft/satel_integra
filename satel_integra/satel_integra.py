@@ -266,6 +266,9 @@ class AsyncSatel:
             await asyncio.sleep(sleep_duration)
             if self.stopped:
                 return
+            if not self.connected:
+                next_keepalive += interval
+                continue
 
             started = loop.time()
             data = SatelWriteMessage(

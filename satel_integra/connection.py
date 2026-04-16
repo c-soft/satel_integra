@@ -207,6 +207,11 @@ class SatelConnection:
         async with self._connection_lock:
             await self._close_locked()
 
+    async def disconnect(self) -> None:
+        """Drop the current transport without terminally stopping the client."""
+        async with self._connection_lock:
+            await self._close_locked(stop=False)
+
     async def wait_reconnected(self) -> None:
         """Wait for connection to be re-established after being lost.
 

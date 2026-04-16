@@ -279,6 +279,17 @@ async def test_keepalive_loop_stops_when_connection_closes(satel, mock_connectio
 
 
 @pytest.mark.asyncio
+async def test_keepalive_timeout_marks_connection_disconnected(satel, mock_connection):
+    satel._keepalive_timeout = 0.01
+    satel._send_data_and_wait = AsyncMock(side_effect=[None, asyncio.CancelledError()])
+
+    with pytest.raises(asyncio.CancelledError):
+        await satel._keepalive_loop()
+
+    mock_connection.disconnect.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_reading_loop_processes_message(satel, mock_connection):
     msg = MagicMock()
     msg.cmd = 1

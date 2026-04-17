@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.2.1](https://github.com/c-soft/satel_integra/compare/1.2.0...1.2.1) - 2026-04-17
+
+### What’s Changed
+
+- #59 - Include exceptions in top level exports (@Tommatheussen)
+
 ## [1.2.0](https://github.com/c-soft/satel_integra/compare/1.1.1...1.2.0) - 2026-04-16
 
 ### What’s Changed
@@ -74,6 +80,7 @@ self.controller.monitor_status(
 
 
 
+
 ```
 ##### After
 
@@ -88,6 +95,7 @@ self.controller.register_callbacks(
 )
 
 await self.controller.start(enable_monitoring=True)
+
 
 
 

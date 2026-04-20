@@ -47,6 +47,7 @@ class SatelConnection:
             asyncio.Event()
         )  # Signals when connection is re-established
         self._had_connection = False
+        self._last_activity: float | None = None
 
     @property
     def connected(self) -> bool:
@@ -58,6 +59,11 @@ class SatelConnection:
         """Return True if the connection is stopped."""
         return self._stopped
 
+    @property
+    def last_activity(self) -> float | None:
+        """Return the loop timestamp of the last observed connection traffic."""
+        return self._last_activity
+
     def _assert_not_stopped(self) -> None:
         """Raise if the connection is in a terminal stopped state."""
         if self.stopped:
@@ -66,6 +72,10 @@ class SatelConnection:
     def add_connection_state_callback(self, callback: ConnectionStateCallback) -> None:
         """Register callback called when connection status changes."""
         self._transport.add_connection_state_callback(callback)
+
+    def _now(self) -> float:
+        """Return the running loop's monotonic time for interval tracking."""
+        return asyncio.get_running_loop().time()
 
     async def _connect(self, verify_connection: bool = True) -> None:
         """Establish TCP connection. Must be called with _connection_lock held."""
@@ -123,6 +133,7 @@ class SatelConnection:
             )
 
         _LOGGER.debug("Connected to Satel Integra.")
+        self._last_activity = self._now()
         # If we've had a successful connection before, this is a
         # reconnection — signal any waiters. Otherwise mark that we've
         # now had a connection so future connects can be treated as
@@ -147,11 +158,17 @@ class SatelConnection:
 
     async def read_frame(self) -> bytes | None:
         """Read a raw frame from the panel."""
-        return await self._transport.read_frame()
+        frame = await self._transport.read_frame()
+        if frame:
+            self._last_activity = self._now()
+        return frame
 
     async def send_frame(self, frame: bytes) -> bool:
         """Send a raw frame to the panel."""
-        return await self._transport.send_frame(frame)
+        sent = await self._transport.send_frame(frame)
+        if sent:
+            self._last_activity = self._now()
+        return sent
 
     async def ensure_connected(self) -> None:
         """Reconnect automatically until connected or terminally stopped."""
@@ -189,6 +206,7 @@ class SatelConnection:
 
         _LOGGER.debug("Closing connection...")
         await self._transport.close()
+        self._last_activity = None
 
         if stop:
             self._stopped = True
@@ -249,9 +267,9 @@ class SatelConnection:
         try:
             probe = SatelWriteMessage(SatelWriteCommand.RTC_AND_STATUS)
 
-            await self._transport.send_frame(probe.encode_frame())
+            await self.send_frame(probe.encode_frame())
             raw_response = await asyncio.wait_for(
-                self._transport.read_frame(), timeout=MESSAGE_RESPONSE_TIMEOUT
+                self.read_frame(), timeout=MESSAGE_RESPONSE_TIMEOUT
             )
         except asyncio.TimeoutError as exc:
             _LOGGER.debug(

@@ -214,11 +214,41 @@ async def test_disconnect_closes_transport_without_stopping_client(
     mock_connection, mock_transport
 ):
     mock_transport.connected = True
+    mock_connection._last_activity = 123.0
 
     await mock_connection.disconnect()
 
     assert mock_connection.stopped is False
+    assert mock_connection.last_activity is None
     mock_transport.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_send_frame_updates_last_activity_timestamp(mock_connection, monkeypatch):
+    loop = MagicMock()
+    loop.time.return_value = 42.0
+    monkeypatch.setattr(
+        "satel_integra.connection.asyncio.get_running_loop", lambda: loop
+    )
+
+    result = await mock_connection.send_frame(b"frame")
+
+    assert result is True
+    assert mock_connection.last_activity == 42.0
+
+
+@pytest.mark.asyncio
+async def test_read_frame_updates_last_activity_timestamp(mock_connection, monkeypatch):
+    loop = MagicMock()
+    loop.time.return_value = 84.0
+    monkeypatch.setattr(
+        "satel_integra.connection.asyncio.get_running_loop", lambda: loop
+    )
+
+    frame = await mock_connection.read_frame()
+
+    assert frame == b"probe-response"
+    assert mock_connection.last_activity == 84.0
 
 
 @pytest.mark.asyncio

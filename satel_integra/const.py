@@ -9,5 +9,6 @@ FRAME_SPECIAL_BYTES = bytes([0xFE])
 FRAME_SPECIAL_BYTES_REPLACEMENT = bytes([0xFE, 0xF0])
 
 MESSAGE_RESPONSE_TIMEOUT = 5
+KEEPALIVE_INTERVAL = 15
 
 ConnectionStateCallback = Callable[[], None | Awaitable[None]]

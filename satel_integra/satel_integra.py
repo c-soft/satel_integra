@@ -10,7 +10,7 @@ from warnings import warn
 
 from satel_integra.commands import SatelReadCommand, SatelWriteCommand
 from satel_integra.connection import SatelConnection
-from satel_integra.const import ConnectionStateCallback
+from satel_integra.const import KEEPALIVE_INTERVAL, ConnectionStateCallback
 from satel_integra.exceptions import (
     SatelConnectFailedError,
     SatelConnectionInitializationError,
@@ -78,7 +78,6 @@ class AsyncSatel:
         self._connection = SatelConnection(host, port, integration_key=integration_key)
         self._queue = SatelMessageQueue(self._send_encoded_frame)
         self._running_tasks: set[asyncio.Task[object]] = set()
-        self._keepalive_timeout = 20
 
         self._monitored_zones: list[int] = monitored_zones
         self.violated_zones: list[int] = []
@@ -258,22 +257,42 @@ class AsyncSatel:
         answer - just to keep connection alive.
         """
         loop = asyncio.get_running_loop()
-        interval = self._keepalive_timeout
-        next_keepalive = loop.time() + interval
+        _LOGGER.debug(
+            "Keepalive loop started with %.1fs idle timeout", KEEPALIVE_INTERVAL
+        )
 
         while True:
-            sleep_duration = max(0, next_keepalive - loop.time())
+            last_activity = self._connection.last_activity
+            if last_activity is None:
+                last_activity = loop.time()
+
+            # Sleep until next possible interval
+            deadline = last_activity + KEEPALIVE_INTERVAL
+            sleep_duration = max(0, deadline - loop.time())
             await asyncio.sleep(sleep_duration)
+
             if self.stopped:
                 return
             if not self.connected:
-                next_keepalive += interval
+                _LOGGER.debug("Keepalive suppressed because the connection is down")
                 continue
 
-            started = loop.time()
+            if (observed := self._connection.last_activity) is not None:
+                last_activity = observed
+
+            # Check if we exceeded the interval after sleeping
+            idle_for = loop.time() - last_activity
+            if idle_for < KEEPALIVE_INTERVAL:
+                _LOGGER.debug(
+                    "Keepalive skipped because activity was seen %.3fs ago",
+                    idle_for,
+                )
+                continue
+
             data = SatelWriteMessage(
                 SatelWriteCommand.READ_DEVICE_NAME, raw_data=bytearray([0x01, 0x01])
             )
+            _LOGGER.debug("Keepalive sending after %.3fs of inactivity", idle_for)
 
             try:
                 result = await self._send_data_and_wait(data)
@@ -284,17 +303,6 @@ class AsyncSatel:
                 raise
             except Exception:
                 _LOGGER.exception("Keepalive send failed")
-
-            lag = started - next_keepalive
-
-            if lag > 5:
-                _LOGGER.debug("Keepalive woke up late by %.3fs", lag)
-
-            next_keepalive += interval
-
-            if loop.time() > next_keepalive + interval:
-                _LOGGER.debug("Keepalive loop fell behind, resynchronizing")
-                next_keepalive = loop.time() + interval
 
     async def _watch_connection_stopped(self):
         """Stop local background work once the connection becomes terminally stopped."""

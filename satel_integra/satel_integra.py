@@ -265,12 +265,12 @@ class AsyncSatel:
         )
 
         while True:
-            last_activity = self._connection.last_activity
-            if last_activity is None:
-                last_activity = loop.time()
+            last_outbound_activity = self._connection.last_outbound_activity
+            if last_outbound_activity is None:
+                last_outbound_activity = loop.time()
 
             # Sleep until next possible interval
-            deadline = last_activity + KEEPALIVE_INTERVAL
+            deadline = last_outbound_activity + KEEPALIVE_INTERVAL
             sleep_duration = max(0, deadline - loop.time())
             await asyncio.sleep(sleep_duration)
 
@@ -287,14 +287,14 @@ class AsyncSatel:
                 _LOGGER.debug("Keepalive suppressed because the connection is down")
                 continue
 
-            if (observed := self._connection.last_activity) is not None:
-                last_activity = observed
+            if (observed := self._connection.last_outbound_activity) is not None:
+                last_outbound_activity = observed
 
             # Check if we exceeded the interval after sleeping
-            idle_for = loop.time() - last_activity
+            idle_for = loop.time() - last_outbound_activity
             if idle_for < KEEPALIVE_INTERVAL:
                 _LOGGER.debug(
-                    "Keepalive skipped because activity was seen %.3fs ago",
+                    "Keepalive skipped because outbound activity was seen %.3fs ago",
                     idle_for,
                 )
                 continue
@@ -302,7 +302,9 @@ class AsyncSatel:
             data = SatelWriteMessage(
                 SatelWriteCommand.READ_DEVICE_NAME, raw_data=bytearray([0x01, 0x01])
             )
-            _LOGGER.debug("Keepalive sending after %.3fs of inactivity", idle_for)
+            _LOGGER.debug(
+                "Keepalive sending after %.3fs of outbound inactivity", idle_for
+            )
 
             try:
                 result = await self._send_data_and_wait(data)

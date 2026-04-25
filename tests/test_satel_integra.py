@@ -28,7 +28,7 @@ def mock_connection():
     conn = AsyncMock()
     conn.connected = True
     conn.stopped = False
-    conn.last_activity = None
+    conn.last_outbound_activity = None
     conn.ensure_connected = AsyncMock(return_value=True)
     conn.wait_reconnected = AsyncMock(return_value=True)
     conn.wait_stopped = AsyncMock(return_value=None)
@@ -375,12 +375,12 @@ async def test_keepalive_loop_waits_full_interval_while_disconnected(
 
 
 @pytest.mark.asyncio
-async def test_keepalive_loop_skips_send_when_recent_traffic_seen(
+async def test_keepalive_loop_skips_send_when_recent_outbound_traffic_seen(
     satel, mock_connection, fake_sleep_factory
 ):
     sleep_calls = fake_sleep_factory(
         lambda sleep_count, _duration, loop: (
-            setattr(mock_connection, "last_activity", loop.now)
+            setattr(mock_connection, "last_outbound_activity", loop.now)
             if sleep_count == 1
             else None
         )
@@ -402,14 +402,14 @@ async def test_keepalive_loop_logs_why_send_was_skipped(
         lambda sleep_count, _duration, loop: (
             setattr(mock_connection, "stopped", True)
             if sleep_count == 2
-            else setattr(mock_connection, "last_activity", loop.now)
+            else setattr(mock_connection, "last_outbound_activity", loop.now)
         )
     )
 
     with caplog.at_level(logging.DEBUG):
         await satel._keepalive_loop()
 
-    assert "Keepalive skipped because activity was seen" in caplog.text
+    assert "Keepalive skipped because outbound activity was seen" in caplog.text
 
 
 @pytest.mark.asyncio

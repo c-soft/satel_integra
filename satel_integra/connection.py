@@ -47,7 +47,7 @@ class SatelConnection:
             asyncio.Event()
         )  # Signals when connection is re-established
         self._had_connection = False
-        self._last_activity: float | None = None
+        self._last_outbound_activity: float | None = None
 
     @property
     def connected(self) -> bool:
@@ -60,9 +60,9 @@ class SatelConnection:
         return self._stopped
 
     @property
-    def last_activity(self) -> float | None:
-        """Return the loop timestamp of the last observed connection traffic."""
-        return self._last_activity
+    def last_outbound_activity(self) -> float | None:
+        """Return the loop timestamp of the last outbound panel command."""
+        return self._last_outbound_activity
 
     def _assert_not_stopped(self) -> None:
         """Raise if the connection is in a terminal stopped state."""
@@ -133,7 +133,6 @@ class SatelConnection:
             )
 
         _LOGGER.debug("Connected to Satel Integra.")
-        self._last_activity = self._now()
         # If we've had a successful connection before, this is a
         # reconnection — signal any waiters. Otherwise mark that we've
         # now had a connection so future connects can be treated as
@@ -158,16 +157,13 @@ class SatelConnection:
 
     async def read_frame(self) -> bytes | None:
         """Read a raw frame from the panel."""
-        frame = await self._transport.read_frame()
-        if frame:
-            self._last_activity = self._now()
-        return frame
+        return await self._transport.read_frame()
 
     async def send_frame(self, frame: bytes) -> bool:
         """Send a raw frame to the panel."""
         sent = await self._transport.send_frame(frame)
         if sent:
-            self._last_activity = self._now()
+            self._last_outbound_activity = self._now()
         return sent
 
     async def ensure_connected(self) -> None:
@@ -206,7 +202,7 @@ class SatelConnection:
 
         _LOGGER.debug("Closing connection...")
         await self._transport.close()
-        self._last_activity = None
+        self._last_outbound_activity = None
 
         if stop:
             self._stopped = True

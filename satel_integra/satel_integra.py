@@ -271,6 +271,13 @@ class AsyncSatel:
             sleep_duration = max(0, deadline - loop.time())
             await asyncio.sleep(sleep_duration)
 
+            woke_at = loop.time()
+            if (wakeup_lag := woke_at - deadline) > 1:
+                _LOGGER.debug(
+                    "Keepalive woke up %.3fs after the idle deadline",
+                    wakeup_lag,
+                )
+
             if self.stopped:
                 return
             if not self.connected:
@@ -296,9 +303,10 @@ class AsyncSatel:
 
             try:
                 result = await self._send_data_and_wait(data)
-                if result is None and self.connected:
-                    _LOGGER.warning("Keepalive timed out, marking connection as lost")
-                    await self._connection.disconnect()
+                if result is None:
+                    _LOGGER.debug(
+                        "Keepalive timed out; leaving connection state unchanged"
+                    )
             except asyncio.CancelledError:
                 raise
             except Exception:

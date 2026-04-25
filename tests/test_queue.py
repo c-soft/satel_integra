@@ -314,9 +314,10 @@ async def test_send_and_wait_response_timeout(
     # Use a very short timeout for faster test
     monkeypatch.setattr("satel_integra.queue.MESSAGE_RESPONSE_TIMEOUT", 0.01)
 
-    with caplog.at_level(logging.ERROR):
+    with caplog.at_level(logging.DEBUG):
         await mock_queue._send_and_wait_response(queued)
 
     assert "No response received from panel within" in caplog.text
+    assert "for message:" in caplog.text
     assert queued.processed_future.done()
     assert queued.processed_future.cancelled()

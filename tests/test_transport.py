@@ -206,6 +206,37 @@ async def test_read_frame_timeout(mock_transport):
 
 
 @pytest.mark.asyncio
+async def test_read_frame_incomplete_read_logs_remote_close(mock_transport, caplog):
+    mock_transport._read_from_transport = AsyncMock(
+        side_effect=asyncio.IncompleteReadError(partial=b"", expected=1)
+    )
+
+    with caplog.at_level(logging.DEBUG):
+        result = await mock_transport.read_frame()
+
+    assert result is None
+    assert "Read failed, connection closed by remote peer" in caplog.text
+    assert not mock_transport.connected
+
+
+@pytest.mark.asyncio
+async def test_read_frame_incomplete_read_notifies_connection_state_callback(
+    mock_transport,
+):
+    callback = AsyncMock()
+    mock_transport.add_connection_state_callback(callback)
+    await mock_transport._set_connection_state(True)
+    callback.reset_mock()
+    mock_transport._read_from_transport = AsyncMock(
+        side_effect=asyncio.IncompleteReadError(partial=b"", expected=1)
+    )
+
+    await mock_transport.read_frame()
+
+    callback.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
 async def test_send_frame_success(mock_transport):
     frame = b"abc"
 

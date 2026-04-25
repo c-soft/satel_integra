@@ -78,6 +78,9 @@ class AsyncSatel:
         self._connection = SatelConnection(host, port, integration_key=integration_key)
         self._queue = SatelMessageQueue(self._send_encoded_frame)
         self._running_tasks: set[asyncio.Task[object]] = set()
+        self._closing = False
+        self._connection_unavailable_logged = False
+        self._connection.add_connection_state_callback(self._connection_state_changed)
 
         self._monitored_zones: list[int] = monitored_zones
         self.violated_zones: list[int] = []
@@ -383,6 +386,21 @@ class AsyncSatel:
         if output_changed_callback:
             self._output_changed_callback = output_changed_callback
 
+    def _connection_state_changed(self) -> None:
+        """Log user-facing connection availability changes once per outage."""
+        if self._closing or self.stopped:
+            return
+
+        if not self.connected:
+            if not self._connection_unavailable_logged:
+                _LOGGER.info("Connection to Satel Integra panel lost")
+                self._connection_unavailable_logged = True
+            return
+
+        if self._connection_unavailable_logged:
+            _LOGGER.info("Connection to Satel Integra panel restored")
+            self._connection_unavailable_logged = False
+
     def add_connection_status_callback(self, callback: ConnectionStateCallback) -> None:
         """Add a callback to be called when connection status changes."""
         self._connection.add_connection_state_callback(callback)
@@ -575,6 +593,7 @@ class AsyncSatel:
 
     async def close(self):
         """Stop background tasks and close connection."""
+        self._closing = True
         await self._connection.close()
 
         await self._cancel_running_tasks()

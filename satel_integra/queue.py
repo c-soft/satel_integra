@@ -4,7 +4,7 @@ import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 
-from satel_integra.commands import expected_response_command
+from satel_integra.commands import SatelReadCommand, expected_response_command
 from satel_integra.const import MESSAGE_RESPONSE_TIMEOUT
 from satel_integra.messages import SatelReadMessage, SatelWriteMessage
 
@@ -149,10 +149,18 @@ class SatelMessageQueue:
                 queued.processed_future.cancel()
             return
 
-    def on_message_received(self, result: SatelReadMessage):
-        """Called by AsyncSatel when a RESULT message is received."""
+    def on_message_received(self, result: SatelReadMessage) -> None:
+        """Handle a message if it is relevant to the current queued command."""
+        if result.cmd is SatelReadCommand.RESULT or (
+            self._current_message is not None
+            and self._current_message.expected_result_command == result.cmd
+        ):
+            self._complete_message(result)
+
+    def _complete_message(self, result: SatelReadMessage) -> None:
+        """Complete the current queued command with its response."""
         if not self._current_message:
-            # Received result but no message is being processed, standard read message due to monitoring
+            # Received a response but no command is being processed, likely monitoring.
             return
 
         if self._current_message.processed_future.done():

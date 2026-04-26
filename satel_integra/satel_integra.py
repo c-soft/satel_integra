@@ -10,7 +10,7 @@ from warnings import warn
 
 from satel_integra.commands import SatelReadCommand, SatelWriteCommand
 from satel_integra.connection import SatelConnection
-from satel_integra.const import ConnectionStateCallback
+from satel_integra.const import KEEPALIVE_INTERVAL, ConnectionStateCallback
 from satel_integra.exceptions import (
     SatelConnectFailedError,
     SatelConnectionInitializationError,
@@ -78,7 +78,9 @@ class AsyncSatel:
         self._connection = SatelConnection(host, port, integration_key=integration_key)
         self._queue = SatelMessageQueue(self._send_encoded_frame)
         self._running_tasks: set[asyncio.Task[object]] = set()
-        self._keepalive_timeout = 20
+        self._closing = False
+        self._connection_unavailable_logged = False
+        self._connection.add_connection_state_callback(self._connection_state_changed)
 
         self._monitored_zones: list[int] = monitored_zones
         self.violated_zones: list[int] = []
@@ -258,43 +260,79 @@ class AsyncSatel:
         answer - just to keep connection alive.
         """
         loop = asyncio.get_running_loop()
-        interval = self._keepalive_timeout
-        next_keepalive = loop.time() + interval
+        _LOGGER.debug(
+            "Keepalive loop started with %.1fs idle timeout", KEEPALIVE_INTERVAL
+        )
 
         while True:
-            sleep_duration = max(0, next_keepalive - loop.time())
+            now = loop.time()
+            last_outbound_activity = self._connection.last_outbound_activity
+
+            if last_outbound_activity is None:
+                last_outbound_activity = now
+
+            # Sleep until next possible interval
+            deadline = last_outbound_activity + KEEPALIVE_INTERVAL
+            sleep_duration = max(0, deadline - now)
             await asyncio.sleep(sleep_duration)
+
+            now = loop.time()
+            if (wakeup_lag := now - deadline) > 1:
+                _LOGGER.debug(
+                    "Keepalive woke up %.3fs after the idle deadline",
+                    wakeup_lag,
+                )
+
             if self.stopped:
                 return
             if not self.connected:
-                next_keepalive += interval
+                _LOGGER.debug("Keepalive suppressed because the connection is down")
                 continue
 
-            started = loop.time()
+            if (observed := self._connection.last_outbound_activity) is not None:
+                last_outbound_activity = observed
+
+            # Check if we exceeded the interval after sleeping
+            idle_for = now - last_outbound_activity
+            if idle_for < KEEPALIVE_INTERVAL:
+                _LOGGER.debug(
+                    "Keepalive skipped because outbound activity was seen %.3fs ago",
+                    idle_for,
+                )
+                continue
+
             data = SatelWriteMessage(
                 SatelWriteCommand.READ_DEVICE_NAME, raw_data=bytearray([0x01, 0x01])
             )
+            _LOGGER.debug(
+                "Keepalive sending after %.3fs of outbound inactivity", idle_for
+            )
+            connection_generation = self._connection.generation
 
             try:
                 result = await self._send_data_and_wait(data)
-                if result is None and self.connected:
-                    _LOGGER.warning("Keepalive timed out, marking connection as lost")
-                    await self._connection.disconnect()
+                if result is None:
+                    # Check if connection is still the same and mark as lost if so
+                    # This can happen when network is down, but the connection didn't really close
+                    if (
+                        self.connected
+                        and self._connection.generation == connection_generation
+                    ):
+                        _LOGGER.debug(
+                            "Keepalive timed out on current connection; "
+                            "marking connection as lost"
+                        )
+                        await self._connection.disconnect()
+                    else:
+                        _LOGGER.debug(
+                            "Ignoring stale keepalive timeout from connection "
+                            "generation %s",
+                            connection_generation,
+                        )
             except asyncio.CancelledError:
                 raise
             except Exception:
                 _LOGGER.exception("Keepalive send failed")
-
-            lag = started - next_keepalive
-
-            if lag > 5:
-                _LOGGER.debug("Keepalive woke up late by %.3fs", lag)
-
-            next_keepalive += interval
-
-            if loop.time() > next_keepalive + interval:
-                _LOGGER.debug("Keepalive loop fell behind, resynchronizing")
-                next_keepalive = loop.time() + interval
 
     async def _watch_connection_stopped(self):
         """Stop local background work once the connection becomes terminally stopped."""
@@ -366,6 +404,21 @@ class AsyncSatel:
             self._zone_changed_callback = zone_changed_callback
         if output_changed_callback:
             self._output_changed_callback = output_changed_callback
+
+    def _connection_state_changed(self) -> None:
+        """Log user-facing connection availability changes once per outage."""
+        if self._closing or self.stopped:
+            return
+
+        if not self.connected:
+            if not self._connection_unavailable_logged:
+                _LOGGER.info("Connection to Satel Integra panel lost")
+                self._connection_unavailable_logged = True
+            return
+
+        if self._connection_unavailable_logged:
+            _LOGGER.info("Connection to Satel Integra panel restored")
+            self._connection_unavailable_logged = False
 
     def add_connection_status_callback(self, callback: ConnectionStateCallback) -> None:
         """Add a callback to be called when connection status changes."""
@@ -559,6 +612,7 @@ class AsyncSatel:
 
     async def close(self):
         """Stop background tasks and close connection."""
+        self._closing = True
         await self._connection.close()
 
         await self._cancel_running_tasks()

@@ -145,8 +145,10 @@ class SatelMessageQueue:
                 queued.processed_future, timeout=MESSAGE_RESPONSE_TIMEOUT
             )
         except asyncio.TimeoutError:
-            _LOGGER.error(
-                "No response received from panel within %ss", MESSAGE_RESPONSE_TIMEOUT
+            _LOGGER.debug(
+                "No response received from panel within %ss for message: %s",
+                MESSAGE_RESPONSE_TIMEOUT,
+                queued.message,
             )
             if not queued.processed_future.done():
                 queued.processed_future.cancel()

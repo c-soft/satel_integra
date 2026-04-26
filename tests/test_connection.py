@@ -51,6 +51,7 @@ async def test_connect_success(mock_connection, mock_transport):
     mock_transport.send_frame.assert_awaited_once()
     mock_transport.read_frame.assert_awaited_once()
     mock_transport.close.assert_not_awaited()
+    assert mock_connection.generation == 1
 
 
 @pytest.mark.asyncio
@@ -214,11 +215,46 @@ async def test_disconnect_closes_transport_without_stopping_client(
     mock_connection, mock_transport
 ):
     mock_transport.connected = True
+    mock_connection._last_outbound_activity = 123.0
 
     await mock_connection.disconnect()
 
     assert mock_connection.stopped is False
+    assert mock_connection.last_outbound_activity is None
     mock_transport.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_send_frame_updates_last_outbound_activity_timestamp(
+    mock_connection, monkeypatch
+):
+    loop = MagicMock()
+    loop.time.return_value = 42.0
+    monkeypatch.setattr(
+        "satel_integra.connection.asyncio.get_running_loop", lambda: loop
+    )
+
+    result = await mock_connection.send_frame(b"frame")
+
+    assert result is True
+    assert mock_connection.last_outbound_activity == 42.0
+
+
+@pytest.mark.asyncio
+async def test_read_frame_does_not_update_last_outbound_activity(
+    mock_connection, monkeypatch
+):
+    loop = MagicMock()
+    loop.time.return_value = 84.0
+    monkeypatch.setattr(
+        "satel_integra.connection.asyncio.get_running_loop", lambda: loop
+    )
+    mock_connection._last_outbound_activity = 42.0
+
+    frame = await mock_connection.read_frame()
+
+    assert frame == b"probe-response"
+    assert mock_connection.last_outbound_activity == 42.0
 
 
 @pytest.mark.asyncio
@@ -330,6 +366,7 @@ async def test_reconnection_event_set_on_subsequent_connect(
     await mock_connection.connect()
 
     assert mock_connection._reconnected_event.is_set() is True
+    assert mock_connection.generation == 2
 
 
 @pytest.mark.asyncio

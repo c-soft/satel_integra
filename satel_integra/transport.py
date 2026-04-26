@@ -108,9 +108,8 @@ class SatelBaseTransport:
                 return frame
             else:
                 _LOGGER.debug("Read failed, no frame end marker found.")
-        except asyncio.IncompleteReadError:
-            # Incomplete read due to connection closing
-            pass
+        except asyncio.IncompleteReadError as exc:
+            _LOGGER.debug("Read failed, connection closed by remote peer: %s", exc)
         except Exception as e:
             _LOGGER.debug("Read failed: %s", e)
 

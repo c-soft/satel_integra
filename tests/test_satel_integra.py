@@ -15,11 +15,21 @@ from satel_integra.messages import SatelZoneTemperatureReadMessage
 from satel_integra.satel_integra import AlarmState, AsyncSatel
 
 
+class FakeLoop:
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def time(self) -> float:
+        return self.now
+
+
 @pytest.fixture
 def mock_connection():
     conn = AsyncMock()
     conn.connected = True
     conn.stopped = False
+    conn.generation = 1
+    conn.last_outbound_activity = None
     conn.ensure_connected = AsyncMock(return_value=True)
     conn.wait_reconnected = AsyncMock(return_value=True)
     conn.wait_stopped = AsyncMock(return_value=None)
@@ -52,6 +62,33 @@ def satel(monkeypatch, mock_connection, mock_queue):
     satel._connection = mock_connection
     satel._queue = mock_queue
     return satel
+
+
+@pytest.fixture
+def fake_loop(monkeypatch):
+    loop = FakeLoop()
+    monkeypatch.setattr(
+        "satel_integra.satel_integra.asyncio.get_running_loop", lambda: loop
+    )
+    monkeypatch.setattr("satel_integra.satel_integra.KEEPALIVE_INTERVAL", 5)
+    return loop
+
+
+@pytest.fixture
+def fake_sleep_factory(monkeypatch, fake_loop):
+    def factory(on_sleep=None):
+        sleep_calls: list[float] = []
+
+        async def fake_sleep(duration):
+            sleep_calls.append(duration)
+            fake_loop.now += duration
+            if on_sleep is not None:
+                on_sleep(len(sleep_calls), duration, fake_loop)
+
+        monkeypatch.setattr("satel_integra.satel_integra.asyncio.sleep", fake_sleep)
+        return sleep_calls
+
+    return factory
 
 
 @pytest.mark.asyncio
@@ -267,11 +304,15 @@ async def test_start_returns_early_when_initial_connection_fails(satel, mock_que
 
 
 @pytest.mark.asyncio
-async def test_keepalive_loop_stops_when_connection_closes(satel, mock_connection):
-    satel._keepalive_timeout = 0.01
-    satel._send_data_and_wait = AsyncMock(
-        side_effect=lambda *args, **kwargs: setattr(mock_connection, "stopped", True)
+async def test_keepalive_loop_stops_when_connection_closes(
+    satel, mock_connection, fake_sleep_factory
+):
+    fake_sleep_factory(
+        lambda sleep_count, _duration, _loop: (
+            setattr(mock_connection, "stopped", True) if sleep_count == 2 else None
+        )
     )
+    satel._send_data_and_wait = AsyncMock(return_value=MagicMock())
 
     await satel._keepalive_loop()
 
@@ -279,42 +320,79 @@ async def test_keepalive_loop_stops_when_connection_closes(satel, mock_connectio
 
 
 @pytest.mark.asyncio
-async def test_keepalive_timeout_marks_connection_disconnected(satel, mock_connection):
-    satel._keepalive_timeout = 0.01
+async def test_keepalive_timeout_marks_same_connection_as_lost(
+    satel, mock_connection, monkeypatch, caplog
+):
+    monkeypatch.setattr("satel_integra.satel_integra.KEEPALIVE_INTERVAL", 0.01)
     satel._send_data_and_wait = AsyncMock(side_effect=[None, asyncio.CancelledError()])
 
-    with pytest.raises(asyncio.CancelledError):
-        await satel._keepalive_loop()
+    with caplog.at_level(logging.DEBUG):
+        with pytest.raises(asyncio.CancelledError):
+            await satel._keepalive_loop()
 
+    assert "Keepalive timed out on current connection" in caplog.text
     mock_connection.disconnect.assert_awaited_once()
 
 
 @pytest.mark.asyncio
-async def test_keepalive_loop_waits_full_interval_while_disconnected(
-    satel, mock_connection, monkeypatch
+async def test_stale_keepalive_timeout_does_not_disconnect_reconnected_session(
+    satel, mock_connection, monkeypatch, caplog
 ):
-    class FakeLoop:
-        def __init__(self):
-            self.now = 0.0
+    monkeypatch.setattr("satel_integra.satel_integra.KEEPALIVE_INTERVAL", 0.01)
+    calls = 0
 
-        def time(self):
-            return self.now
+    async def timeout_after_reconnect(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls > 1:
+            raise asyncio.CancelledError
+        mock_connection.generation = 2
+        return None
 
-    fake_loop = FakeLoop()
-    satel._keepalive_timeout = 5
-    mock_connection.connected = False
+    satel._send_data_and_wait = AsyncMock(side_effect=timeout_after_reconnect)
+
+    with caplog.at_level(logging.DEBUG):
+        with pytest.raises(asyncio.CancelledError):
+            await satel._keepalive_loop()
+
+    assert (
+        "Ignoring stale keepalive timeout from connection generation 1" in caplog.text
+    )
+    mock_connection.disconnect.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_keepalive_loop_logs_late_wakeup(
+    satel, mock_connection, monkeypatch, caplog, fake_loop
+):
     sleep_calls = []
 
     async def fake_sleep(duration):
         sleep_calls.append(duration)
-        fake_loop.now += duration
-        if len(sleep_calls) == 2:
-            mock_connection.connected = True
+        fake_loop.now += duration + 2
+        if len(sleep_calls) > 1:
+            raise asyncio.CancelledError
 
-    monkeypatch.setattr(
-        "satel_integra.satel_integra.asyncio.get_running_loop", lambda: fake_loop
-    )
     monkeypatch.setattr("satel_integra.satel_integra.asyncio.sleep", fake_sleep)
+    satel._send_data_and_wait = AsyncMock(return_value=MagicMock())
+
+    with caplog.at_level(logging.DEBUG):
+        with pytest.raises(asyncio.CancelledError):
+            await satel._keepalive_loop()
+
+    assert "Keepalive woke up 2.000s after the idle deadline" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_keepalive_loop_waits_full_interval_while_disconnected(
+    satel, mock_connection, fake_sleep_factory
+):
+    mock_connection.connected = False
+    sleep_calls = fake_sleep_factory(
+        lambda sleep_count, _duration, _loop: (
+            setattr(mock_connection, "connected", True) if sleep_count == 2 else None
+        )
+    )
     satel._send_data_and_wait = AsyncMock(side_effect=asyncio.CancelledError())
 
     with pytest.raises(asyncio.CancelledError):
@@ -322,6 +400,44 @@ async def test_keepalive_loop_waits_full_interval_while_disconnected(
 
     assert sleep_calls == [5, 5]
     satel._send_data_and_wait.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_keepalive_loop_skips_send_when_recent_outbound_traffic_seen(
+    satel, mock_connection, fake_sleep_factory
+):
+    sleep_calls = fake_sleep_factory(
+        lambda sleep_count, _duration, loop: (
+            setattr(mock_connection, "last_outbound_activity", loop.now)
+            if sleep_count == 1
+            else None
+        )
+    )
+    satel._send_data_and_wait = AsyncMock(side_effect=asyncio.CancelledError())
+
+    with pytest.raises(asyncio.CancelledError):
+        await satel._keepalive_loop()
+
+    assert sleep_calls == [5, 5]
+    satel._send_data_and_wait.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_keepalive_loop_logs_why_send_was_skipped(
+    satel, mock_connection, caplog, fake_sleep_factory
+):
+    fake_sleep_factory(
+        lambda sleep_count, _duration, loop: (
+            setattr(mock_connection, "stopped", True)
+            if sleep_count == 2
+            else setattr(mock_connection, "last_outbound_activity", loop.now)
+        )
+    )
+
+    with caplog.at_level(logging.DEBUG):
+        await satel._keepalive_loop()
+
+    assert "Keepalive skipped because outbound activity was seen" in caplog.text
 
 
 @pytest.mark.asyncio
@@ -437,4 +553,52 @@ def test_add_connection_status_callback_forwards_to_transport(satel, mock_connec
 
     satel.add_connection_status_callback(callback)
 
-    mock_connection.add_connection_state_callback.assert_called_once_with(callback)
+    mock_connection.add_connection_state_callback.assert_any_call(callback)
+
+
+def test_connection_state_changed_logs_lost_once(satel, mock_connection, caplog):
+    mock_connection.connected = False
+    mock_connection.stopped = False
+
+    with caplog.at_level(logging.INFO):
+        satel._connection_state_changed()
+        satel._connection_state_changed()
+
+    assert caplog.text.count("Connection to Satel Integra panel lost") == 1
+
+
+def test_connection_state_changed_logs_restored_once_after_loss(
+    satel, mock_connection, caplog
+):
+    mock_connection.connected = False
+    satel._connection_state_changed()
+
+    mock_connection.connected = True
+    with caplog.at_level(logging.INFO):
+        satel._connection_state_changed()
+        satel._connection_state_changed()
+
+    assert caplog.text.count("Connection to Satel Integra panel restored") == 1
+
+
+def test_connection_state_changed_does_not_log_restored_without_prior_loss(
+    satel, mock_connection, caplog
+):
+    mock_connection.connected = True
+
+    with caplog.at_level(logging.INFO):
+        satel._connection_state_changed()
+
+    assert "Connection to Satel Integra panel restored" not in caplog.text
+
+
+def test_connection_state_changed_does_not_log_during_shutdown(
+    satel, mock_connection, caplog
+):
+    satel._closing = True
+    mock_connection.connected = False
+
+    with caplog.at_level(logging.INFO):
+        satel._connection_state_changed()
+
+    assert "Connection to Satel Integra panel lost" not in caplog.text

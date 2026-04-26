@@ -3,7 +3,11 @@
 import logging
 from typing import TypeVar
 
-from satel_integra.commands import SatelBaseCommand, SatelReadCommand, SatelWriteCommand
+from satel_integra.commands import (
+    SatelBaseCommand,
+    SatelOutboundCommand,
+    SatelReadCommand,
+)
 from satel_integra.const import (
     FRAME_END,
     FRAME_SPECIAL_BYTES,
@@ -36,17 +40,20 @@ class SatelBaseMessage[TCommand: SatelBaseCommand]:
         return f"({self.__class__.__name__}) {self.cmd} -> {self.msg_data.hex()} ({len(self.msg_data)})"
 
 
-class SatelWriteMessage(SatelBaseMessage[SatelWriteCommand]):
+class SatelWriteMessage(SatelBaseMessage[SatelOutboundCommand]):
     """Message used to send commands to the panel."""
 
     def __init__(
         self,
-        cmd: SatelWriteCommand,
+        cmd: SatelOutboundCommand,
         code: str | None = None,
         partitions: list[int] | None = None,
         zones_or_outputs: list[int] | None = None,
         raw_data: bytearray | None = None,
     ) -> None:
+        if cmd is SatelReadCommand.RESULT:
+            raise ValueError("SatelReadCommand.RESULT cannot be sent as a command")
+
         msg_data = bytearray()
 
         if raw_data is not None:

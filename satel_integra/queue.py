@@ -4,7 +4,7 @@ import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 
-from satel_integra.commands import SatelReadCommand
+from satel_integra.commands import expected_response_command
 from satel_integra.const import MESSAGE_RESPONSE_TIMEOUT
 from satel_integra.messages import SatelReadMessage, SatelWriteMessage
 
@@ -20,12 +20,7 @@ class QueuedMessage:
             asyncio.get_running_loop().create_future()
         )
 
-        # Determine the expected response
-        self.expected_result_command = (
-            message.cmd
-            if getattr(message.cmd, "expects_same_cmd_response", False)
-            else SatelReadCommand.RESULT
-        )
+        self.expected_result_command = expected_response_command(message.cmd)
 
 
 class SatelMessageQueue:
@@ -127,7 +122,7 @@ class SatelMessageQueue:
             return None
 
     async def _send_and_wait_response(self, queued: QueuedMessage) -> None:
-        """Send a queued message and wait for the panel RESULT."""
+        """Send a queued message and wait for its response."""
 
         try:
             _LOGGER.debug("Sending message: %s", queued.message)
@@ -139,7 +134,7 @@ class SatelMessageQueue:
 
             return
 
-        # Wait for the RESULT (the future will be completed by on_message_received).
+        # Wait for the expected response. The future is completed by on_message_received().
         try:
             await asyncio.wait_for(
                 queued.processed_future, timeout=MESSAGE_RESPONSE_TIMEOUT

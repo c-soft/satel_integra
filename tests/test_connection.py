@@ -51,6 +51,7 @@ async def test_connect_success(mock_connection, mock_transport):
     mock_transport.send_frame.assert_awaited_once()
     mock_transport.read_frame.assert_awaited_once()
     mock_transport.close.assert_not_awaited()
+    assert mock_connection.generation == 1
 
 
 @pytest.mark.asyncio
@@ -365,6 +366,7 @@ async def test_reconnection_event_set_on_subsequent_connect(
     await mock_connection.connect()
 
     assert mock_connection._reconnected_event.is_set() is True
+    assert mock_connection.generation == 2
 
 
 @pytest.mark.asyncio

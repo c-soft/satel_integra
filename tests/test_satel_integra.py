@@ -28,6 +28,7 @@ def mock_connection():
     conn = AsyncMock()
     conn.connected = True
     conn.stopped = False
+    conn.generation = 1
     conn.last_outbound_activity = None
     conn.ensure_connected = AsyncMock(return_value=True)
     conn.wait_reconnected = AsyncMock(return_value=True)
@@ -319,7 +320,7 @@ async def test_keepalive_loop_stops_when_connection_closes(
 
 
 @pytest.mark.asyncio
-async def test_keepalive_timeout_leaves_connection_state_unchanged(
+async def test_keepalive_timeout_marks_same_connection_as_lost(
     satel, mock_connection, monkeypatch, caplog
 ):
     monkeypatch.setattr("satel_integra.satel_integra.KEEPALIVE_INTERVAL", 0.01)
@@ -329,7 +330,34 @@ async def test_keepalive_timeout_leaves_connection_state_unchanged(
         with pytest.raises(asyncio.CancelledError):
             await satel._keepalive_loop()
 
-    assert "Keepalive timed out; leaving connection state unchanged" in caplog.text
+    assert "Keepalive timed out on current connection" in caplog.text
+    mock_connection.disconnect.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_stale_keepalive_timeout_does_not_disconnect_reconnected_session(
+    satel, mock_connection, monkeypatch, caplog
+):
+    monkeypatch.setattr("satel_integra.satel_integra.KEEPALIVE_INTERVAL", 0.01)
+    calls = 0
+
+    async def timeout_after_reconnect(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls > 1:
+            raise asyncio.CancelledError
+        mock_connection.generation = 2
+        return None
+
+    satel._send_data_and_wait = AsyncMock(side_effect=timeout_after_reconnect)
+
+    with caplog.at_level(logging.DEBUG):
+        with pytest.raises(asyncio.CancelledError):
+            await satel._keepalive_loop()
+
+    assert (
+        "Ignoring stale keepalive timeout from connection generation 1" in caplog.text
+    )
     mock_connection.disconnect.assert_not_awaited()
 
 

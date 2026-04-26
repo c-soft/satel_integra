@@ -152,18 +152,23 @@ class SatelMessageQueue:
 
     def on_message_received(self, result: SatelReadMessage) -> None:
         """Handle a message if it is relevant to the current queued command."""
-        if result.cmd is SatelReadCommand.RESULT or (
-            self._current_message is not None
-            and self._current_message.expected_result_command == result.cmd
+        if self._current_message is None:
+            # Received a message but no command is being processed.
+            # These are likely standard read messages reported by the monitoring.
+            if result.cmd is SatelReadCommand.RESULT:
+                _LOGGER.debug(
+                    "Received RESULT with no pending queued message: %s", result
+                )
+            return
+
+        if (
+            result.cmd is SatelReadCommand.RESULT
+            or self._current_message.expected_result_command == result.cmd
         ):
             self._complete_message(result)
 
     def _complete_message(self, result: SatelReadMessage) -> None:
         """Complete the current queued command with its response."""
-        if not self._current_message:
-            # Received a response but no command is being processed, likely monitoring.
-            return
-
         if self._current_message.processed_future.done():
             _LOGGER.debug(
                 "Received result but future is already done (likely timed out)"

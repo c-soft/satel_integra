@@ -273,6 +273,16 @@ async def test_on_message_received_no_current_message(mock_queue, result_msg):
 
 
 @pytest.mark.asyncio
+async def test_on_message_received_logs_result_without_current_message(
+    mock_queue, result_msg, caplog
+):
+    with caplog.at_level(logging.DEBUG):
+        mock_queue.on_message_received(result_msg)
+
+    assert "Received RESULT with no pending queued message" in caplog.text
+
+
+@pytest.mark.asyncio
 async def test_on_message_received_future_already_done(
     mock_queue, write_msg, result_msg, caplog
 ):

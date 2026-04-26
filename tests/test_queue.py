@@ -112,6 +112,16 @@ async def test_queued_message_init_rtc_and_status_expects_same_cmd():
 
 
 @pytest.mark.asyncio
+async def test_deprecated_write_query_command_expects_matching_read_response():
+    with pytest.warns(DeprecationWarning, match="SatelReadCommand.RTC_AND_STATUS"):
+        write_msg = SatelWriteMessage(SatelWriteCommand.RTC_AND_STATUS)
+
+    message = QueuedMessage(write_msg, True)
+
+    assert message.expected_result_command is SatelReadCommand.RTC_AND_STATUS
+
+
+@pytest.mark.asyncio
 async def test_queued_message_rejects_result_as_outbound_command():
     with pytest.raises(ValueError, match="RESULT cannot be sent"):
         SatelWriteMessage(SatelReadCommand.RESULT)

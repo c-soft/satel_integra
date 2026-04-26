@@ -1,6 +1,6 @@
 import pytest
 
-from satel_integra.commands import SatelReadCommand
+from satel_integra.commands import SatelReadCommand, SatelWriteCommand
 from satel_integra.const import FRAME_END, FRAME_START
 from satel_integra.messages import (
     SatelReadMessage,
@@ -46,3 +46,10 @@ def test_write_message_encodes_read_query_command() -> None:
 def test_write_message_rejects_result_command() -> None:
     with pytest.raises(ValueError, match="RESULT cannot be sent"):
         SatelWriteMessage(SatelReadCommand.RESULT)
+
+
+def test_write_message_warns_for_deprecated_write_query_command() -> None:
+    with pytest.warns(DeprecationWarning, match="SatelReadCommand.ZONE_TEMPERATURE"):
+        SatelWriteMessage(
+            SatelWriteCommand.ZONE_TEMPERATURE, raw_data=bytearray([0x01])
+        )

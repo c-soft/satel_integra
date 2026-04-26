@@ -48,6 +48,7 @@ class SatelConnection:
         )  # Signals when connection is re-established
         self._had_connection = False
         self._last_outbound_activity: float | None = None
+        self._generation = 0
 
     @property
     def connected(self) -> bool:
@@ -63,6 +64,11 @@ class SatelConnection:
     def last_outbound_activity(self) -> float | None:
         """Return the loop timestamp of the last outbound panel command."""
         return self._last_outbound_activity
+
+    @property
+    def generation(self) -> int:
+        """Return the current successful connection generation."""
+        return self._generation
 
     def _assert_not_stopped(self) -> None:
         """Raise if the connection is in a terminal stopped state."""
@@ -133,6 +139,7 @@ class SatelConnection:
             )
 
         _LOGGER.debug("Connected to Satel Integra.")
+        self._generation += 1
         # If we've had a successful connection before, this is a
         # reconnection — signal any waiters. Otherwise mark that we've
         # now had a connection so future connects can be treated as

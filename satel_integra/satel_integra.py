@@ -305,13 +305,28 @@ class AsyncSatel:
             _LOGGER.debug(
                 "Keepalive sending after %.3fs of outbound inactivity", idle_for
             )
+            connection_generation = self._connection.generation
 
             try:
                 result = await self._send_data_and_wait(data)
                 if result is None:
-                    _LOGGER.debug(
-                        "Keepalive timed out; leaving connection state unchanged"
-                    )
+                    # Check if connection is still the same and mark as lost if so
+                    # This can happen when network is down, but the connection didn't really close
+                    if (
+                        self.connected
+                        and self._connection.generation == connection_generation
+                    ):
+                        _LOGGER.debug(
+                            "Keepalive timed out on current connection; "
+                            "marking connection as lost"
+                        )
+                        await self._connection.disconnect()
+                    else:
+                        _LOGGER.debug(
+                            "Ignoring stale keepalive timeout from connection "
+                            "generation %s",
+                            connection_generation,
+                        )
             except asyncio.CancelledError:
                 raise
             except Exception:

@@ -139,6 +139,7 @@ class SatelMessageQueue:
             await asyncio.wait_for(
                 queued.processed_future, timeout=MESSAGE_RESPONSE_TIMEOUT
             )
+            _LOGGER.debug("Queued message resolved: %s", queued.message)
         except asyncio.TimeoutError:
             _LOGGER.debug(
                 "No response received from panel within %ss for message: %s",

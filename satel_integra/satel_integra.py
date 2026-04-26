@@ -265,17 +265,19 @@ class AsyncSatel:
         )
 
         while True:
+            now = loop.time()
             last_outbound_activity = self._connection.last_outbound_activity
+
             if last_outbound_activity is None:
-                last_outbound_activity = loop.time()
+                last_outbound_activity = now
 
             # Sleep until next possible interval
             deadline = last_outbound_activity + KEEPALIVE_INTERVAL
-            sleep_duration = max(0, deadline - loop.time())
+            sleep_duration = max(0, deadline - now)
             await asyncio.sleep(sleep_duration)
 
-            woke_at = loop.time()
-            if (wakeup_lag := woke_at - deadline) > 1:
+            now = loop.time()
+            if (wakeup_lag := now - deadline) > 1:
                 _LOGGER.debug(
                     "Keepalive woke up %.3fs after the idle deadline",
                     wakeup_lag,
@@ -291,7 +293,7 @@ class AsyncSatel:
                 last_outbound_activity = observed
 
             # Check if we exceeded the interval after sleeping
-            idle_for = loop.time() - last_outbound_activity
+            idle_for = now - last_outbound_activity
             if idle_for < KEEPALIVE_INTERVAL:
                 _LOGGER.debug(
                     "Keepalive skipped because outbound activity was seen %.3fs ago",

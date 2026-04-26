@@ -2,11 +2,14 @@
 
 import logging
 from typing import TypeVar
+from warnings import warn
 
 from satel_integra.commands import (
+    DEPRECATED_QUERY_WRITE_COMMANDS,
     SatelBaseCommand,
     SatelOutboundCommand,
     SatelReadCommand,
+    SatelWriteCommand,
 )
 from satel_integra.const import (
     FRAME_END,
@@ -53,6 +56,17 @@ class SatelWriteMessage(SatelBaseMessage[SatelOutboundCommand]):
     ) -> None:
         if cmd is SatelReadCommand.RESULT:
             raise ValueError("SatelReadCommand.RESULT cannot be sent as a command")
+        if (
+            isinstance(cmd, SatelWriteCommand)
+            and cmd in DEPRECATED_QUERY_WRITE_COMMANDS
+        ):
+            replacement = DEPRECATED_QUERY_WRITE_COMMANDS[cmd]
+            warn(
+                f"{cmd.__class__.__name__}.{cmd.name} is deprecated for query "
+                f"commands; use SatelReadCommand.{replacement.name} instead",
+                DeprecationWarning,
+                stacklevel=2,
+            )
 
         msg_data = bytearray()
 

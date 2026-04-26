@@ -42,6 +42,8 @@ class SatelReadCommand(SatelBaseCommand):
 class SatelWriteCommand(SatelBaseCommand):
     """Action commands supported by Satel Integra protocol."""
 
+    RTC_AND_STATUS = 0x1A
+    ZONE_TEMPERATURE = 0x7D
     START_MONITORING = 0x7F
     PARTITIONS_ARM_MODE_0 = 0x80
     PARTITIONS_ARM_MODE_1 = 0x81
@@ -51,9 +53,16 @@ class SatelWriteCommand(SatelBaseCommand):
     PARTITIONS_CLEAR_ALARM = 0x85
     OUTPUTS_ON = 0x88
     OUTPUTS_OFF = 0x89
+    READ_DEVICE_NAME = 0xEE
 
 
 SatelOutboundCommand = SatelReadCommand | SatelWriteCommand
+
+DEPRECATED_QUERY_WRITE_COMMANDS: dict[SatelWriteCommand, SatelReadCommand] = {
+    SatelWriteCommand.RTC_AND_STATUS: SatelReadCommand.RTC_AND_STATUS,
+    SatelWriteCommand.ZONE_TEMPERATURE: SatelReadCommand.ZONE_TEMPERATURE,
+    SatelWriteCommand.READ_DEVICE_NAME: SatelReadCommand.READ_DEVICE_NAME,
+}
 
 
 def expected_response_command(command: SatelOutboundCommand) -> SatelReadCommand:
@@ -62,5 +71,8 @@ def expected_response_command(command: SatelOutboundCommand) -> SatelReadCommand
         if command is SatelReadCommand.RESULT:
             raise ValueError("SatelReadCommand.RESULT cannot be sent as a command")
         return command
+
+    if command in DEPRECATED_QUERY_WRITE_COMMANDS:
+        return DEPRECATED_QUERY_WRITE_COMMANDS[command]
 
     return SatelReadCommand.RESULT

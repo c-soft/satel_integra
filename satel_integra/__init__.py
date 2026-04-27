@@ -8,6 +8,7 @@ from .exceptions import (
     SatelConnectionStoppedError,
     SatelIntegraError,
     SatelPanelBusyError,
+    SatelUnexpectedResponseError,
 )
 from .models import (
     SatelFirmwareVersion,
@@ -29,4 +30,5 @@ __all__ = [
     "SatelIntegraError",
     "SatelPanelInfo",
     "SatelPanelBusyError",
+    "SatelUnexpectedResponseError",
 ]

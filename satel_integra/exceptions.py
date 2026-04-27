@@ -27,3 +27,7 @@ class SatelConnectionInitializationError(SatelConnectionSetupError):
 
 class SatelConnectionStoppedError(SatelConnectionError):
     """Raised when the connection has been terminally stopped."""
+
+
+class SatelUnexpectedResponseError(SatelIntegraError):
+    """Raised when a panel response does not match the requested command."""

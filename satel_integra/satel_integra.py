@@ -16,6 +16,7 @@ from satel_integra.exceptions import (
     SatelConnectionInitializationError,
     SatelConnectionStoppedError,
     SatelPanelBusyError,
+    SatelUnexpectedResponseError,
 )
 from satel_integra.messages import (
     SatelIntegraVersionReadMessage,
@@ -486,7 +487,7 @@ class AsyncSatel:
 
         if not isinstance(response, SatelZoneTemperatureReadMessage):
             msg = f"Unexpected response type for temperature read: {type(response).__name__}"
-            raise ValueError(msg)
+            raise SatelUnexpectedResponseError(msg)
 
         if response.zone_id != zone_id:
             msg = (
@@ -526,7 +527,7 @@ class AsyncSatel:
                 "Unexpected response type for INTEGRA version read: "
                 f"{type(response).__name__}"
             )
-            raise ValueError(msg)
+            raise SatelUnexpectedResponseError(msg)
 
         return response.panel_info
 

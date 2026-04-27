@@ -2,8 +2,15 @@
 
 import logging
 from typing import TypeVar
+from warnings import warn
 
-from satel_integra.commands import SatelBaseCommand, SatelReadCommand, SatelWriteCommand
+from satel_integra.commands import (
+    DEPRECATED_QUERY_WRITE_COMMANDS,
+    SatelBaseCommand,
+    SatelOutboundCommand,
+    SatelReadCommand,
+    SatelWriteCommand,
+)
 from satel_integra.const import (
     FRAME_END,
     FRAME_SPECIAL_BYTES,
@@ -36,17 +43,31 @@ class SatelBaseMessage[TCommand: SatelBaseCommand]:
         return f"({self.__class__.__name__}) {self.cmd} -> {self.msg_data.hex()} ({len(self.msg_data)})"
 
 
-class SatelWriteMessage(SatelBaseMessage[SatelWriteCommand]):
+class SatelWriteMessage(SatelBaseMessage[SatelOutboundCommand]):
     """Message used to send commands to the panel."""
 
     def __init__(
         self,
-        cmd: SatelWriteCommand,
+        cmd: SatelOutboundCommand,
         code: str | None = None,
         partitions: list[int] | None = None,
         zones_or_outputs: list[int] | None = None,
         raw_data: bytearray | None = None,
     ) -> None:
+        if cmd is SatelReadCommand.RESULT:
+            raise ValueError("SatelReadCommand.RESULT cannot be sent as a command")
+        if (
+            isinstance(cmd, SatelWriteCommand)
+            and cmd in DEPRECATED_QUERY_WRITE_COMMANDS
+        ):
+            replacement = DEPRECATED_QUERY_WRITE_COMMANDS[cmd]
+            warn(
+                f"{cmd.__class__.__name__}.{cmd.name} is deprecated for query "
+                f"commands; use SatelReadCommand.{replacement.name} instead",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+
         msg_data = bytearray()
 
         if raw_data is not None:

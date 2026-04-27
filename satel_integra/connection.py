@@ -3,7 +3,7 @@
 import asyncio
 import logging
 
-from satel_integra.commands import SatelWriteCommand
+from satel_integra.commands import SatelReadCommand
 from satel_integra.const import MESSAGE_RESPONSE_TIMEOUT, ConnectionStateCallback
 from satel_integra.exceptions import (
     SatelConnectFailedError,
@@ -268,7 +268,7 @@ class SatelConnection:
             )
 
         try:
-            probe = SatelWriteMessage(SatelWriteCommand.RTC_AND_STATUS)
+            probe = SatelWriteMessage(SatelReadCommand.RTC_AND_STATUS)
 
             await self.send_frame(probe.encode_frame())
             raw_response = await asyncio.wait_for(

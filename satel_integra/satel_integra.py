@@ -302,7 +302,7 @@ class AsyncSatel:
                 continue
 
             data = SatelWriteMessage(
-                SatelWriteCommand.READ_DEVICE_NAME, raw_data=bytearray([0x01, 0x01])
+                SatelReadCommand.READ_DEVICE_NAME, raw_data=bytearray([0x01, 0x01])
             )
             _LOGGER.debug(
                 "Keepalive sending after %.3fs of outbound inactivity", idle_for
@@ -352,11 +352,7 @@ class AsyncSatel:
                 if not msg:
                     continue
 
-                # Only notify queue of command responses
-                if msg.cmd == SatelReadCommand.RESULT or getattr(
-                    msg.cmd, "expects_same_cmd_response", False
-                ):
-                    self._queue.on_message_received(msg)
+                self._queue.on_message_received(msg)
 
                 if msg.cmd in self._message_handlers:
                     _LOGGER.debug("Calling handler for command: %s", msg.cmd)
@@ -478,7 +474,7 @@ class AsyncSatel:
         """Read the temperature for a single zone sensor."""
         request_zone_id = encode_zone_number(zone_id)
         msg = SatelWriteMessage(
-            SatelWriteCommand.ZONE_TEMPERATURE, raw_data=bytearray([request_zone_id])
+            SatelReadCommand.ZONE_TEMPERATURE, raw_data=bytearray([request_zone_id])
         )
         response = await self._send_data_and_wait(msg)
 

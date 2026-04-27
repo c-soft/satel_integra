@@ -96,11 +96,35 @@ async def test_queued_message_init(write_msg):
 
 @pytest.mark.asyncio
 async def test_queued_message_init_same_cmd():
-    write_msg = SatelWriteMessage(SatelWriteCommand.READ_DEVICE_NAME)
+    write_msg = SatelWriteMessage(SatelReadCommand.READ_DEVICE_NAME)
     message = QueuedMessage(write_msg, True)
 
     assert message.return_result is True
-    assert message.expected_result_command is SatelWriteCommand.READ_DEVICE_NAME
+    assert message.expected_result_command is SatelReadCommand.READ_DEVICE_NAME
+
+
+@pytest.mark.asyncio
+async def test_queued_message_init_rtc_and_status_expects_same_cmd():
+    write_msg = SatelWriteMessage(SatelReadCommand.RTC_AND_STATUS)
+    message = QueuedMessage(write_msg, True)
+
+    assert message.expected_result_command is SatelReadCommand.RTC_AND_STATUS
+
+
+@pytest.mark.asyncio
+async def test_deprecated_write_query_command_expects_matching_read_response():
+    with pytest.warns(DeprecationWarning, match="SatelReadCommand.RTC_AND_STATUS"):
+        write_msg = SatelWriteMessage(SatelWriteCommand.RTC_AND_STATUS)
+
+    message = QueuedMessage(write_msg, True)
+
+    assert message.expected_result_command is SatelReadCommand.RTC_AND_STATUS
+
+
+@pytest.mark.asyncio
+async def test_queued_message_rejects_result_as_outbound_command():
+    with pytest.raises(ValueError, match="RESULT cannot be sent"):
+        SatelWriteMessage(SatelReadCommand.RESULT)
 
 
 @pytest.mark.asyncio
@@ -181,7 +205,7 @@ async def test_on_message_received_correct(mock_queue, write_msg, result_msg):
 async def test_on_message_received_commmand_mismatch(mock_queue, result_msg, caplog):
     caplog.at_level(logging.WARNING)
 
-    queued = QueuedMessage(SatelWriteMessage(SatelWriteCommand.READ_DEVICE_NAME), True)
+    queued = QueuedMessage(SatelWriteMessage(SatelReadCommand.READ_DEVICE_NAME), True)
     mock_queue._current_message = queued
     mock_queue.on_message_received(result_msg)
 
@@ -194,10 +218,68 @@ async def test_on_message_received_commmand_mismatch(mock_queue, result_msg, cap
 
 
 @pytest.mark.asyncio
+async def test_on_message_received_completes_current_expected_command(mock_queue):
+    queued = QueuedMessage(SatelWriteMessage(SatelReadCommand.RTC_AND_STATUS), True)
+    mock_queue._current_message = queued
+    msg = SatelReadMessage(SatelReadCommand.RTC_AND_STATUS, bytearray())
+
+    mock_queue.on_message_received(msg)
+
+    assert queued.processed_future.done()
+
+
+@pytest.mark.asyncio
+async def test_on_message_received_logs_unrelated_read_command(mock_queue, caplog):
+    caplog.at_level(logging.WARNING)
+    queued = QueuedMessage(SatelWriteMessage(SatelReadCommand.RTC_AND_STATUS), True)
+    mock_queue._current_message = queued
+    msg = SatelReadMessage(SatelReadCommand.ZONES_VIOLATED, bytearray())
+
+    mock_queue.on_message_received(msg)
+
+    assert "expects different result" not in caplog.text
+    assert not queued.processed_future.done()
+
+
+@pytest.mark.asyncio
+async def test_complete_message_completes_current_expected_command(mock_queue):
+    queued = QueuedMessage(SatelWriteMessage(SatelReadCommand.RTC_AND_STATUS), True)
+    mock_queue._current_message = queued
+    msg = SatelReadMessage(SatelReadCommand.RTC_AND_STATUS, bytearray())
+
+    mock_queue._complete_message(msg)
+
+    assert queued.processed_future.done()
+
+
+@pytest.mark.asyncio
+async def test_complete_message_logs_unrelated_read_command(mock_queue, caplog):
+    caplog.at_level(logging.WARNING)
+    queued = QueuedMessage(SatelWriteMessage(SatelReadCommand.RTC_AND_STATUS), True)
+    mock_queue._current_message = queued
+    msg = SatelReadMessage(SatelReadCommand.ZONES_VIOLATED, bytearray())
+
+    mock_queue._complete_message(msg)
+
+    assert "expects different result" in caplog.text
+    assert not queued.processed_future.done()
+
+
+@pytest.mark.asyncio
 async def test_on_message_received_no_current_message(mock_queue, result_msg):
     # No current message set — should simply return
     result = mock_queue.on_message_received(result_msg)
     assert result is None
+
+
+@pytest.mark.asyncio
+async def test_on_message_received_logs_result_without_current_message(
+    mock_queue, result_msg, caplog
+):
+    with caplog.at_level(logging.DEBUG):
+        mock_queue.on_message_received(result_msg)
+
+    assert "Received RESULT with no pending queued message" in caplog.text
 
 
 @pytest.mark.asyncio
@@ -272,16 +354,20 @@ async def test_process_queue_skips_none(mock_queue):
 
 
 @pytest.mark.asyncio
-async def test_send_and_wait_response_success(mock_queue, write_msg, result_msg):
+async def test_send_and_wait_response_success(
+    mock_queue, write_msg, result_msg, caplog
+):
     mock_queue._send_func = AsyncMock()
 
     queued = QueuedMessage(write_msg, False)
     queued.processed_future.set_result(result_msg)
 
-    await mock_queue._send_and_wait_response(queued)
+    with caplog.at_level(logging.DEBUG):
+        await mock_queue._send_and_wait_response(queued)
 
     mock_queue._send_func.assert_awaited_once_with(write_msg)
 
+    assert "Queued message resolved:" in caplog.text
     assert queued.processed_future.done()
 
 

@@ -61,6 +61,7 @@ def satel(monkeypatch, mock_connection, mock_queue):
     )
     satel._connection = mock_connection
     satel._queue = mock_queue
+    mock_queue.on_message_received = MagicMock()
     return satel
 
 
@@ -214,6 +215,8 @@ async def test_read_temperature_returns_expected_value(
 
     assert result == expected
     mock_queue.add_message.assert_awaited_once()
+    sent_msg = mock_queue.add_message.await_args.args[0]
+    assert sent_msg.cmd is SatelReadCommand.ZONE_TEMPERATURE
 
 
 @pytest.mark.asyncio
@@ -457,6 +460,40 @@ async def test_reading_loop_processes_message(satel, mock_connection):
     await satel._reading_loop()
 
     cmd_handler.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_reading_loop_forwards_expected_read_response_to_queue(
+    satel, mock_connection, mock_queue
+):
+    msg = MagicMock()
+    msg.cmd = SatelReadCommand.RTC_AND_STATUS
+
+    satel._connection.ensure_connected = AsyncMock(
+        side_effect=[None, SatelConnectionStoppedError]
+    )
+    satel._read_data = AsyncMock(return_value=msg)
+
+    await satel._reading_loop()
+
+    mock_queue.on_message_received.assert_called_once_with(msg)
+
+
+@pytest.mark.asyncio
+async def test_reading_loop_forwards_unexpected_read_response_to_queue_filter(
+    satel, mock_connection, mock_queue
+):
+    msg = MagicMock()
+    msg.cmd = SatelReadCommand.ZONES_VIOLATED
+
+    satel._connection.ensure_connected = AsyncMock(
+        side_effect=[None, SatelConnectionStoppedError]
+    )
+    satel._read_data = AsyncMock(return_value=msg)
+
+    await satel._reading_loop()
+
+    mock_queue.on_message_received.assert_called_once_with(msg)
 
 
 @pytest.mark.asyncio

@@ -4,7 +4,7 @@ import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 
-from satel_integra.commands import SatelReadCommand
+from satel_integra.commands import SatelReadCommand, expected_response_command
 from satel_integra.const import MESSAGE_RESPONSE_TIMEOUT
 from satel_integra.messages import SatelReadMessage, SatelWriteMessage
 
@@ -20,12 +20,7 @@ class QueuedMessage:
             asyncio.get_running_loop().create_future()
         )
 
-        # Determine the expected response
-        self.expected_result_command = (
-            message.cmd
-            if getattr(message.cmd, "expects_same_cmd_response", False)
-            else SatelReadCommand.RESULT
-        )
+        self.expected_result_command = expected_response_command(message.cmd)
 
 
 class SatelMessageQueue:
@@ -127,7 +122,7 @@ class SatelMessageQueue:
             return None
 
     async def _send_and_wait_response(self, queued: QueuedMessage) -> None:
-        """Send a queued message and wait for the panel RESULT."""
+        """Send a queued message and wait for its response."""
 
         try:
             _LOGGER.debug("Sending message: %s", queued.message)
@@ -139,11 +134,12 @@ class SatelMessageQueue:
 
             return
 
-        # Wait for the RESULT (the future will be completed by on_message_received).
+        # Wait for the expected response. The future is completed by on_message_received().
         try:
             await asyncio.wait_for(
                 queued.processed_future, timeout=MESSAGE_RESPONSE_TIMEOUT
             )
+            _LOGGER.debug("Queued message resolved: %s", queued.message)
         except asyncio.TimeoutError:
             _LOGGER.debug(
                 "No response received from panel within %ss for message: %s",
@@ -154,12 +150,25 @@ class SatelMessageQueue:
                 queued.processed_future.cancel()
             return
 
-    def on_message_received(self, result: SatelReadMessage):
-        """Called by AsyncSatel when a RESULT message is received."""
-        if not self._current_message:
-            # Received result but no message is being processed, standard read message due to monitoring
+    def on_message_received(self, result: SatelReadMessage) -> None:
+        """Handle a message if it is relevant to the current queued command."""
+        if self._current_message is None:
+            # Received a message but no command is being processed.
+            # These are likely standard read messages reported by the monitoring.
+            if result.cmd is SatelReadCommand.RESULT:
+                _LOGGER.debug(
+                    "Received RESULT with no pending queued message: %s", result
+                )
             return
 
+        if (
+            result.cmd is SatelReadCommand.RESULT
+            or self._current_message.expected_result_command == result.cmd
+        ):
+            self._complete_message(result)
+
+    def _complete_message(self, result: SatelReadMessage) -> None:
+        """Complete the current queued command with its response."""
         if self._current_message.processed_future.done():
             _LOGGER.debug(
                 "Received result but future is already done (likely timed out)"

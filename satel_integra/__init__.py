@@ -9,16 +9,24 @@ from .exceptions import (
     SatelIntegraError,
     SatelPanelBusyError,
 )
+from .models import (
+    SatelFirmwareVersion,
+    SatelPanelInfo,
+    SatelPanelModel,
+)
 from .satel_integra import AlarmState, AsyncSatel
 
 __all__ = [
     "AlarmState",
     "AsyncSatel",
+    "SatelFirmwareVersion",
+    "SatelPanelModel",
     "SatelConnectFailedError",
     "SatelConnectionError",
     "SatelConnectionInitializationError",
     "SatelConnectionSetupError",
     "SatelConnectionStoppedError",
     "SatelIntegraError",
+    "SatelPanelInfo",
     "SatelPanelBusyError",
 ]

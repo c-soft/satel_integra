@@ -18,10 +18,12 @@ from satel_integra.exceptions import (
     SatelPanelBusyError,
 )
 from satel_integra.messages import (
+    SatelIntegraVersionReadMessage,
     SatelReadMessage,
     SatelWriteMessage,
     SatelZoneTemperatureReadMessage,
 )
+from satel_integra.models import SatelPanelInfo
 from satel_integra.queue import SatelMessageQueue
 from satel_integra.utils import encode_bitmask_le, encode_zone_number
 
@@ -509,6 +511,24 @@ class AsyncSatel:
                 temperatures[zone_id] = None
 
         return temperatures
+
+    async def read_panel_info(self) -> SatelPanelInfo | None:
+        """Read structured panel information."""
+        msg = SatelWriteMessage(SatelReadCommand.INTEGRA_VERSION)
+
+        response = await self._send_data_and_wait(msg)
+        if response is None:
+            _LOGGER.warning("No panel info response received")
+            return None
+
+        if not isinstance(response, SatelIntegraVersionReadMessage):
+            msg = (
+                "Unexpected response type for INTEGRA version read: "
+                f"{type(response).__name__}"
+            )
+            raise ValueError(msg)
+
+        return response.panel_info
 
     # endregion
 

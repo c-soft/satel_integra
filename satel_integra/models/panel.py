@@ -12,20 +12,19 @@ _LOGGER = logging.getLogger(__name__)
 class SatelPanelModel:
     """Known INTEGRA panel model."""
 
-    type_code: int
     name: str
 
 
 PANEL_MODEL_BY_TYPE_CODE: dict[int, SatelPanelModel] = {
-    0: SatelPanelModel(0, "INTEGRA 24"),
-    1: SatelPanelModel(1, "INTEGRA 32"),
-    2: SatelPanelModel(2, "INTEGRA 64"),
-    3: SatelPanelModel(3, "INTEGRA 128"),
-    4: SatelPanelModel(4, "INTEGRA 128-WRL SIM300"),
-    66: SatelPanelModel(66, "INTEGRA 64 Plus"),
-    67: SatelPanelModel(67, "INTEGRA 128 Plus"),
-    72: SatelPanelModel(72, "INTEGRA 256 Plus"),
-    132: SatelPanelModel(132, "INTEGRA 128-WRL LEON"),
+    0: SatelPanelModel("INTEGRA 24"),
+    1: SatelPanelModel("INTEGRA 32"),
+    2: SatelPanelModel("INTEGRA 64"),
+    3: SatelPanelModel("INTEGRA 128"),
+    4: SatelPanelModel("INTEGRA 128-WRL SIM300"),
+    66: SatelPanelModel("INTEGRA 64 Plus"),
+    67: SatelPanelModel("INTEGRA 128 Plus"),
+    72: SatelPanelModel("INTEGRA 256 Plus"),
+    132: SatelPanelModel("INTEGRA 128-WRL LEON"),
 }
 
 

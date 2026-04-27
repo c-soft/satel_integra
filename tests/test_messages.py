@@ -45,7 +45,6 @@ def test_decode_frame_returns_integra_version_message() -> None:
     assert isinstance(msg, SatelIntegraVersionReadMessage)
     assert msg.panel_info.type_code == 72
     assert msg.panel_info.model is not None
-    assert msg.panel_info.model.type_code == 72
     assert msg.panel_info.model.name == "INTEGRA 256 Plus"
     assert msg.panel_info.firmware.version == "1.23"
     assert msg.panel_info.firmware.release_date.isoformat() == "2012-05-27"

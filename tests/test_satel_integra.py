@@ -251,7 +251,6 @@ async def test_read_panel_info_returns_panel_info(satel, mock_queue):
 
     assert result is not None
     assert result.model is not None
-    assert result.model.type_code == 72
     assert result.model.name == "INTEGRA 256 Plus"
     assert result.firmware.version == "1.21"
     assert result.settings_stored_in_flash is True

@@ -1,7 +1,10 @@
+import logging
+
 import pytest
 
 from satel_integra.commands import SatelReadCommand, SatelWriteCommand
 from satel_integra.const import FRAME_END, FRAME_START
+from satel_integra.exceptions import SatelUnexpectedResponseError
 from satel_integra.messages import (
     SatelIntegraVersionReadMessage,
     SatelReadMessage,
@@ -52,16 +55,49 @@ def test_decode_frame_returns_integra_version_message() -> None:
     assert msg.panel_info.settings_stored_in_flash is True
 
 
-def test_zone_temperature_message_validates_payload_length() -> None:
-    with pytest.raises(ValueError, match="Invalid temperature response length"):
+def test_zone_temperature_message_validates_payload_length(caplog) -> None:
+    with (
+        caplog.at_level(logging.WARNING),
+        pytest.raises(
+            SatelUnexpectedResponseError,
+            match="Invalid response length for ZONE_TEMPERATURE",
+        ),
+    ):
         SatelZoneTemperatureReadMessage(
             SatelReadCommand.ZONE_TEMPERATURE, bytearray([1, 0x00])
         )
 
+    assert "payload=0100" in caplog.text
 
-def test_integra_version_message_validates_payload_length() -> None:
-    with pytest.raises(ValueError, match="Invalid INTEGRA version response length"):
+
+def test_integra_version_message_validates_payload_length(caplog) -> None:
+    with (
+        caplog.at_level(logging.WARNING),
+        pytest.raises(
+            SatelUnexpectedResponseError,
+            match="Invalid response length for INTEGRA_VERSION",
+        ),
+    ):
         SatelIntegraVersionReadMessage(SatelReadCommand.INTEGRA_VERSION, bytearray())
+
+    assert "payload=" in caplog.text
+
+
+def test_integra_version_message_rejects_invalid_firmware_payload(caplog) -> None:
+    msg = SatelIntegraVersionReadMessage(
+        SatelReadCommand.INTEGRA_VERSION,
+        bytearray([72]) + bytearray(b"12x20120527") + bytearray([0x00, 0xFF]),
+    )
+
+    with (
+        caplog.at_level(logging.WARNING),
+        pytest.raises(
+            SatelUnexpectedResponseError, match="Invalid firmware version payload"
+        ),
+    ):
+        _ = msg.panel_info
+
+    assert "Invalid firmware version payload: '12x20120527'" in caplog.text
 
 
 def test_write_message_encodes_read_query_command() -> None:

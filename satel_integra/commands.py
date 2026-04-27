@@ -34,6 +34,7 @@ class SatelReadCommand(SatelBaseCommand):
     RTC_AND_STATUS = 0x1A
     PARTITIONS_ARMED_MODE1 = 0x2A
     ZONE_TEMPERATURE = 0x7D
+    INTEGRA_VERSION = 0x7E
     READ_DEVICE_NAME = 0xEE
     RESULT = 0xEF
 

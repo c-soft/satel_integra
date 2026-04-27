@@ -1,7 +1,7 @@
 """Message classes for communication with Satel Integra panel."""
 
 import logging
-from typing import TypeVar
+from typing import ClassVar, TypeVar
 from warnings import warn
 
 from satel_integra.commands import (
@@ -17,6 +17,7 @@ from satel_integra.const import (
     FRAME_SPECIAL_BYTES_REPLACEMENT,
     FRAME_START,
 )
+from satel_integra.exceptions import SatelUnexpectedResponseError
 from satel_integra.models import SatelPanelInfo
 from satel_integra.utils import (
     checksum,
@@ -96,6 +97,12 @@ class SatelWriteMessage(SatelBaseMessage[SatelOutboundCommand]):
 class SatelReadMessage(SatelBaseMessage[SatelReadCommand]):
     """Message representing data received from the panel."""
 
+    expected_data_length: ClassVar[int | None] = None
+
+    def __init__(self, cmd: SatelReadCommand, msg_data: bytearray) -> None:
+        super().__init__(cmd, msg_data)
+        self._validate_data_length()
+
     @staticmethod
     def decode_frame(
         data: bytes,
@@ -139,19 +146,27 @@ class SatelReadMessage(SatelBaseMessage[SatelReadCommand]):
         """Convenience wrapper around decode_bitmask_le() for this message."""
         return decode_bitmask_le(self.msg_data, expected_length)
 
+    def _validate_data_length(self) -> None:
+        """Validate fixed-length structured responses."""
+        if self.expected_data_length is None:
+            return
+
+        if len(self.msg_data) == self.expected_data_length:
+            return
+
+        err = (
+            f"Invalid response length for {self.cmd}: "
+            f"expected {self.expected_data_length} bytes, got {len(self.msg_data)} "
+            f"(payload={self.msg_data.hex()})"
+        )
+        _LOGGER.warning(err)
+        raise SatelUnexpectedResponseError(err)
+
 
 class SatelZoneTemperatureReadMessage(SatelReadMessage):
     """Structured read message for a zone temperature response."""
 
-    def __init__(self, cmd: SatelReadCommand, msg_data: bytearray) -> None:
-        super().__init__(cmd, msg_data)
-
-        if len(self.msg_data) != 3:
-            err = (
-                "Invalid temperature response length: "
-                f"expected 3 bytes, got {len(self.msg_data)}"
-            )
-            raise ValueError(err)
+    expected_data_length = 3
 
     @property
     def zone_id(self) -> int:
@@ -167,15 +182,7 @@ class SatelZoneTemperatureReadMessage(SatelReadMessage):
 class SatelIntegraVersionReadMessage(SatelReadMessage):
     """Structured read message for an INTEGRA panel version response."""
 
-    def __init__(self, cmd: SatelReadCommand, msg_data: bytearray) -> None:
-        super().__init__(cmd, msg_data)
-
-        if len(self.msg_data) != 14:
-            err = (
-                "Invalid INTEGRA version response length: "
-                f"expected 14 bytes, got {len(self.msg_data)}"
-            )
-            raise ValueError(err)
+    expected_data_length = 14
 
     @property
     def panel_info(self) -> SatelPanelInfo:

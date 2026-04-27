@@ -41,10 +41,6 @@ class SatelPanelInfo:
     @classmethod
     def _from_payload(cls, payload: bytes) -> "SatelPanelInfo":
         """Parse the 14-byte 0x7E INTEGRA version response payload."""
-        if len(payload) != 14:
-            msg = f"Invalid panel info length: expected 14 bytes, got {len(payload)}"
-            raise ValueError(msg)
-
         type_code = payload[0]
         model = PANEL_MODEL_BY_TYPE_CODE.get(type_code)
         if model is None:

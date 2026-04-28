@@ -20,11 +20,15 @@ from satel_integra.exceptions import (
 )
 from satel_integra.messages import (
     SatelIntegraVersionReadMessage,
+    SatelModuleVersionReadMessage,
     SatelReadMessage,
     SatelWriteMessage,
     SatelZoneTemperatureReadMessage,
 )
-from satel_integra.models import SatelPanelInfo
+from satel_integra.models import (
+    SatelCommunicationModuleInfo,
+    SatelPanelInfo,
+)
 from satel_integra.queue import SatelMessageQueue
 from satel_integra.utils import encode_bitmask_le, encode_zone_number
 
@@ -305,7 +309,7 @@ class AsyncSatel:
                 continue
 
             data = SatelWriteMessage(
-                SatelReadCommand.READ_DEVICE_NAME, raw_data=bytearray([0x01, 0x01])
+                SatelReadCommand.READ_DEVICE_NAME, raw_data=bytearray([0x01, 0x10])
             )
             _LOGGER.debug(
                 "Keepalive sending after %.3fs of outbound inactivity", idle_for
@@ -530,6 +534,26 @@ class AsyncSatel:
             raise SatelUnexpectedResponseError(msg)
 
         return response.panel_info
+
+    async def read_communication_module_info(
+        self,
+    ) -> SatelCommunicationModuleInfo | None:
+        """Read structured communication module information."""
+        msg = SatelWriteMessage(SatelReadCommand.MODULE_VERSION)
+
+        response = await self._send_data_and_wait(msg)
+        if response is None:
+            _LOGGER.warning("No communication module info response received")
+            return None
+
+        if not isinstance(response, SatelModuleVersionReadMessage):
+            msg = (
+                "Unexpected response type for module version read: "
+                f"{type(response).__name__}"
+            )
+            raise SatelUnexpectedResponseError(msg)
+
+        return response.module_info
 
     # endregion
 

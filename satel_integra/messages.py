@@ -18,7 +18,7 @@ from satel_integra.const import (
     FRAME_START,
 )
 from satel_integra.exceptions import SatelUnexpectedResponseError
-from satel_integra.models import SatelPanelInfo
+from satel_integra.models import SatelCommunicationModuleInfo, SatelPanelInfo
 from satel_integra.utils import (
     checksum,
     decode_bitmask_le,
@@ -132,6 +132,8 @@ class SatelReadMessage(SatelBaseMessage[SatelReadCommand]):
         try:
             cmd = SatelReadCommand(cmd_byte)
             match cmd:
+                case SatelReadCommand.MODULE_VERSION:
+                    return SatelModuleVersionReadMessage(cmd, bytearray(data))
                 case SatelReadCommand.ZONE_TEMPERATURE:
                     return SatelZoneTemperatureReadMessage(cmd, bytearray(data))
                 case SatelReadCommand.INTEGRA_VERSION:
@@ -177,6 +179,17 @@ class SatelZoneTemperatureReadMessage(SatelReadMessage):
     def temperature(self) -> float | None:
         """Return the decoded temperature in Celsius."""
         return decode_temperature(self.msg_data[1], self.msg_data[2])
+
+
+class SatelModuleVersionReadMessage(SatelReadMessage):
+    """Structured read message for an INT-RS/ETHM-1 module version response."""
+
+    expected_data_length = 12
+
+    @property
+    def module_info(self) -> SatelCommunicationModuleInfo:
+        """Return parsed communication module information."""
+        return SatelCommunicationModuleInfo._from_payload(self.msg_data)
 
 
 class SatelIntegraVersionReadMessage(SatelReadMessage):

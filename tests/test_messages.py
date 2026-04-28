@@ -7,6 +7,7 @@ from satel_integra.const import FRAME_END, FRAME_START
 from satel_integra.exceptions import SatelUnexpectedResponseError
 from satel_integra.messages import (
     SatelIntegraVersionReadMessage,
+    SatelModuleVersionReadMessage,
     SatelReadMessage,
     SatelWriteMessage,
     SatelZoneTemperatureReadMessage,
@@ -55,6 +56,26 @@ def test_decode_frame_returns_integra_version_message() -> None:
     assert msg.panel_info.settings_stored_in_flash is True
 
 
+def test_decode_frame_returns_module_version_message() -> None:
+    payload = bytearray([0x7C]) + bytearray(b"12320120527") + bytearray([0b0000_0111])
+    csum = checksum(payload)
+    frame = (
+        bytearray(FRAME_START)
+        + payload
+        + bytearray([csum >> 8, csum & 0xFF])
+        + bytearray(FRAME_END)
+    )
+
+    msg = SatelReadMessage.decode_frame(frame)
+
+    assert isinstance(msg, SatelModuleVersionReadMessage)
+    assert msg.module_info.firmware.version == "1.23"
+    assert msg.module_info.firmware.release_date.isoformat() == "2012-05-27"
+    assert msg.module_info.supports_256_zones_outputs is True
+    assert msg.module_info.supports_trouble_memory_part_8 is True
+    assert msg.module_info.supports_arm_no_bypass is True
+
+
 def test_zone_temperature_message_validates_payload_length(caplog) -> None:
     with (
         caplog.at_level(logging.WARNING),
@@ -79,6 +100,19 @@ def test_integra_version_message_validates_payload_length(caplog) -> None:
         ),
     ):
         SatelIntegraVersionReadMessage(SatelReadCommand.INTEGRA_VERSION, bytearray())
+
+    assert "payload=" in caplog.text
+
+
+def test_module_version_message_validates_payload_length(caplog) -> None:
+    with (
+        caplog.at_level(logging.WARNING),
+        pytest.raises(
+            SatelUnexpectedResponseError,
+            match="Invalid response length for MODULE_VERSION",
+        ),
+    ):
+        SatelModuleVersionReadMessage(SatelReadCommand.MODULE_VERSION, bytearray())
 
     assert "payload=" in caplog.text
 

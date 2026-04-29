@@ -1,6 +1,6 @@
 import pytest
 
-from satel_integra.models import SatelZoneInfo
+from satel_integra.models import SatelDeviceType, SatelOutputInfo, SatelZoneInfo
 
 
 @pytest.mark.parametrize(
@@ -45,3 +45,37 @@ def test_zone_info_from_payload(
     assert zone_info.name == expected_name
     assert zone_info.type_code == 0x2A
     assert zone_info.partition_assignment == expected_partition_assignment
+
+
+@pytest.mark.parametrize(
+    (
+        "output_byte",
+        "name_payload",
+        "expected_number",
+        "expected_name",
+    ),
+    [
+        (0x01, b"Output 1        ", 1, "Output 1"),
+        (0x00, b"Bell            ", 256, "Bell"),
+        (
+            0x02,
+            b"Strobe\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00",
+            2,
+            "Strobe",
+        ),
+    ],
+)
+def test_output_info_from_payload(
+    output_byte,
+    name_payload,
+    expected_number,
+    expected_name,
+) -> None:
+    payload = bytearray([0x04, output_byte, 0x10]) + bytearray(name_payload)
+
+    output_info = SatelOutputInfo._from_payload(payload)
+
+    assert output_info.device_type is SatelDeviceType.OUTPUT
+    assert output_info.device_number == expected_number
+    assert output_info.name == expected_name
+    assert output_info.type_code == 0x10

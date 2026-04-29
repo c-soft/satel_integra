@@ -8,6 +8,7 @@ from satel_integra.exceptions import SatelUnexpectedResponseError
 from satel_integra.messages import (
     SatelIntegraVersionReadMessage,
     SatelModuleVersionReadMessage,
+    SatelOutputInfoReadMessage,
     SatelReadMessage,
     SatelWriteMessage,
     SatelZoneInfoReadMessage,
@@ -67,6 +68,18 @@ def test_decode_frame_returns_zone_info_message() -> None:
     assert msg.msg_data == payload[1:]
 
 
+def test_decode_frame_returns_output_info_message() -> None:
+    payload = bytearray([0xEE, 0x04, 0x01, 0x10]) + bytearray(b"Output 1        ")
+
+    msg = SatelReadMessage.decode_frame(_frame_payload(payload))
+
+    assert isinstance(msg, SatelOutputInfoReadMessage)
+    assert msg.msg_data == payload[1:]
+    assert msg.device_info.device_number == 1
+    assert msg.device_info.name == "Output 1"
+    assert msg.device_info.type_code == 0x10
+
+
 def test_read_message_parsed_property_is_cached(monkeypatch) -> None:
     calls = 0
     original_from_payload = SatelZoneInfo._from_payload
@@ -92,7 +105,7 @@ def test_read_message_parsed_property_is_cached(monkeypatch) -> None:
 
 
 def test_decode_frame_returns_default_message_for_unknown_device_type(caplog) -> None:
-    payload = bytearray([0xEE, 0x04, 0x01, 0x10]) + bytearray(b"Output 1        ")
+    payload = bytearray([0xEE, 0x06, 0x01, 0x10]) + bytearray(b"Device 1        ")
 
     with caplog.at_level(logging.DEBUG):
         msg = SatelReadMessage.decode_frame(_frame_payload(payload))
@@ -100,7 +113,7 @@ def test_decode_frame_returns_default_message_for_unknown_device_type(caplog) ->
     assert type(msg) is SatelReadMessage
     assert msg.cmd is SatelReadCommand.READ_DEVICE_NAME
     assert msg.msg_data == payload[1:]
-    assert "Unsupported READ_DEVICE_NAME device type: 0x04" in caplog.text
+    assert "Unsupported READ_DEVICE_NAME device type: 0x06" in caplog.text
 
 
 def test_decode_frame_rejects_missing_device_type() -> None:
@@ -180,6 +193,21 @@ def test_zone_info_message_validates_payload_length(caplog) -> None:
         )
 
     assert "payload=05012a" in caplog.text
+
+
+def test_output_info_message_validates_payload_length(caplog) -> None:
+    with (
+        caplog.at_level(logging.WARNING),
+        pytest.raises(
+            SatelUnexpectedResponseError,
+            match="Invalid response length for READ_DEVICE_NAME",
+        ),
+    ):
+        SatelReadMessage.decode_frame(
+            _frame_payload(bytearray([0xEE, 0x04, 0x01, 0x10]))
+        )
+
+    assert "payload=040110" in caplog.text
 
 
 def test_integra_version_message_rejects_invalid_firmware_payload(caplog) -> None:

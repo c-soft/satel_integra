@@ -276,7 +276,7 @@ async def test_read_zone_info_encodes_zone_256_as_zero(satel, mock_queue):
     result = await satel.read_zone_info(256)
 
     assert result is not None
-    assert result.number == 256
+    assert result.device_number == 256
     assert result.partition_assignment is None
 
     sent_msg = mock_queue.add_message.await_args.args[0]
@@ -379,12 +379,6 @@ async def test_read_communication_module_info_rejects_unexpected_response(
 
 
 @pytest.mark.asyncio
-async def test_read_temperature_rejects_invalid_zone(satel):
-    with pytest.raises(ValueError, match="zone_number must be between 1 and 256"):
-        await satel.read_temperature(0)
-
-
-@pytest.mark.asyncio
 async def test_read_temperature_rejects_unexpected_response_type(satel, mock_queue):
     mock_queue.add_message.return_value = SatelReadMessage(
         SatelReadCommand.READ_DEVICE_NAME, bytearray()
@@ -395,9 +389,17 @@ async def test_read_temperature_rejects_unexpected_response_type(satel, mock_que
 
 
 @pytest.mark.asyncio
-async def test_read_zone_info_rejects_invalid_zone(satel):
-    with pytest.raises(ValueError, match="zone_number must be between 1 and 256"):
-        await satel.read_zone_info(0)
+@pytest.mark.parametrize(
+    "method,args",
+    [
+        ("read_temperature", (0,)),
+        ("read_zone_info", (0,)),
+        ("read_output_info", (0,)),
+    ],
+)
+async def test_single_device_reads_reject_invalid_device_number(satel, method, args):
+    with pytest.raises(ValueError, match="device_number must be between 1 and 256"):
+        await getattr(satel, method)(*args)
 
 
 @pytest.mark.asyncio

@@ -41,7 +41,7 @@ def test_zone_info_from_payload(
 
     zone_info = SatelZoneInfo._from_payload(payload)
 
-    assert zone_info.number == expected_number
+    assert zone_info.device_number == expected_number
     assert zone_info.name == expected_name
     assert zone_info.type_code == 0x2A
     assert zone_info.partition_assignment == expected_partition_assignment

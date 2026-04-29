@@ -495,6 +495,7 @@ class AsyncSatel:
 
         if response is None:
             return None
+
         if response.zone_id != zone_id:
             msg = (
                 "Temperature response zone mismatch: "
@@ -535,6 +536,7 @@ class AsyncSatel:
 
         if response is None:
             return None
+
         if response.device_info.number != zone_id:
             msg = (
                 "Zone info response zone mismatch: "
@@ -554,6 +556,7 @@ class AsyncSatel:
 
         if response is None:
             return None
+
         return response.panel_info
 
     async def read_communication_module_info(
@@ -568,6 +571,7 @@ class AsyncSatel:
 
         if response is None:
             return None
+
         return response.module_info
 
     # endregion
@@ -591,6 +595,9 @@ class AsyncSatel:
 
         if response is None:
             _LOGGER.debug(f"No response received for {msg.cmd}")
+            return None
+
+        if response.cmd is SatelReadCommand.RESULT:
             return None
 
         if not isinstance(response, expected_type):

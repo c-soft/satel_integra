@@ -13,7 +13,7 @@ from .exceptions import (
 from .models import (
     SatelCommunicationModuleInfo,
     SatelDeviceInfo,
-    SatelDeviceKind,
+    SatelDeviceType,
     SatelFirmwareVersion,
     SatelPanelInfo,
     SatelPanelModel,
@@ -26,7 +26,7 @@ __all__ = [
     "AsyncSatel",
     "SatelCommunicationModuleInfo",
     "SatelDeviceInfo",
-    "SatelDeviceKind",
+    "SatelDeviceType",
     "SatelFirmwareVersion",
     "SatelPanelModel",
     "SatelConnectFailedError",

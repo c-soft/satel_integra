@@ -4,14 +4,14 @@ from dataclasses import dataclass, field
 
 from satel_integra.utils import decode_zone_number
 
-from .device import SatelDeviceInfo, SatelDeviceKind
+from .device import SatelDeviceInfo, SatelDeviceType
 
 
 @dataclass(frozen=True)
 class SatelZoneInfo(SatelDeviceInfo):
     """Information returned by the 0xEE zone name read command."""
 
-    kind: SatelDeviceKind = field(default=SatelDeviceKind.ZONE, init=False)
+    device_type: SatelDeviceType = field(default=SatelDeviceType.ZONE, init=False)
     type_code: int
     partition_assignment: int | None
 

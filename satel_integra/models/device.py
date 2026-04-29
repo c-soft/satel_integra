@@ -5,21 +5,17 @@ from enum import Enum, unique
 
 
 @unique
-class SatelDeviceKind(Enum):
-    """Semantic device kinds returned by 0xEE reads."""
+class SatelDeviceType(Enum):
+    """Semantic device types returned by 0xEE reads."""
 
-    PARTITION = "partition"
     ZONE = "zone"
-    USER = "user"
-    EXPANDER_OR_LCD = "expander_or_lcd"
-    OUTPUT = "output"
 
 
 @dataclass(frozen=True)
 class SatelDeviceInfo:
     """Shared fields present in 0xEE device information responses."""
 
-    kind: SatelDeviceKind
+    device_type: SatelDeviceType
     number: int
     name: str
 

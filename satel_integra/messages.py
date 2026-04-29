@@ -1,6 +1,7 @@
 """Message classes for communication with Satel Integra panel."""
 
 import logging
+from enum import IntEnum, unique
 from typing import ClassVar, TypeVar
 from warnings import warn
 
@@ -35,6 +36,32 @@ _LOGGER = logging.getLogger(__name__)
 
 
 TCommand = TypeVar("TCommand", bound=SatelBaseCommand)
+
+
+@unique
+class SatelDeviceSelector(IntEnum):
+    """Raw 0xEE device selectors used on the wire."""
+
+    ZONE_WITH_PARTITION_ASSIGNMENT = 0x05
+
+
+def _decode_device_read_message(
+    cmd: SatelReadCommand, msg_data: bytearray
+) -> "SatelReadMessage":
+    """Decode a 0xEE device response into the appropriate message type."""
+    if not msg_data:
+        raise SatelUnexpectedResponseError(
+            "READ_DEVICE_NAME response missing device type"
+        )
+
+    if msg_data[0] != SatelDeviceSelector.ZONE_WITH_PARTITION_ASSIGNMENT:
+        _LOGGER.debug(
+            "Unsupported READ_DEVICE_NAME device type: 0x%02X; using default read message",
+            msg_data[0],
+        )
+        return SatelReadMessage(cmd, msg_data)
+
+    return SatelZoneInfoReadMessage(cmd, msg_data)
 
 
 class SatelBaseMessage[TCommand: SatelBaseCommand]:
@@ -135,18 +162,21 @@ class SatelReadMessage(SatelBaseMessage[SatelReadCommand]):
         cmd_byte, data = output[0], output[1:-2]
         try:
             cmd = SatelReadCommand(cmd_byte)
-            match cmd:
-                case SatelReadCommand.MODULE_VERSION:
-                    return SatelModuleVersionReadMessage(cmd, bytearray(data))
-                case SatelReadCommand.ZONE_TEMPERATURE:
-                    return SatelZoneTemperatureReadMessage(cmd, bytearray(data))
-                case SatelReadCommand.INTEGRA_VERSION:
-                    return SatelIntegraVersionReadMessage(cmd, bytearray(data))
-                case _:
-                    return SatelReadMessage(cmd, bytearray(data))
         except ValueError as ex:
             _LOGGER.error("Unknown command byte: %s", hex(cmd_byte))
             raise ValueError("Unknown command byte") from ex
+
+        match cmd:
+            case SatelReadCommand.MODULE_VERSION:
+                return SatelModuleVersionReadMessage(cmd, bytearray(data))
+            case SatelReadCommand.ZONE_TEMPERATURE:
+                return SatelZoneTemperatureReadMessage(cmd, bytearray(data))
+            case SatelReadCommand.INTEGRA_VERSION:
+                return SatelIntegraVersionReadMessage(cmd, bytearray(data))
+            case SatelReadCommand.READ_DEVICE_NAME:
+                return _decode_device_read_message(cmd, bytearray(data))
+            case _:
+                return SatelReadMessage(cmd, bytearray(data))
 
     def get_active_bits(self, expected_length: int) -> list[int]:
         """Convenience wrapper around decode_bitmask_le() for this message."""

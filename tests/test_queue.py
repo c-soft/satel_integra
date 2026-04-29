@@ -202,19 +202,18 @@ async def test_on_message_received_correct(mock_queue, write_msg, result_msg):
 
 
 @pytest.mark.asyncio
-async def test_on_message_received_commmand_mismatch(mock_queue, result_msg, caplog):
+async def test_on_message_received_completes_result_for_read_query(
+    mock_queue, result_msg, caplog
+):
     caplog.at_level(logging.WARNING)
 
     queued = QueuedMessage(SatelWriteMessage(SatelReadCommand.READ_DEVICE_NAME), True)
     mock_queue._current_message = queued
     mock_queue.on_message_received(result_msg)
 
-    assert (
-        "Received result ((SatelReadMessage) RESULT [0xEF] -> 01 (1)) for message ((SatelWriteMessage) READ_DEVICE_NAME [0xEE] ->  (0)) but expects different result (READ_DEVICE_NAME [0xEE])"
-        in caplog.text
-    )
-
-    assert not queued.processed_future.done()
+    assert "expects different result" in caplog.text
+    assert queued.processed_future.done()
+    assert queued.processed_future.result() is result_msg
 
 
 @pytest.mark.asyncio

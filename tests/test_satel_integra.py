@@ -410,6 +410,30 @@ async def test_read_zone_info_returns_none_without_response(satel, mock_queue):
 
 
 @pytest.mark.asyncio
+async def test_read_zone_info_returns_none_for_unavailable_zone_result(
+    satel, mock_queue
+):
+    mock_queue.add_message.return_value = SatelReadMessage(
+        SatelReadCommand.RESULT, bytearray([0x08])
+    )
+
+    result = await satel.read_zone_info(1)
+
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_read_panel_info_returns_none_for_result_response(satel, mock_queue):
+    mock_queue.add_message.return_value = SatelReadMessage(
+        SatelReadCommand.RESULT, bytearray([0x08])
+    )
+
+    result = await satel.read_panel_info()
+
+    assert result is None
+
+
+@pytest.mark.asyncio
 async def test_read_zone_info_rejects_unexpected_response_type(satel, mock_queue):
     mock_queue.add_message.return_value = SatelReadMessage(
         SatelReadCommand.READ_DEVICE_NAME, bytearray([0x01])

@@ -10,8 +10,14 @@ from satel_integra.exceptions import (
     SatelConnectionInitializationError,
     SatelConnectionStoppedError,
     SatelPanelBusyError,
+    SatelUnexpectedResponseError,
 )
-from satel_integra.messages import SatelZoneTemperatureReadMessage
+from satel_integra.messages import (
+    SatelIntegraVersionReadMessage,
+    SatelModuleVersionReadMessage,
+    SatelReadMessage,
+    SatelZoneTemperatureReadMessage,
+)
 from satel_integra.satel_integra import AlarmState, AsyncSatel
 
 
@@ -236,9 +242,114 @@ async def test_read_temperatures_returns_expected_values(satel, side_effect, exp
 
 
 @pytest.mark.asyncio
+async def test_read_panel_info_returns_panel_info(satel, mock_queue):
+    response = SatelIntegraVersionReadMessage(
+        SatelReadCommand.INTEGRA_VERSION,
+        bytearray([72]) + bytearray(b"12120230221") + bytearray([0x00, 0xFF]),
+    )
+    mock_queue.add_message.return_value = response
+
+    result = await satel.read_panel_info()
+
+    assert result == response.panel_info
+
+    mock_queue.add_message.assert_awaited_once()
+    sent_msg = mock_queue.add_message.await_args.args[0]
+    assert sent_msg.cmd is SatelReadCommand.INTEGRA_VERSION
+
+
+@pytest.mark.asyncio
+async def test_read_panel_info_returns_unknown_model_for_unknown_type(
+    satel, mock_queue, caplog
+):
+    mock_queue.add_message.return_value = SatelIntegraVersionReadMessage(
+        SatelReadCommand.INTEGRA_VERSION,
+        bytearray([99]) + bytearray(b"12120230221") + bytearray([0x00, 0x00]),
+    )
+
+    with caplog.at_level(logging.WARNING):
+        result = await satel.read_panel_info()
+
+    assert result is not None
+    assert result.type_code == 99
+    assert result.model is None
+    assert result.settings_stored_in_flash is False
+    assert "Unknown INTEGRA panel type code: 99" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_read_panel_info_returns_none_without_panel_response(satel, mock_queue):
+    mock_queue.add_message.return_value = None
+
+    result = await satel.read_panel_info()
+
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_read_panel_info_rejects_unexpected_panel_response(satel, mock_queue):
+    mock_queue.add_message.return_value = SatelReadMessage(
+        SatelReadCommand.READ_DEVICE_NAME, bytearray()
+    )
+
+    with pytest.raises(SatelUnexpectedResponseError, match="Unexpected response type"):
+        await satel.read_panel_info()
+
+
+@pytest.mark.asyncio
+async def test_read_communication_module_info_returns_module_info(satel, mock_queue):
+    response = SatelModuleVersionReadMessage(
+        SatelReadCommand.MODULE_VERSION,
+        bytearray(b"12320120527") + bytearray([0b0000_0101]),
+    )
+    mock_queue.add_message.return_value = response
+
+    result = await satel.read_communication_module_info()
+
+    assert result == response.module_info
+
+    mock_queue.add_message.assert_awaited_once()
+    sent_msg = mock_queue.add_message.await_args.args[0]
+    assert sent_msg.cmd is SatelReadCommand.MODULE_VERSION
+
+
+@pytest.mark.asyncio
+async def test_read_communication_module_info_returns_none_without_module_response(
+    satel, mock_queue
+):
+    mock_queue.add_message.return_value = None
+
+    result = await satel.read_communication_module_info()
+
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_read_communication_module_info_rejects_unexpected_response(
+    satel, mock_queue
+):
+    mock_queue.add_message.return_value = SatelReadMessage(
+        SatelReadCommand.READ_DEVICE_NAME, bytearray()
+    )
+
+    with pytest.raises(SatelUnexpectedResponseError, match="Unexpected response type"):
+        await satel.read_communication_module_info()
+
+
+@pytest.mark.asyncio
 async def test_read_temperature_rejects_invalid_zone(satel):
     with pytest.raises(ValueError, match="zone_number must be between 1 and 256"):
         await satel.read_temperature(0)
+
+
+@pytest.mark.asyncio
+async def test_read_temperature_rejects_unexpected_response_type(satel, mock_queue):
+    mock_queue.add_message.return_value = SatelReadMessage(
+        SatelReadCommand.READ_DEVICE_NAME, bytearray()
+    )
+
+    with pytest.raises(SatelUnexpectedResponseError, match="Unexpected response type"):
+        await satel.read_temperature(1)
 
 
 @pytest.mark.asyncio

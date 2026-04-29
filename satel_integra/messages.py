@@ -44,6 +44,7 @@ TCommand = TypeVar("TCommand", bound=SatelBaseCommand)
 class SatelDeviceSelector(IntEnum):
     """Raw 0xEE device selectors used on the wire."""
 
+    OUTPUT = 0x04
     ZONE_WITH_PARTITION_ASSIGNMENT = 0x05
 
 
@@ -56,14 +57,17 @@ def _decode_device_read_message(
             "READ_DEVICE_NAME response missing device type"
         )
 
-    if msg_data[0] != SatelDeviceSelector.ZONE_WITH_PARTITION_ASSIGNMENT:
-        _LOGGER.debug(
-            "Unsupported READ_DEVICE_NAME device type: 0x%02X; using default read message",
-            msg_data[0],
-        )
-        return SatelReadMessage(cmd, msg_data)
+    match msg_data[0]:
+        case SatelDeviceSelector.OUTPUT:
+            return SatelOutputInfoReadMessage(cmd, msg_data)
+        case SatelDeviceSelector.ZONE_WITH_PARTITION_ASSIGNMENT:
+            return SatelZoneInfoReadMessage(cmd, msg_data)
 
-    return SatelZoneInfoReadMessage(cmd, msg_data)
+    _LOGGER.debug(
+        "Unsupported READ_DEVICE_NAME device type: 0x%02X; using default read message",
+        msg_data[0],
+    )
+    return SatelReadMessage(cmd, msg_data)
 
 
 class SatelBaseMessage[TCommand: SatelBaseCommand]:

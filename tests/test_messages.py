@@ -10,22 +10,26 @@ from satel_integra.messages import (
     SatelModuleVersionReadMessage,
     SatelReadMessage,
     SatelWriteMessage,
+    SatelZoneInfoReadMessage,
     SatelZoneTemperatureReadMessage,
 )
 from satel_integra.utils import checksum
 
 
-def test_decode_frame_returns_zone_temperature_message() -> None:
-    payload = bytearray([0x7D, 0x01, 0x00, 0x96])
+def _frame_payload(payload: bytearray) -> bytearray:
     csum = checksum(payload)
-    frame = (
+    return (
         bytearray(FRAME_START)
         + payload
         + bytearray([csum >> 8, csum & 0xFF])
         + bytearray(FRAME_END)
     )
 
-    msg = SatelReadMessage.decode_frame(frame)
+
+def test_decode_frame_returns_zone_temperature_message() -> None:
+    payload = bytearray([SatelReadCommand.ZONE_TEMPERATURE, 0x01, 0x00, 0x96])
+
+    msg = SatelReadMessage.decode_frame(_frame_payload(payload))
 
     assert isinstance(msg, SatelZoneTemperatureReadMessage)
     assert msg.zone_id == 1
@@ -36,15 +40,8 @@ def test_decode_frame_returns_integra_version_message() -> None:
     payload = (
         bytearray([0x7E, 72]) + bytearray(b"12320120527") + bytearray([0x00, 0xFF])
     )
-    csum = checksum(payload)
-    frame = (
-        bytearray(FRAME_START)
-        + payload
-        + bytearray([csum >> 8, csum & 0xFF])
-        + bytearray(FRAME_END)
-    )
 
-    msg = SatelReadMessage.decode_frame(frame)
+    msg = SatelReadMessage.decode_frame(_frame_payload(payload))
 
     assert isinstance(msg, SatelIntegraVersionReadMessage)
     assert msg.panel_info.type_code == 72
@@ -56,17 +53,45 @@ def test_decode_frame_returns_integra_version_message() -> None:
     assert msg.panel_info.settings_stored_in_flash is True
 
 
-def test_decode_frame_returns_module_version_message() -> None:
-    payload = bytearray([0x7C]) + bytearray(b"12320120527") + bytearray([0b0000_0111])
-    csum = checksum(payload)
-    frame = (
-        bytearray(FRAME_START)
-        + payload
-        + bytearray([csum >> 8, csum & 0xFF])
-        + bytearray(FRAME_END)
+def test_decode_frame_returns_zone_info_message() -> None:
+    payload = (
+        bytearray([0xEE, 0x05, 0x01, 0x2A])
+        + bytearray(b"Front Door      ")
+        + bytearray([0x03])
     )
 
-    msg = SatelReadMessage.decode_frame(frame)
+    msg = SatelReadMessage.decode_frame(_frame_payload(payload))
+
+    assert isinstance(msg, SatelZoneInfoReadMessage)
+    assert msg.msg_data == payload[1:]
+
+
+def test_decode_frame_returns_default_message_for_unknown_device_type(caplog) -> None:
+    payload = bytearray([0xEE, 0x04, 0x01, 0x10]) + bytearray(b"Output 1        ")
+
+    with caplog.at_level(logging.DEBUG):
+        msg = SatelReadMessage.decode_frame(_frame_payload(payload))
+
+    assert type(msg) is SatelReadMessage
+    assert msg.cmd is SatelReadCommand.READ_DEVICE_NAME
+    assert msg.msg_data == payload[1:]
+    assert "Unsupported READ_DEVICE_NAME device type: 0x04" in caplog.text
+
+
+def test_decode_frame_rejects_missing_device_type() -> None:
+    payload = bytearray([0xEE])
+
+    with pytest.raises(
+        SatelUnexpectedResponseError,
+        match="READ_DEVICE_NAME response missing device type",
+    ):
+        SatelReadMessage.decode_frame(_frame_payload(payload))
+
+
+def test_decode_frame_returns_module_version_message() -> None:
+    payload = bytearray([0x7C]) + bytearray(b"12320120527") + bytearray([0b0000_0111])
+
+    msg = SatelReadMessage.decode_frame(_frame_payload(payload))
 
     assert isinstance(msg, SatelModuleVersionReadMessage)
     assert msg.module_info.firmware.version == "1.23"
@@ -115,6 +140,21 @@ def test_module_version_message_validates_payload_length(caplog) -> None:
         SatelModuleVersionReadMessage(SatelReadCommand.MODULE_VERSION, bytearray())
 
     assert "payload=" in caplog.text
+
+
+def test_zone_info_message_validates_payload_length(caplog) -> None:
+    with (
+        caplog.at_level(logging.WARNING),
+        pytest.raises(
+            SatelUnexpectedResponseError,
+            match="Invalid response length for READ_DEVICE_NAME",
+        ),
+    ):
+        SatelReadMessage.decode_frame(
+            _frame_payload(bytearray([0xEE, 0x05, 0x01, 0x2A]))
+        )
+
+    assert "payload=05012a" in caplog.text
 
 
 def test_integra_version_message_rejects_invalid_firmware_payload(caplog) -> None:

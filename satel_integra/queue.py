@@ -182,6 +182,7 @@ class SatelMessageQueue:
                 self._current_message.message,
                 self._current_message.expected_result_command,
             )
-            return
+            if result.cmd is not SatelReadCommand.RESULT:
+                return
 
         self._current_message.processed_future.set_result(result)

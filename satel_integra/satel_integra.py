@@ -5,7 +5,7 @@ import logging
 import sys
 from collections.abc import Awaitable, Callable
 from enum import Enum, unique
-from typing import overload
+from typing import TypeVar, overload
 from warnings import warn
 
 from satel_integra.commands import SatelReadCommand, SatelWriteCommand
@@ -19,18 +19,23 @@ from satel_integra.exceptions import (
     SatelUnexpectedResponseError,
 )
 from satel_integra.messages import (
+    SatelDeviceSelector,
     SatelIntegraVersionReadMessage,
     SatelModuleVersionReadMessage,
     SatelReadMessage,
     SatelWriteMessage,
+    SatelZoneInfoReadMessage,
     SatelZoneTemperatureReadMessage,
 )
 from satel_integra.models import (
     SatelCommunicationModuleInfo,
     SatelPanelInfo,
+    SatelZoneInfo,
 )
 from satel_integra.queue import SatelMessageQueue
 from satel_integra.utils import encode_bitmask_le, encode_zone_number
+
+TReadMessage = TypeVar("TReadMessage", bound=SatelReadMessage)
 
 if sys.version_info >= (3, 13):
     from warnings import deprecated
@@ -483,15 +488,13 @@ class AsyncSatel:
         msg = SatelWriteMessage(
             SatelReadCommand.ZONE_TEMPERATURE, raw_data=bytearray([request_zone_id])
         )
-        response = await self._send_data_and_wait(msg)
+        response = await self._typed_send_data_and_wait(
+            msg,
+            SatelZoneTemperatureReadMessage,
+        )
 
         if response is None:
-            _LOGGER.debug("No temperature response for zone %s", zone_id)
             return None
-
-        if not isinstance(response, SatelZoneTemperatureReadMessage):
-            msg = f"Unexpected response type for temperature read: {type(response).__name__}"
-            raise SatelUnexpectedResponseError(msg)
 
         if response.zone_id != zone_id:
             msg = (
@@ -517,21 +520,42 @@ class AsyncSatel:
 
         return temperatures
 
+    async def read_zone_info(self, zone_id: int) -> SatelZoneInfo | None:
+        """Read metadata for a single zone."""
+        request_zone_id = encode_zone_number(zone_id)
+        msg = SatelWriteMessage(
+            SatelReadCommand.READ_DEVICE_NAME,
+            raw_data=bytearray(
+                [SatelDeviceSelector.ZONE_WITH_PARTITION_ASSIGNMENT, request_zone_id]
+            ),
+        )
+        response = await self._typed_send_data_and_wait(
+            msg,
+            SatelZoneInfoReadMessage,
+        )
+
+        if response is None:
+            return None
+
+        if response.device_info.number != zone_id:
+            msg = (
+                "Zone info response zone mismatch: "
+                f"expected {zone_id}, got {response.device_info.number}"
+            )
+            raise ValueError(msg)
+
+        return response.device_info
+
     async def read_panel_info(self) -> SatelPanelInfo | None:
         """Read structured panel information."""
         msg = SatelWriteMessage(SatelReadCommand.INTEGRA_VERSION)
+        response = await self._typed_send_data_and_wait(
+            msg,
+            SatelIntegraVersionReadMessage,
+        )
 
-        response = await self._send_data_and_wait(msg)
         if response is None:
-            _LOGGER.warning("No panel info response received")
             return None
-
-        if not isinstance(response, SatelIntegraVersionReadMessage):
-            msg = (
-                "Unexpected response type for INTEGRA version read: "
-                f"{type(response).__name__}"
-            )
-            raise SatelUnexpectedResponseError(msg)
 
         return response.panel_info
 
@@ -540,18 +564,13 @@ class AsyncSatel:
     ) -> SatelCommunicationModuleInfo | None:
         """Read structured communication module information."""
         msg = SatelWriteMessage(SatelReadCommand.MODULE_VERSION)
+        response = await self._typed_send_data_and_wait(
+            msg,
+            SatelModuleVersionReadMessage,
+        )
 
-        response = await self._send_data_and_wait(msg)
         if response is None:
-            _LOGGER.warning("No communication module info response received")
             return None
-
-        if not isinstance(response, SatelModuleVersionReadMessage):
-            msg = (
-                "Unexpected response type for module version read: "
-                f"{type(response).__name__}"
-            )
-            raise SatelUnexpectedResponseError(msg)
 
         return response.module_info
 
@@ -565,6 +584,27 @@ class AsyncSatel:
     async def _send_data_and_wait(self, msg: SatelWriteMessage):
         """Add message to the queue and wait for the result."""
         return await self._queue.add_message(msg, True)
+
+    async def _typed_send_data_and_wait(
+        self,
+        msg: SatelWriteMessage,
+        expected_type: type[TReadMessage],
+    ) -> TReadMessage | None:
+        """Send a message and validate the response message type."""
+        response = await self._send_data_and_wait(msg)
+
+        if response is None:
+            _LOGGER.debug(f"No response received for {msg.cmd}")
+            return None
+
+        if response.cmd is SatelReadCommand.RESULT:
+            return None
+
+        if not isinstance(response, expected_type):
+            err = f"Unexpected response type for {msg.cmd}: {type(response).__name__}"
+            raise SatelUnexpectedResponseError(err)
+
+        return response
 
     async def _send_encoded_frame(self, msg: SatelWriteMessage) -> None:
         """Encodes and actually sends message."""

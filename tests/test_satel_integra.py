@@ -16,6 +16,7 @@ from satel_integra.messages import (
     SatelIntegraVersionReadMessage,
     SatelModuleVersionReadMessage,
     SatelReadMessage,
+    SatelZoneInfoReadMessage,
     SatelZoneTemperatureReadMessage,
 )
 from satel_integra.satel_integra import AlarmState, AsyncSatel
@@ -242,6 +243,47 @@ async def test_read_temperatures_returns_expected_values(satel, side_effect, exp
 
 
 @pytest.mark.asyncio
+async def test_read_zone_info_returns_zone_info(satel, mock_queue):
+    response = SatelZoneInfoReadMessage(
+        SatelReadCommand.READ_DEVICE_NAME,
+        bytearray([0x05, 0x01, 0x2A])
+        + bytearray(b"Front Door      ")
+        + bytearray([0x03]),
+    )
+    mock_queue.add_message.return_value = response
+
+    result = await satel.read_zone_info(1)
+
+    assert isinstance(response, SatelZoneInfoReadMessage)
+    assert result == response.device_info
+
+    mock_queue.add_message.assert_awaited_once()
+    sent_msg = mock_queue.add_message.await_args.args[0]
+    assert sent_msg.cmd is SatelReadCommand.READ_DEVICE_NAME
+    assert sent_msg.msg_data == bytearray([0x05, 0x01])
+
+
+@pytest.mark.asyncio
+async def test_read_zone_info_encodes_zone_256_as_zero(satel, mock_queue):
+    response = SatelZoneInfoReadMessage(
+        SatelReadCommand.READ_DEVICE_NAME,
+        bytearray([0x05, 0x00, 0x2A])
+        + bytearray(b"Top Floor       ")
+        + bytearray([0x00]),
+    )
+    mock_queue.add_message.return_value = response
+
+    result = await satel.read_zone_info(256)
+
+    assert result is not None
+    assert result.number == 256
+    assert result.partition_assignment is None
+
+    sent_msg = mock_queue.add_message.await_args.args[0]
+    assert sent_msg.msg_data == bytearray([0x05, 0x00])
+
+
+@pytest.mark.asyncio
 async def test_read_panel_info_returns_panel_info(satel, mock_queue):
     response = SatelIntegraVersionReadMessage(
         SatelReadCommand.INTEGRA_VERSION,
@@ -350,6 +392,68 @@ async def test_read_temperature_rejects_unexpected_response_type(satel, mock_que
 
     with pytest.raises(SatelUnexpectedResponseError, match="Unexpected response type"):
         await satel.read_temperature(1)
+
+
+@pytest.mark.asyncio
+async def test_read_zone_info_rejects_invalid_zone(satel):
+    with pytest.raises(ValueError, match="zone_number must be between 1 and 256"):
+        await satel.read_zone_info(0)
+
+
+@pytest.mark.asyncio
+async def test_read_zone_info_returns_none_without_response(satel, mock_queue):
+    mock_queue.add_message.return_value = None
+
+    result = await satel.read_zone_info(1)
+
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_read_zone_info_returns_none_for_unavailable_zone_result(
+    satel, mock_queue
+):
+    mock_queue.add_message.return_value = SatelReadMessage(
+        SatelReadCommand.RESULT, bytearray([0x08])
+    )
+
+    result = await satel.read_zone_info(1)
+
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_read_panel_info_returns_none_for_result_response(satel, mock_queue):
+    mock_queue.add_message.return_value = SatelReadMessage(
+        SatelReadCommand.RESULT, bytearray([0x08])
+    )
+
+    result = await satel.read_panel_info()
+
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_read_zone_info_rejects_unexpected_response_type(satel, mock_queue):
+    mock_queue.add_message.return_value = SatelReadMessage(
+        SatelReadCommand.READ_DEVICE_NAME, bytearray([0x01])
+    )
+
+    with pytest.raises(SatelUnexpectedResponseError, match="Unexpected response type"):
+        await satel.read_zone_info(1)
+
+
+@pytest.mark.asyncio
+async def test_read_zone_info_rejects_zone_mismatch(satel, mock_queue):
+    mock_queue.add_message.return_value = SatelZoneInfoReadMessage(
+        SatelReadCommand.READ_DEVICE_NAME,
+        bytearray([0x05, 0x02, 0x2A])
+        + bytearray(b"Front Door      ")
+        + bytearray([0x03]),
+    )
+
+    with pytest.raises(ValueError, match="Zone info response zone mismatch"):
+        await satel.read_zone_info(1)
 
 
 @pytest.mark.asyncio

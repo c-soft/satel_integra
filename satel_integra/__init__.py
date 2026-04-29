@@ -12,9 +12,12 @@ from .exceptions import (
 )
 from .models import (
     SatelCommunicationModuleInfo,
+    SatelDeviceInfo,
+    SatelDeviceKind,
     SatelFirmwareVersion,
     SatelPanelInfo,
     SatelPanelModel,
+    SatelZoneInfo,
 )
 from .satel_integra import AlarmState, AsyncSatel
 
@@ -22,6 +25,8 @@ __all__ = [
     "AlarmState",
     "AsyncSatel",
     "SatelCommunicationModuleInfo",
+    "SatelDeviceInfo",
+    "SatelDeviceKind",
     "SatelFirmwareVersion",
     "SatelPanelModel",
     "SatelConnectFailedError",
@@ -33,4 +38,5 @@ __all__ = [
     "SatelPanelInfo",
     "SatelPanelBusyError",
     "SatelUnexpectedResponseError",
+    "SatelZoneInfo",
 ]

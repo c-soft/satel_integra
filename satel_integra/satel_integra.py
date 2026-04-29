@@ -309,7 +309,7 @@ class AsyncSatel:
                 continue
 
             data = SatelWriteMessage(
-                SatelReadCommand.READ_DEVICE_NAME, raw_data=bytearray([0x01, 0x10])
+                SatelReadCommand.READ_DEVICE_NAME, raw_data=bytearray([0x01, 0x01])
             )
             _LOGGER.debug(
                 "Keepalive sending after %.3fs of outbound inactivity", idle_for

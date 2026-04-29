@@ -19,15 +19,18 @@ from satel_integra.exceptions import (
     SatelUnexpectedResponseError,
 )
 from satel_integra.messages import (
+    SatelDeviceSelector,
     SatelIntegraVersionReadMessage,
     SatelModuleVersionReadMessage,
     SatelReadMessage,
     SatelWriteMessage,
+    SatelZoneInfoReadMessage,
     SatelZoneTemperatureReadMessage,
 )
 from satel_integra.models import (
     SatelCommunicationModuleInfo,
     SatelPanelInfo,
+    SatelZoneInfo,
 )
 from satel_integra.queue import SatelMessageQueue
 from satel_integra.utils import encode_bitmask_le, encode_zone_number
@@ -516,6 +519,34 @@ class AsyncSatel:
                 temperatures[zone_id] = None
 
         return temperatures
+
+    async def read_zone_info(self, zone_id: int) -> SatelZoneInfo | None:
+        """Read metadata for a single zone."""
+        request_zone_id = encode_zone_number(zone_id)
+        msg = SatelWriteMessage(
+            SatelReadCommand.READ_DEVICE_NAME,
+            raw_data=bytearray(
+                [SatelDeviceSelector.ZONE_WITH_PARTITION_ASSIGNMENT, request_zone_id]
+            ),
+        )
+        response = await self._send_data_and_wait(msg)
+
+        if response is None:
+            _LOGGER.debug("No zone info response for zone %s", zone_id)
+            return None
+
+        if not isinstance(response, SatelZoneInfoReadMessage):
+            msg = f"Unexpected response type for zone info read: {type(response).__name__}"
+            raise SatelUnexpectedResponseError(msg)
+
+        if response.device_info.number != zone_id:
+            msg = (
+                "Zone info response zone mismatch: "
+                f"expected {zone_id}, got {response.device_info.number}"
+            )
+            raise ValueError(msg)
+
+        return response.device_info
 
     async def read_panel_info(self) -> SatelPanelInfo | None:
         """Read structured panel information."""

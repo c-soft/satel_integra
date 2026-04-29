@@ -29,8 +29,8 @@ from satel_integra.models import (
 from satel_integra.utils import (
     checksum,
     decode_bitmask_le,
+    decode_device_number,
     decode_temperature,
-    decode_zone_number,
     encode_bitmask_le,
 )
 
@@ -209,7 +209,7 @@ class SatelZoneTemperatureReadMessage(SatelReadMessage):
     @cached_property
     def zone_id(self) -> int:
         """Return the decoded zone id for this temperature response."""
-        return decode_zone_number(self.msg_data[0])
+        return decode_device_number(self.msg_data[0])
 
     @cached_property
     def temperature(self) -> float | None:

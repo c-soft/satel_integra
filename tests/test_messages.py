@@ -13,6 +13,7 @@ from satel_integra.messages import (
     SatelZoneInfoReadMessage,
     SatelZoneTemperatureReadMessage,
 )
+from satel_integra.models import SatelZoneInfo
 from satel_integra.utils import checksum
 
 
@@ -64,6 +65,30 @@ def test_decode_frame_returns_zone_info_message() -> None:
 
     assert isinstance(msg, SatelZoneInfoReadMessage)
     assert msg.msg_data == payload[1:]
+
+
+def test_read_message_parsed_property_is_cached(monkeypatch) -> None:
+    calls = 0
+    original_from_payload = SatelZoneInfo._from_payload
+
+    def from_payload(payload: bytes) -> SatelZoneInfo:
+        nonlocal calls
+        calls += 1
+        return original_from_payload(payload)
+
+    payload = (
+        bytearray([0x05, 0x01, 0x2A])
+        + bytearray(b"Front Door      ")
+        + bytearray([0x03])
+    )
+    msg = SatelZoneInfoReadMessage(SatelReadCommand.READ_DEVICE_NAME, payload)
+    monkeypatch.setattr(SatelZoneInfo, "_from_payload", from_payload)
+
+    first = msg.device_info
+    second = msg.device_info
+
+    assert first is second
+    assert calls == 1
 
 
 def test_decode_frame_returns_default_message_for_unknown_device_type(caplog) -> None:

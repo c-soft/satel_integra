@@ -2,6 +2,7 @@
 
 import logging
 from enum import IntEnum, unique
+from functools import cached_property
 from typing import ClassVar, TypeVar
 from warnings import warn
 
@@ -204,12 +205,12 @@ class SatelZoneTemperatureReadMessage(SatelReadMessage):
 
     expected_data_length = 3
 
-    @property
+    @cached_property
     def zone_id(self) -> int:
         """Return the decoded zone id for this temperature response."""
         return decode_zone_number(self.msg_data[0])
 
-    @property
+    @cached_property
     def temperature(self) -> float | None:
         """Return the decoded temperature in Celsius."""
         return decode_temperature(self.msg_data[1], self.msg_data[2])
@@ -220,7 +221,7 @@ class SatelModuleVersionReadMessage(SatelReadMessage):
 
     expected_data_length = 12
 
-    @property
+    @cached_property
     def module_info(self) -> SatelCommunicationModuleInfo:
         """Return parsed communication module information."""
         return SatelCommunicationModuleInfo._from_payload(self.msg_data)
@@ -231,7 +232,7 @@ class SatelIntegraVersionReadMessage(SatelReadMessage):
 
     expected_data_length = 14
 
-    @property
+    @cached_property
     def panel_info(self) -> SatelPanelInfo:
         """Return parsed INTEGRA panel information."""
         return SatelPanelInfo._from_payload(self.msg_data)
@@ -242,7 +243,7 @@ class SatelZoneInfoReadMessage(SatelReadMessage):
 
     expected_data_length = 20
 
-    @property
+    @cached_property
     def device_info(self) -> SatelZoneInfo:
         """Return parsed zone information."""
         return SatelZoneInfo._from_payload(self.msg_data)

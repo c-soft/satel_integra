@@ -22,6 +22,7 @@ from satel_integra.messages import (
     SatelDeviceSelector,
     SatelIntegraVersionReadMessage,
     SatelModuleVersionReadMessage,
+    SatelOutputInfoReadMessage,
     SatelReadMessage,
     SatelWriteMessage,
     SatelZoneInfoReadMessage,
@@ -29,6 +30,7 @@ from satel_integra.messages import (
 )
 from satel_integra.models import (
     SatelCommunicationModuleInfo,
+    SatelOutputInfo,
     SatelPanelInfo,
     SatelZoneInfo,
 )
@@ -541,6 +543,30 @@ class AsyncSatel:
             msg = (
                 "Zone info response zone mismatch: "
                 f"expected {zone_id}, got {response.device_info.device_number}"
+            )
+            raise ValueError(msg)
+
+        return response.device_info
+
+    async def read_output_info(self, output_id: int) -> SatelOutputInfo | None:
+        """Read metadata for a single output."""
+        device_number = encode_device_number(output_id)
+        msg = SatelWriteMessage(
+            SatelReadCommand.READ_DEVICE_NAME,
+            raw_data=bytearray([SatelDeviceSelector.OUTPUT, device_number]),
+        )
+        response = await self._typed_send_data_and_wait(
+            msg,
+            SatelOutputInfoReadMessage,
+        )
+
+        if response is None:
+            return None
+
+        if response.device_info.device_number != output_id:
+            msg = (
+                "Output info response output mismatch: "
+                f"expected {output_id}, got {response.device_info.device_number}"
             )
             raise ValueError(msg)
 

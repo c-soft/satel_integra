@@ -22,6 +22,7 @@ from satel_integra.const import (
 from satel_integra.exceptions import SatelUnexpectedResponseError
 from satel_integra.models import (
     SatelCommunicationModuleInfo,
+    SatelOutputInfo,
     SatelPanelInfo,
     SatelZoneInfo,
 )
@@ -247,3 +248,14 @@ class SatelZoneInfoReadMessage(SatelReadMessage):
     def device_info(self) -> SatelZoneInfo:
         """Return parsed zone information."""
         return SatelZoneInfo._from_payload(self.msg_data)
+
+
+class SatelOutputInfoReadMessage(SatelReadMessage):
+    """Structured read message for a 0xEE output info response."""
+
+    expected_data_length = 19
+
+    @cached_property
+    def device_info(self) -> SatelOutputInfo:
+        """Return parsed output information."""
+        return SatelOutputInfo._from_payload(self.msg_data)

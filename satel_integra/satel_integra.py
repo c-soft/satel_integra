@@ -315,9 +315,7 @@ class AsyncSatel:
                 )
                 continue
 
-            data = SatelWriteMessage(
-                SatelReadCommand.READ_DEVICE_NAME, raw_data=bytearray([0x01, 0x01])
-            )
+            data = SatelWriteMessage(SatelReadCommand.RTC_AND_STATUS)
             _LOGGER.debug(
                 "Keepalive sending after %.3fs of outbound inactivity", idle_for
             )

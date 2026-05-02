@@ -620,6 +620,25 @@ async def test_keepalive_loop_stops_when_connection_closes(
 
 
 @pytest.mark.asyncio
+async def test_keepalive_loop_sends_rtc_and_status_query(
+    satel, mock_connection, fake_sleep_factory
+):
+    fake_sleep_factory(
+        lambda sleep_count, _duration, _loop: (
+            setattr(mock_connection, "stopped", True) if sleep_count == 2 else None
+        )
+    )
+    satel._send_data_and_wait = AsyncMock(return_value=MagicMock())
+
+    await satel._keepalive_loop()
+
+    satel._send_data_and_wait.assert_called_once()
+    keepalive_message = satel._send_data_and_wait.await_args.args[0]
+    assert keepalive_message.cmd is SatelReadCommand.RTC_AND_STATUS
+    assert keepalive_message.msg_data == bytearray()
+
+
+@pytest.mark.asyncio
 async def test_keepalive_timeout_marks_same_connection_as_lost(
     satel, mock_connection, monkeypatch, caplog
 ):

@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass, field
 
-from satel_integra.utils import decode_zone_number
+from satel_integra.utils import decode_device_number
 
 from .device import SatelDeviceInfo, SatelDeviceType
 
@@ -19,7 +19,7 @@ class SatelZoneInfo(SatelDeviceInfo):
     def _from_payload(cls, payload: bytes) -> "SatelZoneInfo":
         """Parse a 0xEE zone payload with partition assignment."""
         return cls(
-            number=decode_zone_number(payload[1]),
+            device_number=decode_device_number(payload[1]),
             name=cls._decode_name(payload),
             type_code=payload[2],
             partition_assignment=payload[19] if payload[19] else None,

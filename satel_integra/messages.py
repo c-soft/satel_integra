@@ -22,14 +22,15 @@ from satel_integra.const import (
 from satel_integra.exceptions import SatelUnexpectedResponseError
 from satel_integra.models import (
     SatelCommunicationModuleInfo,
+    SatelOutputInfo,
     SatelPanelInfo,
     SatelZoneInfo,
 )
 from satel_integra.utils import (
     checksum,
     decode_bitmask_le,
+    decode_device_number,
     decode_temperature,
-    decode_zone_number,
     encode_bitmask_le,
 )
 
@@ -43,6 +44,7 @@ TCommand = TypeVar("TCommand", bound=SatelBaseCommand)
 class SatelDeviceSelector(IntEnum):
     """Raw 0xEE device selectors used on the wire."""
 
+    OUTPUT = 0x04
     ZONE_WITH_PARTITION_ASSIGNMENT = 0x05
 
 
@@ -55,14 +57,17 @@ def _decode_device_read_message(
             "READ_DEVICE_NAME response missing device type"
         )
 
-    if msg_data[0] != SatelDeviceSelector.ZONE_WITH_PARTITION_ASSIGNMENT:
-        _LOGGER.debug(
-            "Unsupported READ_DEVICE_NAME device type: 0x%02X; using default read message",
-            msg_data[0],
-        )
-        return SatelReadMessage(cmd, msg_data)
+    match msg_data[0]:
+        case SatelDeviceSelector.OUTPUT:
+            return SatelOutputInfoReadMessage(cmd, msg_data)
+        case SatelDeviceSelector.ZONE_WITH_PARTITION_ASSIGNMENT:
+            return SatelZoneInfoReadMessage(cmd, msg_data)
 
-    return SatelZoneInfoReadMessage(cmd, msg_data)
+    _LOGGER.debug(
+        "Unsupported READ_DEVICE_NAME device type: 0x%02X; using default read message",
+        msg_data[0],
+    )
+    return SatelReadMessage(cmd, msg_data)
 
 
 class SatelBaseMessage[TCommand: SatelBaseCommand]:
@@ -208,7 +213,7 @@ class SatelZoneTemperatureReadMessage(SatelReadMessage):
     @cached_property
     def zone_id(self) -> int:
         """Return the decoded zone id for this temperature response."""
-        return decode_zone_number(self.msg_data[0])
+        return decode_device_number(self.msg_data[0])
 
     @cached_property
     def temperature(self) -> float | None:
@@ -247,3 +252,14 @@ class SatelZoneInfoReadMessage(SatelReadMessage):
     def device_info(self) -> SatelZoneInfo:
         """Return parsed zone information."""
         return SatelZoneInfo._from_payload(self.msg_data)
+
+
+class SatelOutputInfoReadMessage(SatelReadMessage):
+    """Structured read message for a 0xEE output info response."""
+
+    expected_data_length = 19
+
+    @cached_property
+    def device_info(self) -> SatelOutputInfo:
+        """Return parsed output information."""
+        return SatelOutputInfo._from_payload(self.msg_data)

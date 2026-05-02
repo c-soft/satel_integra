@@ -8,6 +8,7 @@ from enum import Enum, unique
 class SatelDeviceType(Enum):
     """Semantic device types returned by 0xEE reads."""
 
+    OUTPUT = "output"
     ZONE = "zone"
 
 
@@ -16,7 +17,7 @@ class SatelDeviceInfo:
     """Shared fields present in 0xEE device information responses."""
 
     device_type: SatelDeviceType
-    number: int
+    device_number: int
     name: str
 
     @staticmethod

@@ -22,6 +22,7 @@ from satel_integra.messages import (
     SatelDeviceSelector,
     SatelIntegraVersionReadMessage,
     SatelModuleVersionReadMessage,
+    SatelOutputInfoReadMessage,
     SatelReadMessage,
     SatelWriteMessage,
     SatelZoneInfoReadMessage,
@@ -29,11 +30,12 @@ from satel_integra.messages import (
 )
 from satel_integra.models import (
     SatelCommunicationModuleInfo,
+    SatelOutputInfo,
     SatelPanelInfo,
     SatelZoneInfo,
 )
 from satel_integra.queue import SatelMessageQueue
-from satel_integra.utils import encode_bitmask_le, encode_zone_number
+from satel_integra.utils import encode_bitmask_le, encode_device_number
 
 TReadMessage = TypeVar("TReadMessage", bound=SatelReadMessage)
 
@@ -484,9 +486,9 @@ class AsyncSatel:
 
     async def read_temperature(self, zone_id: int) -> float | None:
         """Read the temperature for a single zone sensor."""
-        request_zone_id = encode_zone_number(zone_id)
+        device_number = encode_device_number(zone_id)
         msg = SatelWriteMessage(
-            SatelReadCommand.ZONE_TEMPERATURE, raw_data=bytearray([request_zone_id])
+            SatelReadCommand.ZONE_TEMPERATURE, raw_data=bytearray([device_number])
         )
         response = await self._typed_send_data_and_wait(
             msg,
@@ -522,11 +524,11 @@ class AsyncSatel:
 
     async def read_zone_info(self, zone_id: int) -> SatelZoneInfo | None:
         """Read metadata for a single zone."""
-        request_zone_id = encode_zone_number(zone_id)
+        device_number = encode_device_number(zone_id)
         msg = SatelWriteMessage(
             SatelReadCommand.READ_DEVICE_NAME,
             raw_data=bytearray(
-                [SatelDeviceSelector.ZONE_WITH_PARTITION_ASSIGNMENT, request_zone_id]
+                [SatelDeviceSelector.ZONE_WITH_PARTITION_ASSIGNMENT, device_number]
             ),
         )
         response = await self._typed_send_data_and_wait(
@@ -537,10 +539,34 @@ class AsyncSatel:
         if response is None:
             return None
 
-        if response.device_info.number != zone_id:
+        if response.device_info.device_number != zone_id:
             msg = (
                 "Zone info response zone mismatch: "
-                f"expected {zone_id}, got {response.device_info.number}"
+                f"expected {zone_id}, got {response.device_info.device_number}"
+            )
+            raise ValueError(msg)
+
+        return response.device_info
+
+    async def read_output_info(self, output_id: int) -> SatelOutputInfo | None:
+        """Read metadata for a single output."""
+        device_number = encode_device_number(output_id)
+        msg = SatelWriteMessage(
+            SatelReadCommand.READ_DEVICE_NAME,
+            raw_data=bytearray([SatelDeviceSelector.OUTPUT, device_number]),
+        )
+        response = await self._typed_send_data_and_wait(
+            msg,
+            SatelOutputInfoReadMessage,
+        )
+
+        if response is None:
+            return None
+
+        if response.device_info.device_number != output_id:
+            msg = (
+                "Output info response output mismatch: "
+                f"expected {output_id}, got {response.device_info.device_number}"
             )
             raise ValueError(msg)
 

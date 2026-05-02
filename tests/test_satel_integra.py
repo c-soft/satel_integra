@@ -15,6 +15,7 @@ from satel_integra.exceptions import (
 from satel_integra.messages import (
     SatelIntegraVersionReadMessage,
     SatelModuleVersionReadMessage,
+    SatelOutputInfoReadMessage,
     SatelReadMessage,
     SatelZoneInfoReadMessage,
     SatelZoneTemperatureReadMessage,
@@ -276,11 +277,47 @@ async def test_read_zone_info_encodes_zone_256_as_zero(satel, mock_queue):
     result = await satel.read_zone_info(256)
 
     assert result is not None
-    assert result.number == 256
+    assert result.device_number == 256
     assert result.partition_assignment is None
 
     sent_msg = mock_queue.add_message.await_args.args[0]
     assert sent_msg.msg_data == bytearray([0x05, 0x00])
+
+
+@pytest.mark.asyncio
+async def test_read_output_info_returns_output_info(satel, mock_queue):
+    response = SatelOutputInfoReadMessage(
+        SatelReadCommand.READ_DEVICE_NAME,
+        bytearray([0x04, 0x01, 0x10]) + bytearray(b"Output 1        "),
+    )
+    mock_queue.add_message.return_value = response
+
+    result = await satel.read_output_info(1)
+
+    assert isinstance(response, SatelOutputInfoReadMessage)
+    assert result == response.device_info
+
+    mock_queue.add_message.assert_awaited_once()
+    sent_msg = mock_queue.add_message.await_args.args[0]
+    assert sent_msg.cmd is SatelReadCommand.READ_DEVICE_NAME
+    assert sent_msg.msg_data == bytearray([0x04, 0x01])
+
+
+@pytest.mark.asyncio
+async def test_read_output_info_encodes_output_256_as_zero(satel, mock_queue):
+    response = SatelOutputInfoReadMessage(
+        SatelReadCommand.READ_DEVICE_NAME,
+        bytearray([0x04, 0x00, 0x10]) + bytearray(b"Bell            "),
+    )
+    mock_queue.add_message.return_value = response
+
+    result = await satel.read_output_info(256)
+
+    assert result is not None
+    assert result.device_number == 256
+
+    sent_msg = mock_queue.add_message.await_args.args[0]
+    assert sent_msg.msg_data == bytearray([0x04, 0x00])
 
 
 @pytest.mark.asyncio
@@ -379,12 +416,6 @@ async def test_read_communication_module_info_rejects_unexpected_response(
 
 
 @pytest.mark.asyncio
-async def test_read_temperature_rejects_invalid_zone(satel):
-    with pytest.raises(ValueError, match="zone_number must be between 1 and 256"):
-        await satel.read_temperature(0)
-
-
-@pytest.mark.asyncio
 async def test_read_temperature_rejects_unexpected_response_type(satel, mock_queue):
     mock_queue.add_message.return_value = SatelReadMessage(
         SatelReadCommand.READ_DEVICE_NAME, bytearray()
@@ -395,9 +426,17 @@ async def test_read_temperature_rejects_unexpected_response_type(satel, mock_que
 
 
 @pytest.mark.asyncio
-async def test_read_zone_info_rejects_invalid_zone(satel):
-    with pytest.raises(ValueError, match="zone_number must be between 1 and 256"):
-        await satel.read_zone_info(0)
+@pytest.mark.parametrize(
+    "method,args",
+    [
+        ("read_temperature", (0,)),
+        ("read_zone_info", (0,)),
+        ("read_output_info", (0,)),
+    ],
+)
+async def test_single_device_reads_reject_invalid_device_number(satel, method, args):
+    with pytest.raises(ValueError, match="device_number must be between 1 and 256"):
+        await getattr(satel, method)(*args)
 
 
 @pytest.mark.asyncio
@@ -405,6 +444,15 @@ async def test_read_zone_info_returns_none_without_response(satel, mock_queue):
     mock_queue.add_message.return_value = None
 
     result = await satel.read_zone_info(1)
+
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_read_output_info_returns_none_without_response(satel, mock_queue):
+    mock_queue.add_message.return_value = None
+
+    result = await satel.read_output_info(1)
 
     assert result is None
 
@@ -418,6 +466,19 @@ async def test_read_zone_info_returns_none_for_unavailable_zone_result(
     )
 
     result = await satel.read_zone_info(1)
+
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_read_output_info_returns_none_for_unavailable_output_result(
+    satel, mock_queue
+):
+    mock_queue.add_message.return_value = SatelReadMessage(
+        SatelReadCommand.RESULT, bytearray([0x08])
+    )
+
+    result = await satel.read_output_info(1)
 
     assert result is None
 
@@ -444,6 +505,16 @@ async def test_read_zone_info_rejects_unexpected_response_type(satel, mock_queue
 
 
 @pytest.mark.asyncio
+async def test_read_output_info_rejects_unexpected_response_type(satel, mock_queue):
+    mock_queue.add_message.return_value = SatelReadMessage(
+        SatelReadCommand.READ_DEVICE_NAME, bytearray([0x01])
+    )
+
+    with pytest.raises(SatelUnexpectedResponseError, match="Unexpected response type"):
+        await satel.read_output_info(1)
+
+
+@pytest.mark.asyncio
 async def test_read_zone_info_rejects_zone_mismatch(satel, mock_queue):
     mock_queue.add_message.return_value = SatelZoneInfoReadMessage(
         SatelReadCommand.READ_DEVICE_NAME,
@@ -454,6 +525,17 @@ async def test_read_zone_info_rejects_zone_mismatch(satel, mock_queue):
 
     with pytest.raises(ValueError, match="Zone info response zone mismatch"):
         await satel.read_zone_info(1)
+
+
+@pytest.mark.asyncio
+async def test_read_output_info_rejects_output_mismatch(satel, mock_queue):
+    mock_queue.add_message.return_value = SatelOutputInfoReadMessage(
+        SatelReadCommand.READ_DEVICE_NAME,
+        bytearray([0x04, 0x02, 0x10]) + bytearray(b"Output 2        "),
+    )
+
+    with pytest.raises(ValueError, match="Output info response output mismatch"):
+        await satel.read_output_info(1)
 
 
 @pytest.mark.asyncio

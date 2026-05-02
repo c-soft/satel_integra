@@ -1,22 +1,22 @@
 """Utility functions for Satel Integra integration."""
 
 
-def encode_zone_number(zone_number: int) -> int:
-    """Encode zone number for single-zone protocol payloads."""
-    if not 1 <= zone_number <= 256:
-        msg = f"zone_number must be between 1 and 256, got {zone_number}"
+def encode_device_number(device_number: int) -> int:
+    """Encode device number for single-device protocol payloads."""
+    if not 1 <= device_number <= 256:
+        msg = f"device_number must be between 1 and 256, got {device_number}"
         raise ValueError(msg)
 
-    return 0 if zone_number == 256 else zone_number
+    return 0 if device_number == 256 else device_number
 
 
-def decode_zone_number(zone_number: int) -> int:
-    """Decode zone number from single-zone protocol payloads."""
-    if not 0 <= zone_number <= 255:
-        msg = f"encoded zone_number must be between 0 and 255, got {zone_number}"
+def decode_device_number(device_number: int) -> int:
+    """Decode device number from single-device protocol payloads."""
+    if not 0 <= device_number <= 255:
+        msg = f"encoded device_number must be between 0 and 255, got {device_number}"
         raise ValueError(msg)
 
-    return zone_number or 256
+    return device_number or 256
 
 
 def decode_temperature(high_byte: int, low_byte: int) -> float | None:

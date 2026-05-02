@@ -3,6 +3,7 @@
 from .device import SatelDeviceInfo, SatelDeviceType
 from .firmware import SatelFirmwareVersion
 from .module import SatelCommunicationModuleInfo
+from .output import SatelOutputInfo
 from .panel import SatelPanelInfo, SatelPanelModel
 from .zone import SatelZoneInfo
 
@@ -11,6 +12,7 @@ __all__ = [
     "SatelDeviceInfo",
     "SatelDeviceType",
     "SatelFirmwareVersion",
+    "SatelOutputInfo",
     "SatelPanelInfo",
     "SatelPanelModel",
     "SatelZoneInfo",

@@ -3,10 +3,10 @@ import pytest
 from satel_integra.utils import (
     checksum,
     decode_bitmask_le,
+    decode_device_number,
     decode_temperature,
-    decode_zone_number,
     encode_bitmask_le,
-    encode_zone_number,
+    encode_device_number,
 )
 
 # List values, byte data, length
@@ -100,39 +100,41 @@ def test_bitmask_bytes_decoding(
 
 
 @pytest.mark.parametrize(
-    "zone_number, expected",
+    "device_number, expected",
     [
         (42, 42),
         (256, 0),
     ],
 )
-def test_encode_zone_number(zone_number: int, expected: int) -> None:
-    assert encode_zone_number(zone_number) == expected
+def test_encode_device_number(device_number: int, expected: int) -> None:
+    assert encode_device_number(device_number) == expected
 
 
-@pytest.mark.parametrize("zone_number", [0, 257])
-def test_encode_zone_number_validates_range(zone_number: int) -> None:
-    with pytest.raises(ValueError, match="zone_number must be between 1 and 256"):
-        encode_zone_number(zone_number)
+@pytest.mark.parametrize("device_number", [0, 257])
+def test_encode_device_number_validates_range(device_number: int) -> None:
+    with pytest.raises(ValueError, match="device_number must be between 1 and 256"):
+        encode_device_number(device_number)
 
 
 @pytest.mark.parametrize(
-    "encoded_zone_number, expected",
+    "encoded_device_number, expected",
     [
         (42, 42),
         (0, 256),
     ],
 )
-def test_decode_zone_number(encoded_zone_number: int, expected: int) -> None:
-    assert decode_zone_number(encoded_zone_number) == expected
+def test_decode_device_number(encoded_device_number: int, expected: int) -> None:
+    assert decode_device_number(encoded_device_number) == expected
 
 
-@pytest.mark.parametrize("encoded_zone_number", [-1, 256])
-def test_decode_zone_number_validates_encoded_range(encoded_zone_number: int) -> None:
+@pytest.mark.parametrize("encoded_device_number", [-1, 256])
+def test_decode_device_number_validates_encoded_range(
+    encoded_device_number: int,
+) -> None:
     with pytest.raises(
-        ValueError, match="encoded zone_number must be between 0 and 255"
+        ValueError, match="encoded device_number must be between 0 and 255"
     ):
-        decode_zone_number(encoded_zone_number)
+        decode_device_number(encoded_device_number)
 
 
 @pytest.mark.parametrize(

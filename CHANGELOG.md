@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.3.0](https://github.com/c-soft/satel_integra/compare/1.2.2...1.3.0) - 2026-05-02
+
+### What’s Changed
+
+- #65 - Change keepalive message (@Tommatheussen)
+- #64 - Add ability to read output information (@Tommatheussen)
+- #63 - Add ability to read zone information (@Tommatheussen)
+- #62 - Add ability to read panel information (@Tommatheussen)
+- #61 - Remove duplication between Read and Write commands (@Tommatheussen)
+
 ## [1.2.2](https://github.com/c-soft/satel_integra/compare/1.2.1...1.2.2) - 2026-04-26
 
 ### What’s Changed
@@ -88,6 +98,7 @@ self.controller.monitor_status(
 
 
 
+
 ```
 ##### After
 
@@ -102,6 +113,7 @@ self.controller.register_callbacks(
 )
 
 await self.controller.start(enable_monitoring=True)
+
 
 
 

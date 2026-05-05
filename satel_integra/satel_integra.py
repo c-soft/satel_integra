@@ -646,7 +646,6 @@ class AsyncSatel:
                 return None
 
             msg = SatelReadMessage.decode_frame(data)
-            _LOGGER.debug("Received command: %s", msg)
             return msg
 
         except Exception as e:

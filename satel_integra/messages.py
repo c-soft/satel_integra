@@ -176,6 +176,8 @@ class SatelReadMessage(SatelBaseMessage[SatelReadCommand]):
             )
             return None
 
+        _LOGGER.debug("Received command: %s", cmd)
+
         match cmd:
             case SatelReadCommand.MODULE_VERSION:
                 return SatelModuleVersionReadMessage(cmd, bytearray(data))

@@ -143,7 +143,7 @@ class SatelReadMessage(SatelBaseMessage[SatelReadCommand]):
     @staticmethod
     def decode_frame(
         data: bytes,
-    ) -> "SatelReadMessage":
+    ) -> "SatelReadMessage | None":
         """Verify checksum and strip header/footer of received frame."""
         if data[0:2] != FRAME_START:
             _LOGGER.error("Bad header: %s", data.hex())
@@ -168,9 +168,13 @@ class SatelReadMessage(SatelBaseMessage[SatelReadCommand]):
         cmd_byte, data = output[0], output[1:-2]
         try:
             cmd = SatelReadCommand(cmd_byte)
-        except ValueError as ex:
-            _LOGGER.error("Unknown command byte: %s", hex(cmd_byte))
-            raise ValueError("Unknown command byte") from ex
+        except ValueError:
+            _LOGGER.warning(
+                "Ignoring unknown command byte: %s (payload=%s)",
+                hex(cmd_byte),
+                output.hex(),
+            )
+            return None
 
         match cmd:
             case SatelReadCommand.MODULE_VERSION:

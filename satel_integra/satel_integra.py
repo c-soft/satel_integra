@@ -23,6 +23,7 @@ from satel_integra.messages import (
     SatelIntegraVersionReadMessage,
     SatelModuleVersionReadMessage,
     SatelOutputInfoReadMessage,
+    SatelPartitionInfoReadMessage,
     SatelReadMessage,
     SatelWriteMessage,
     SatelZoneInfoReadMessage,
@@ -32,6 +33,7 @@ from satel_integra.models import (
     SatelCommunicationModuleInfo,
     SatelOutputInfo,
     SatelPanelInfo,
+    SatelPartitionInfo,
     SatelZoneInfo,
 )
 from satel_integra.queue import SatelMessageQueue
@@ -541,6 +543,34 @@ class AsyncSatel:
             msg = (
                 "Zone info response zone mismatch: "
                 f"expected {zone_id}, got {response.device_info.device_number}"
+            )
+            raise ValueError(msg)
+
+        return response.device_info
+
+    async def read_partition_info(self, partition_id: int) -> SatelPartitionInfo | None:
+        """Read metadata for a single partition."""
+        if not 1 <= partition_id <= 32:
+            raise ValueError("partition_id must be between 1 and 32")
+
+        msg = SatelWriteMessage(
+            SatelReadCommand.READ_DEVICE_NAME,
+            raw_data=bytearray(
+                [SatelDeviceSelector.PARTITION_WITH_OBJECT_ASSIGNMENT, partition_id]
+            ),
+        )
+        response = await self._typed_send_data_and_wait(
+            msg,
+            SatelPartitionInfoReadMessage,
+        )
+
+        if response is None:
+            return None
+
+        if response.device_info.device_number != partition_id:
+            msg = (
+                "Partition info response partition mismatch: "
+                f"expected {partition_id}, got {response.device_info.device_number}"
             )
             raise ValueError(msg)
 

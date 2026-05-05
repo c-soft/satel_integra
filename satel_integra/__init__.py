@@ -18,6 +18,7 @@ from .models import (
     SatelOutputInfo,
     SatelPanelInfo,
     SatelPanelModel,
+    SatelPartitionInfo,
     SatelZoneInfo,
 )
 from .satel_integra import AlarmState, AsyncSatel
@@ -39,6 +40,7 @@ __all__ = [
     "SatelPanelBusyError",
     "SatelPanelInfo",
     "SatelPanelModel",
+    "SatelPartitionInfo",
     "SatelUnexpectedResponseError",
     "SatelZoneInfo",
 ]

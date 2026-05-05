@@ -1,6 +1,56 @@
 import pytest
 
-from satel_integra.models import SatelDeviceType, SatelOutputInfo, SatelZoneInfo
+from satel_integra.models import (
+    SatelDeviceType,
+    SatelOutputInfo,
+    SatelPartitionInfo,
+    SatelZoneInfo,
+)
+
+
+@pytest.mark.parametrize(
+    (
+        "partition_byte",
+        "name_payload",
+        "object_assignment",
+        "expected_number",
+        "expected_name",
+        "expected_object_assignment",
+    ),
+    [
+        (0x01, b"Ground Floor    ", 0x02, 1, "Ground Floor", 2),
+        (0x20, b"Guest Wing      ", 0x08, 32, "Guest Wing", 8),
+        (
+            0x02,
+            b"Night\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00",
+            0x00,
+            2,
+            "Night",
+            None,
+        ),
+    ],
+)
+def test_partition_info_from_payload(
+    partition_byte,
+    name_payload,
+    object_assignment,
+    expected_number,
+    expected_name,
+    expected_object_assignment,
+) -> None:
+    payload = (
+        bytearray([0x10, partition_byte, 0x03])
+        + bytearray(name_payload)
+        + bytearray([object_assignment])
+    )
+
+    partition_info = SatelPartitionInfo._from_payload(payload)
+
+    assert partition_info.device_type is SatelDeviceType.PARTITION
+    assert partition_info.device_number == expected_number
+    assert partition_info.name == expected_name
+    assert partition_info.type_code == 0x03
+    assert partition_info.object_assignment == expected_object_assignment
 
 
 @pytest.mark.parametrize(

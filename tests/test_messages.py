@@ -116,6 +116,16 @@ def test_decode_frame_returns_default_message_for_unknown_device_type(caplog) ->
     assert "Unsupported READ_DEVICE_NAME device type: 0x06" in caplog.text
 
 
+def test_decode_frame_returns_none_for_unknown_command_byte(caplog) -> None:
+    payload = bytearray([0xAB, 0x01, 0x02, 0x03])
+
+    with caplog.at_level(logging.WARNING):
+        msg = SatelReadMessage.decode_frame(_frame_payload(payload))
+
+    assert msg is None
+    assert "Ignoring unknown command byte: 0xab" in caplog.text
+
+
 def test_decode_frame_rejects_missing_device_type() -> None:
     payload = bytearray([0xEE])
 

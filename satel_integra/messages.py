@@ -185,6 +185,12 @@ class SatelReadMessage(SatelBaseMessage[SatelReadCommand]):
                 return SatelZoneTemperatureReadMessage(cmd, bytearray(data))
             case SatelReadCommand.INTEGRA_VERSION:
                 return SatelIntegraVersionReadMessage(cmd, bytearray(data))
+            case SatelReadCommand.READ_EVENT:
+                _LOGGER.debug(
+                    "Received event message; event decoding is not implemented: %s",
+                    data.hex(),
+                )
+                return SatelReadMessage(cmd, bytearray(data))
             case SatelReadCommand.READ_DEVICE_NAME:
                 return _decode_device_read_message(cmd, bytearray(data))
             case _:

@@ -126,6 +126,19 @@ def test_decode_frame_returns_none_for_unknown_command_byte(caplog) -> None:
     assert "Ignoring unknown command byte: 0xab" in caplog.text
 
 
+def test_decode_frame_logs_event_messages_at_debug(caplog) -> None:
+    payload = bytearray.fromhex("8cbfc554c287fb0301035896035096")
+
+    with caplog.at_level(logging.DEBUG):
+        msg = SatelReadMessage.decode_frame(_frame_payload(payload))
+
+    assert type(msg) is SatelReadMessage
+    assert msg.cmd is SatelReadCommand.READ_EVENT
+    assert msg.msg_data == payload[1:]
+    assert "Received event message; event decoding is not implemented" in caplog.text
+    assert "Ignoring unknown command byte" not in caplog.text
+
+
 def test_decode_frame_rejects_missing_device_type() -> None:
     payload = bytearray([0xEE])
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.1](https://github.com/c-soft/satel_integra/compare/1.3.0...1.3.1) - 2026-05-06
+
+### What’s Changed
+
+- #67 - Ignore Read Event messages (@Tommatheussen)
+- #66 - Don't raise on unknown incoming commands (@Tommatheussen)
+
 ## [1.3.0](https://github.com/c-soft/satel_integra/compare/1.2.2...1.3.0) - 2026-05-02
 
 ### What’s Changed
@@ -99,6 +106,7 @@ self.controller.monitor_status(
 
 
 
+
 ```
 ##### After
 
@@ -113,6 +121,7 @@ self.controller.register_callbacks(
 )
 
 await self.controller.start(enable_monitoring=True)
+
 
 
 

@@ -24,6 +24,7 @@ from satel_integra.models import (
     SatelCommunicationModuleInfo,
     SatelOutputInfo,
     SatelPanelInfo,
+    SatelPartitionInfo,
     SatelZoneInfo,
 )
 from satel_integra.utils import (
@@ -46,6 +47,7 @@ class SatelDeviceSelector(IntEnum):
 
     OUTPUT = 0x04
     ZONE_WITH_PARTITION_ASSIGNMENT = 0x05
+    PARTITION_WITH_OBJECT_ASSIGNMENT = 0x10
 
 
 def _decode_device_read_message(
@@ -58,6 +60,8 @@ def _decode_device_read_message(
         )
 
     match msg_data[0]:
+        case SatelDeviceSelector.PARTITION_WITH_OBJECT_ASSIGNMENT:
+            return SatelPartitionInfoReadMessage(cmd, msg_data)
         case SatelDeviceSelector.OUTPUT:
             return SatelOutputInfoReadMessage(cmd, msg_data)
         case SatelDeviceSelector.ZONE_WITH_PARTITION_ASSIGNMENT:
@@ -264,6 +268,17 @@ class SatelZoneInfoReadMessage(SatelReadMessage):
     def device_info(self) -> SatelZoneInfo:
         """Return parsed zone information."""
         return SatelZoneInfo._from_payload(self.msg_data)
+
+
+class SatelPartitionInfoReadMessage(SatelReadMessage):
+    """Structured read message for a 0xEE partition info response."""
+
+    expected_data_length = 20
+
+    @cached_property
+    def device_info(self) -> SatelPartitionInfo:
+        """Return parsed partition information."""
+        return SatelPartitionInfo._from_payload(self.msg_data)
 
 
 class SatelOutputInfoReadMessage(SatelReadMessage):

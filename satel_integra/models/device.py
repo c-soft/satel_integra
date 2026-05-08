@@ -8,6 +8,7 @@ from enum import Enum, unique
 class SatelDeviceType(Enum):
     """Semantic device types returned by 0xEE reads."""
 
+    PARTITION = "partition"
     OUTPUT = "output"
     ZONE = "zone"
 

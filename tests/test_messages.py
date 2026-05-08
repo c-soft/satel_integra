@@ -9,6 +9,7 @@ from satel_integra.messages import (
     SatelIntegraVersionReadMessage,
     SatelModuleVersionReadMessage,
     SatelOutputInfoReadMessage,
+    SatelPartitionInfoReadMessage,
     SatelReadMessage,
     SatelWriteMessage,
     SatelZoneInfoReadMessage,
@@ -66,6 +67,23 @@ def test_decode_frame_returns_zone_info_message() -> None:
 
     assert isinstance(msg, SatelZoneInfoReadMessage)
     assert msg.msg_data == payload[1:]
+
+
+def test_decode_frame_returns_partition_info_message() -> None:
+    payload = (
+        bytearray([0xEE, 0x10, 0x01, 0x03])
+        + bytearray(b"Ground Floor    ")
+        + bytearray([0x02])
+    )
+
+    msg = SatelReadMessage.decode_frame(_frame_payload(payload))
+
+    assert isinstance(msg, SatelPartitionInfoReadMessage)
+    assert msg.msg_data == payload[1:]
+    assert msg.device_info.device_number == 1
+    assert msg.device_info.name == "Ground Floor"
+    assert msg.device_info.type_code == 0x03
+    assert msg.device_info.object_assignment == 2
 
 
 def test_decode_frame_returns_output_info_message() -> None:
@@ -231,6 +249,21 @@ def test_output_info_message_validates_payload_length(caplog) -> None:
         )
 
     assert "payload=040110" in caplog.text
+
+
+def test_partition_info_message_validates_payload_length(caplog) -> None:
+    with (
+        caplog.at_level(logging.WARNING),
+        pytest.raises(
+            SatelUnexpectedResponseError,
+            match="Invalid response length for READ_DEVICE_NAME",
+        ),
+    ):
+        SatelReadMessage.decode_frame(
+            _frame_payload(bytearray([0xEE, 0x10, 0x01, 0x03]))
+        )
+
+    assert "payload=100103" in caplog.text
 
 
 def test_integra_version_message_rejects_invalid_firmware_payload(caplog) -> None:

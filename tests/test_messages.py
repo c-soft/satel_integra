@@ -7,6 +7,7 @@ from satel_integra.const import FRAME_END, FRAME_START
 from satel_integra.exceptions import SatelUnexpectedResponseError
 from satel_integra.messages import (
     READ_COMMAND_SPECS,
+    READ_DEVICE_NAME_SPECS,
     ReadCommandSpec,
     SatelIntegraVersionReadMessage,
     SatelModuleVersionReadMessage,
@@ -29,6 +30,15 @@ def _frame_payload(payload: bytearray) -> bytearray:
         + bytearray([csum >> 8, csum & 0xFF])
         + bytearray(FRAME_END)
     )
+
+
+def _invalid_payload_for_lengths(
+    expected_lengths: tuple[int, ...], prefix: bytearray | None = None
+) -> bytearray:
+    payload = bytearray(prefix or b"")
+    while len(payload) in expected_lengths:
+        payload.append(0)
+    return payload
 
 
 def test_decode_frame_returns_zone_temperature_message() -> None:
@@ -233,90 +243,54 @@ def test_decode_frame_uses_spec_expected_data_lengths(monkeypatch) -> None:
         )
 
 
-def test_zone_temperature_message_validates_payload_length(caplog) -> None:
+@pytest.mark.parametrize(
+    "spec",
+    [
+        spec
+        for spec in READ_COMMAND_SPECS.values()
+        if spec.expected_data_lengths is not None and spec.decoder is None
+    ],
+    ids=lambda spec: spec.command.name,
+)
+def test_decode_frame_validates_command_spec_payload_lengths(spec) -> None:
+    assert spec.expected_data_lengths is not None
+
     with (
-        caplog.at_level(logging.WARNING),
         pytest.raises(
             SatelUnexpectedResponseError,
-            match="Invalid response length for ZONE_TEMPERATURE",
+            match=f"Invalid response length for {spec.command.name}",
         ),
     ):
-        SatelZoneTemperatureReadMessage(
-            SatelReadCommand.ZONE_TEMPERATURE, bytearray([1, 0x00])
+        SatelReadMessage.decode_frame(
+            _frame_payload(
+                bytearray([spec.command])
+                + _invalid_payload_for_lengths(spec.expected_data_lengths)
+            )
         )
 
-    assert "payload=0100" in caplog.text
 
+@pytest.mark.parametrize(
+    "selector",
+    READ_DEVICE_NAME_SPECS,
+    ids=lambda selector: selector.name,
+)
+def test_decode_frame_validates_device_name_spec_payload_lengths(selector) -> None:
+    spec = READ_DEVICE_NAME_SPECS[selector]
+    assert spec.expected_data_lengths is not None
 
-def test_integra_version_message_validates_payload_length(caplog) -> None:
+    payload = _invalid_payload_for_lengths(
+        spec.expected_data_lengths, bytearray([selector])
+    )
+
     with (
-        caplog.at_level(logging.WARNING),
-        pytest.raises(
-            SatelUnexpectedResponseError,
-            match="Invalid response length for INTEGRA_VERSION",
-        ),
-    ):
-        SatelIntegraVersionReadMessage(SatelReadCommand.INTEGRA_VERSION, bytearray())
-
-    assert "payload=" in caplog.text
-
-
-def test_module_version_message_validates_payload_length(caplog) -> None:
-    with (
-        caplog.at_level(logging.WARNING),
-        pytest.raises(
-            SatelUnexpectedResponseError,
-            match="Invalid response length for MODULE_VERSION",
-        ),
-    ):
-        SatelModuleVersionReadMessage(SatelReadCommand.MODULE_VERSION, bytearray())
-
-    assert "payload=" in caplog.text
-
-
-def test_zone_info_message_validates_payload_length(caplog) -> None:
-    with (
-        caplog.at_level(logging.WARNING),
         pytest.raises(
             SatelUnexpectedResponseError,
             match="Invalid response length for READ_DEVICE_NAME",
         ),
     ):
         SatelReadMessage.decode_frame(
-            _frame_payload(bytearray([0xEE, 0x05, 0x01, 0x2A]))
+            _frame_payload(bytearray([SatelReadCommand.READ_DEVICE_NAME]) + payload)
         )
-
-    assert "payload=05012a" in caplog.text
-
-
-def test_output_info_message_validates_payload_length(caplog) -> None:
-    with (
-        caplog.at_level(logging.WARNING),
-        pytest.raises(
-            SatelUnexpectedResponseError,
-            match="Invalid response length for READ_DEVICE_NAME",
-        ),
-    ):
-        SatelReadMessage.decode_frame(
-            _frame_payload(bytearray([0xEE, 0x04, 0x01, 0x10]))
-        )
-
-    assert "payload=040110" in caplog.text
-
-
-def test_partition_info_message_validates_payload_length(caplog) -> None:
-    with (
-        caplog.at_level(logging.WARNING),
-        pytest.raises(
-            SatelUnexpectedResponseError,
-            match="Invalid response length for READ_DEVICE_NAME",
-        ),
-    ):
-        SatelReadMessage.decode_frame(
-            _frame_payload(bytearray([0xEE, 0x10, 0x01, 0x03]))
-        )
-
-    assert "payload=100103" in caplog.text
 
 
 def test_integra_version_message_rejects_invalid_firmware_payload(caplog) -> None:

@@ -6,6 +6,8 @@ from satel_integra.commands import SatelReadCommand, SatelWriteCommand
 from satel_integra.const import FRAME_END, FRAME_START
 from satel_integra.exceptions import SatelUnexpectedResponseError
 from satel_integra.messages import (
+    READ_COMMAND_SPECS,
+    ReadCommandSpec,
     SatelIntegraVersionReadMessage,
     SatelModuleVersionReadMessage,
     SatelOutputInfoReadMessage,
@@ -178,6 +180,57 @@ def test_decode_frame_returns_module_version_message() -> None:
     assert msg.module_info.supports_256_zones_outputs is True
     assert msg.module_info.supports_trouble_memory_part_8 is True
     assert msg.module_info.supports_arm_no_bypass is True
+
+
+@pytest.mark.parametrize(
+    "spec",
+    READ_COMMAND_SPECS.values(),
+    ids=lambda spec: spec.command.name,
+)
+def test_decode_frame_uses_read_command_specs(spec) -> None:
+    payloads = {
+        SatelReadCommand.MODULE_VERSION: bytearray(b"12320120527")
+        + bytearray([0b0000_0111]),
+        SatelReadCommand.ZONE_TEMPERATURE: bytearray([0x01, 0x00, 0x96]),
+        SatelReadCommand.INTEGRA_VERSION: bytearray([72])
+        + bytearray(b"12320120527")
+        + bytearray([0x00, 0xFF]),
+        SatelReadCommand.READ_DEVICE_NAME: bytearray([0x05, 0x01, 0x2A])
+        + bytearray(b"Front Door      ")
+        + bytearray([0x03]),
+    }
+
+    msg = SatelReadMessage.decode_frame(
+        _frame_payload(bytearray([spec.command]) + payloads[spec.command])
+    )
+
+    assert isinstance(msg, spec.message_type)
+
+
+def test_decode_frame_uses_spec_expected_data_lengths(monkeypatch) -> None:
+    monkeypatch.setitem(
+        READ_COMMAND_SPECS,
+        SatelReadCommand.RTC_AND_STATUS,
+        ReadCommandSpec(
+            command=SatelReadCommand.RTC_AND_STATUS,
+            message_type=SatelReadMessage,
+            expected_data_lengths=(2,),
+        ),
+    )
+
+    msg = SatelReadMessage.decode_frame(
+        _frame_payload(bytearray([SatelReadCommand.RTC_AND_STATUS, 0x01, 0x02]))
+    )
+
+    assert type(msg) is SatelReadMessage
+
+    with pytest.raises(
+        SatelUnexpectedResponseError,
+        match="Invalid response length for RTC_AND_STATUS",
+    ):
+        SatelReadMessage.decode_frame(
+            _frame_payload(bytearray([SatelReadCommand.RTC_AND_STATUS, 0x01]))
+        )
 
 
 def test_zone_temperature_message_validates_payload_length(caplog) -> None:

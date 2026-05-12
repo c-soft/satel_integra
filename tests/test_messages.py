@@ -1,4 +1,5 @@
 import logging
+from datetime import date
 
 import pytest
 
@@ -18,7 +19,16 @@ from satel_integra.messages import (
     SatelZoneInfoReadMessage,
     SatelZoneTemperatureReadMessage,
 )
-from satel_integra.models import SatelZoneInfo
+from satel_integra.models import (
+    SatelCommunicationModuleInfo,
+    SatelFirmwareVersion,
+    SatelOutputInfo,
+    SatelPanelInfo,
+    SatelPanelModel,
+    SatelPartitionInfo,
+    SatelZoneInfo,
+    SatelZoneTemperature,
+)
 from satel_integra.utils import checksum
 
 
@@ -41,73 +51,83 @@ def _invalid_payload_for_lengths(
     return payload
 
 
-def test_decode_frame_returns_zone_temperature_message() -> None:
-    payload = bytearray([SatelReadCommand.ZONE_TEMPERATURE, 0x01, 0x00, 0x96])
-
+@pytest.mark.parametrize(
+    "payload,message_type,expected_data",
+    [
+        (
+            bytearray([SatelReadCommand.ZONE_TEMPERATURE, 0x01, 0x00, 0x96]),
+            SatelZoneTemperatureReadMessage,
+            SatelZoneTemperature(zone_id=1, temperature=20.0),
+        ),
+        (
+            bytearray([SatelReadCommand.INTEGRA_VERSION, 72])
+            + bytearray(b"12320120527")
+            + bytearray([0x00, 0xFF]),
+            SatelIntegraVersionReadMessage,
+            SatelPanelInfo(
+                type_code=72,
+                model=SatelPanelModel("INTEGRA 256 Plus"),
+                firmware=SatelFirmwareVersion("1.23", date(2012, 5, 27)),
+                language_code=0,
+                settings_stored_in_flash=True,
+            ),
+        ),
+        (
+            bytearray([SatelReadCommand.READ_DEVICE_NAME, 0x05, 0x01, 0x2A])
+            + bytearray(b"Front Door      ")
+            + bytearray([0x03]),
+            SatelZoneInfoReadMessage,
+            SatelZoneInfo(
+                device_number=1,
+                name="Front Door",
+                type_code=0x2A,
+                partition_assignment=3,
+            ),
+        ),
+        (
+            bytearray([SatelReadCommand.READ_DEVICE_NAME, 0x10, 0x01, 0x03])
+            + bytearray(b"Ground Floor    ")
+            + bytearray([0x02]),
+            SatelPartitionInfoReadMessage,
+            SatelPartitionInfo(
+                device_number=1,
+                name="Ground Floor",
+                type_code=0x03,
+                object_assignment=2,
+            ),
+        ),
+        (
+            bytearray([SatelReadCommand.READ_DEVICE_NAME, 0x04, 0x01, 0x10])
+            + bytearray(b"Output 1        "),
+            SatelOutputInfoReadMessage,
+            SatelOutputInfo(
+                device_number=1,
+                name="Output 1",
+                type_code=0x10,
+            ),
+        ),
+        (
+            bytearray([SatelReadCommand.MODULE_VERSION])
+            + bytearray(b"12320120527")
+            + bytearray([0b0000_0111]),
+            SatelModuleVersionReadMessage,
+            SatelCommunicationModuleInfo(
+                firmware=SatelFirmwareVersion("1.23", date(2012, 5, 27)),
+                supports_256_zones_outputs=True,
+                supports_trouble_memory_part_8=True,
+                supports_arm_no_bypass=True,
+            ),
+        ),
+    ],
+)
+def test_decode_frame_returns_typed_read_message(
+    payload, message_type, expected_data
+) -> None:
     msg = SatelReadMessage.decode_frame(_frame_payload(payload))
 
-    assert isinstance(msg, SatelZoneTemperatureReadMessage)
-    assert msg.zone_id == 1
-    assert msg.temperature == 20.0
-
-
-def test_decode_frame_returns_integra_version_message() -> None:
-    payload = (
-        bytearray([0x7E, 72]) + bytearray(b"12320120527") + bytearray([0x00, 0xFF])
-    )
-
-    msg = SatelReadMessage.decode_frame(_frame_payload(payload))
-
-    assert isinstance(msg, SatelIntegraVersionReadMessage)
-    assert msg.panel_info.type_code == 72
-    assert msg.panel_info.model is not None
-    assert msg.panel_info.model.name == "INTEGRA 256 Plus"
-    assert msg.panel_info.firmware.version == "1.23"
-    assert msg.panel_info.firmware.release_date.isoformat() == "2012-05-27"
-    assert msg.panel_info.language_code == 0
-    assert msg.panel_info.settings_stored_in_flash is True
-
-
-def test_decode_frame_returns_zone_info_message() -> None:
-    payload = (
-        bytearray([0xEE, 0x05, 0x01, 0x2A])
-        + bytearray(b"Front Door      ")
-        + bytearray([0x03])
-    )
-
-    msg = SatelReadMessage.decode_frame(_frame_payload(payload))
-
-    assert isinstance(msg, SatelZoneInfoReadMessage)
+    assert isinstance(msg, message_type)
     assert msg.msg_data == payload[1:]
-
-
-def test_decode_frame_returns_partition_info_message() -> None:
-    payload = (
-        bytearray([0xEE, 0x10, 0x01, 0x03])
-        + bytearray(b"Ground Floor    ")
-        + bytearray([0x02])
-    )
-
-    msg = SatelReadMessage.decode_frame(_frame_payload(payload))
-
-    assert isinstance(msg, SatelPartitionInfoReadMessage)
-    assert msg.msg_data == payload[1:]
-    assert msg.device_info.device_number == 1
-    assert msg.device_info.name == "Ground Floor"
-    assert msg.device_info.type_code == 0x03
-    assert msg.device_info.object_assignment == 2
-
-
-def test_decode_frame_returns_output_info_message() -> None:
-    payload = bytearray([0xEE, 0x04, 0x01, 0x10]) + bytearray(b"Output 1        ")
-
-    msg = SatelReadMessage.decode_frame(_frame_payload(payload))
-
-    assert isinstance(msg, SatelOutputInfoReadMessage)
-    assert msg.msg_data == payload[1:]
-    assert msg.device_info.device_number == 1
-    assert msg.device_info.name == "Output 1"
-    assert msg.device_info.type_code == 0x10
+    assert msg.data == expected_data
 
 
 def test_read_message_parsed_property_is_cached(monkeypatch) -> None:
@@ -127,8 +147,8 @@ def test_read_message_parsed_property_is_cached(monkeypatch) -> None:
     msg = SatelZoneInfoReadMessage(SatelReadCommand.READ_DEVICE_NAME, payload)
     monkeypatch.setattr(SatelZoneInfo, "_from_payload", from_payload)
 
-    first = msg.device_info
-    second = msg.device_info
+    first = msg.data
+    second = msg.data
 
     assert first is second
     assert calls == 1
@@ -177,19 +197,6 @@ def test_decode_frame_rejects_missing_device_type() -> None:
         match="READ_DEVICE_NAME response missing device type",
     ):
         SatelReadMessage.decode_frame(_frame_payload(payload))
-
-
-def test_decode_frame_returns_module_version_message() -> None:
-    payload = bytearray([0x7C]) + bytearray(b"12320120527") + bytearray([0b0000_0111])
-
-    msg = SatelReadMessage.decode_frame(_frame_payload(payload))
-
-    assert isinstance(msg, SatelModuleVersionReadMessage)
-    assert msg.module_info.firmware.version == "1.23"
-    assert msg.module_info.firmware.release_date.isoformat() == "2012-05-27"
-    assert msg.module_info.supports_256_zones_outputs is True
-    assert msg.module_info.supports_trouble_memory_part_8 is True
-    assert msg.module_info.supports_arm_no_bypass is True
 
 
 @pytest.mark.parametrize(
@@ -305,7 +312,7 @@ def test_integra_version_message_rejects_invalid_firmware_payload(caplog) -> Non
             SatelUnexpectedResponseError, match="Invalid firmware version payload"
         ),
     ):
-        _ = msg.panel_info
+        _ = msg.data
 
     assert "Invalid firmware version payload: '12x20120527'" in caplog.text
 

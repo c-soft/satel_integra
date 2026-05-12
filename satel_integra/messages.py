@@ -272,16 +272,6 @@ class SatelZoneTemperatureReadMessage(SatelTypedReadMessage[SatelZoneTemperature
 
     data_type = SatelZoneTemperature
 
-    @property
-    def zone_id(self) -> int:
-        """Return the decoded zone id for this temperature response."""
-        return self.data.zone_id
-
-    @property
-    def temperature(self) -> float | None:
-        """Return the decoded temperature in Celsius."""
-        return self.data.temperature
-
 
 class SatelModuleVersionReadMessage(
     SatelTypedReadMessage[SatelCommunicationModuleInfo]
@@ -290,32 +280,17 @@ class SatelModuleVersionReadMessage(
 
     data_type = SatelCommunicationModuleInfo
 
-    @property
-    def module_info(self) -> SatelCommunicationModuleInfo:
-        """Return parsed communication module information."""
-        return self.data
-
 
 class SatelIntegraVersionReadMessage(SatelTypedReadMessage[SatelPanelInfo]):
     """Structured read message for an INTEGRA panel version response."""
 
     data_type = SatelPanelInfo
 
-    @property
-    def panel_info(self) -> SatelPanelInfo:
-        """Return parsed INTEGRA panel information."""
-        return self.data
-
 
 class SatelDeviceInfoReadMessage[TData: SatelReadMessageData](
     SatelTypedReadMessage[TData]
 ):
     """Read message that exposes decoded device information."""
-
-    @property
-    def device_info(self) -> TData:
-        """Return parsed device information."""
-        return self.data
 
 
 class SatelZoneInfoReadMessage(SatelDeviceInfoReadMessage[SatelZoneInfo]):

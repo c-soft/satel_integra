@@ -6,6 +6,7 @@ from .module import SatelCommunicationModuleInfo
 from .output import SatelOutputInfo
 from .panel import SatelPanelInfo, SatelPanelModel
 from .partition import SatelPartitionInfo
+from .temperature import SatelZoneTemperature
 from .zone import SatelZoneInfo
 
 __all__ = [
@@ -17,5 +18,6 @@ __all__ = [
     "SatelPanelInfo",
     "SatelPanelModel",
     "SatelPartitionInfo",
+    "SatelZoneTemperature",
     "SatelZoneInfo",
 ]

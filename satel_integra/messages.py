@@ -5,7 +5,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from enum import IntEnum, unique
 from functools import cached_property
-from typing import TypeVar
+from typing import ClassVar, Protocol, Self, TypeVar
 from warnings import warn
 
 from satel_integra.commands import (
@@ -28,12 +28,11 @@ from satel_integra.models import (
     SatelPanelInfo,
     SatelPartitionInfo,
     SatelZoneInfo,
+    SatelZoneTemperature,
 )
 from satel_integra.utils import (
     checksum,
     decode_bitmask_le,
-    decode_device_number,
-    decode_temperature,
     encode_bitmask_le,
 )
 
@@ -41,6 +40,15 @@ _LOGGER = logging.getLogger(__name__)
 
 
 TCommand = TypeVar("TCommand", bound=SatelBaseCommand)
+
+
+class SatelReadMessageData(Protocol):
+    """Protocol for typed decoded read message data."""
+
+    @classmethod
+    def _from_payload(cls, payload: bytes) -> Self:
+        """Parse a raw response payload into typed data."""
+        ...
 
 
 @dataclass(frozen=True)
@@ -248,63 +256,84 @@ class SatelReadMessage(SatelBaseMessage[SatelReadCommand]):
         raise SatelUnexpectedResponseError(err)
 
 
-class SatelZoneTemperatureReadMessage(SatelReadMessage):
+class SatelTypedReadMessage[TData: SatelReadMessageData](SatelReadMessage):
+    """Read message that exposes its decoded payload as typed data."""
+
+    data_type: ClassVar[type[TData]]
+
+    @cached_property
+    def data(self) -> TData:
+        """Return the decoded response data."""
+        return self.data_type._from_payload(self.msg_data)
+
+
+class SatelZoneTemperatureReadMessage(SatelTypedReadMessage[SatelZoneTemperature]):
     """Structured read message for a zone temperature response."""
 
-    @cached_property
+    data_type = SatelZoneTemperature
+
+    @property
     def zone_id(self) -> int:
         """Return the decoded zone id for this temperature response."""
-        return decode_device_number(self.msg_data[0])
+        return self.data.zone_id
 
-    @cached_property
+    @property
     def temperature(self) -> float | None:
         """Return the decoded temperature in Celsius."""
-        return decode_temperature(self.msg_data[1], self.msg_data[2])
+        return self.data.temperature
 
 
-class SatelModuleVersionReadMessage(SatelReadMessage):
+class SatelModuleVersionReadMessage(
+    SatelTypedReadMessage[SatelCommunicationModuleInfo]
+):
     """Structured read message for an INT-RS/ETHM-1 module version response."""
 
-    @cached_property
+    data_type = SatelCommunicationModuleInfo
+
+    @property
     def module_info(self) -> SatelCommunicationModuleInfo:
         """Return parsed communication module information."""
-        return SatelCommunicationModuleInfo._from_payload(self.msg_data)
+        return self.data
 
 
-class SatelIntegraVersionReadMessage(SatelReadMessage):
+class SatelIntegraVersionReadMessage(SatelTypedReadMessage[SatelPanelInfo]):
     """Structured read message for an INTEGRA panel version response."""
 
-    @cached_property
+    data_type = SatelPanelInfo
+
+    @property
     def panel_info(self) -> SatelPanelInfo:
         """Return parsed INTEGRA panel information."""
-        return SatelPanelInfo._from_payload(self.msg_data)
+        return self.data
 
 
-class SatelZoneInfoReadMessage(SatelReadMessage):
+class SatelDeviceInfoReadMessage[TData: SatelReadMessageData](
+    SatelTypedReadMessage[TData]
+):
+    """Read message that exposes decoded device information."""
+
+    @property
+    def device_info(self) -> TData:
+        """Return parsed device information."""
+        return self.data
+
+
+class SatelZoneInfoReadMessage(SatelDeviceInfoReadMessage[SatelZoneInfo]):
     """Structured read message for a 0xEE zone info response."""
 
-    @cached_property
-    def device_info(self) -> SatelZoneInfo:
-        """Return parsed zone information."""
-        return SatelZoneInfo._from_payload(self.msg_data)
+    data_type = SatelZoneInfo
 
 
-class SatelPartitionInfoReadMessage(SatelReadMessage):
+class SatelPartitionInfoReadMessage(SatelDeviceInfoReadMessage[SatelPartitionInfo]):
     """Structured read message for a 0xEE partition info response."""
 
-    @cached_property
-    def device_info(self) -> SatelPartitionInfo:
-        """Return parsed partition information."""
-        return SatelPartitionInfo._from_payload(self.msg_data)
+    data_type = SatelPartitionInfo
 
 
-class SatelOutputInfoReadMessage(SatelReadMessage):
+class SatelOutputInfoReadMessage(SatelDeviceInfoReadMessage[SatelOutputInfo]):
     """Structured read message for a 0xEE output info response."""
 
-    @cached_property
-    def device_info(self) -> SatelOutputInfo:
-        """Return parsed output information."""
-        return SatelOutputInfo._from_payload(self.msg_data)
+    data_type = SatelOutputInfo
 
 
 READ_DEVICE_NAME_SPECS: dict[SatelDeviceSelector, ReadCommandSpec] = {

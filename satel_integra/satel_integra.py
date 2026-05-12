@@ -500,11 +500,11 @@ class AsyncSatel:
 
         response_data = response.data
         if response_data.zone_id != zone_id:
-            msg = (
+            err = (
                 "Temperature response zone mismatch: "
                 f"expected {zone_id}, got {response_data.zone_id}"
             )
-            raise ValueError(msg)
+            raise ValueError(err)
 
         return response_data.temperature
 
@@ -542,11 +542,11 @@ class AsyncSatel:
 
         response_data = response.data
         if response_data.device_number != zone_id:
-            msg = (
+            err = (
                 "Zone info response zone mismatch: "
                 f"expected {zone_id}, got {response_data.device_number}"
             )
-            raise ValueError(msg)
+            raise ValueError(err)
 
         return response_data
 
@@ -571,11 +571,11 @@ class AsyncSatel:
 
         response_data = response.data
         if response_data.device_number != partition_id:
-            msg = (
+            err = (
                 "Partition info response partition mismatch: "
                 f"expected {partition_id}, got {response_data.device_number}"
             )
-            raise ValueError(msg)
+            raise ValueError(err)
 
         return response_data
 
@@ -596,11 +596,11 @@ class AsyncSatel:
 
         response_data = response.data
         if response_data.device_number != output_id:
-            msg = (
+            err = (
                 "Output info response output mismatch: "
                 f"expected {output_id}, got {response_data.device_number}"
             )
-            raise ValueError(msg)
+            raise ValueError(err)
 
         return response_data
 

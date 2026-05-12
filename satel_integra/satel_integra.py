@@ -498,14 +498,15 @@ class AsyncSatel:
         if response is None:
             return None
 
-        if response.zone_id != zone_id:
-            msg = (
+        response_data = response.data
+        if response_data.zone_id != zone_id:
+            err = (
                 "Temperature response zone mismatch: "
-                f"expected {zone_id}, got {response.zone_id}"
+                f"expected {zone_id}, got {response_data.zone_id}"
             )
-            raise ValueError(msg)
+            raise ValueError(err)
 
-        return response.temperature
+        return response_data.temperature
 
     async def read_temperatures(self, zone_ids: list[int]) -> dict[int, float | None]:
         """Read temperatures for multiple zone sensors sequentially."""
@@ -539,14 +540,15 @@ class AsyncSatel:
         if response is None:
             return None
 
-        if response.device_info.device_number != zone_id:
-            msg = (
+        response_data = response.data
+        if response_data.device_number != zone_id:
+            err = (
                 "Zone info response zone mismatch: "
-                f"expected {zone_id}, got {response.device_info.device_number}"
+                f"expected {zone_id}, got {response_data.device_number}"
             )
-            raise ValueError(msg)
+            raise ValueError(err)
 
-        return response.device_info
+        return response_data
 
     async def read_partition_info(self, partition_id: int) -> SatelPartitionInfo | None:
         """Read metadata for a single partition."""
@@ -567,14 +569,15 @@ class AsyncSatel:
         if response is None:
             return None
 
-        if response.device_info.device_number != partition_id:
-            msg = (
+        response_data = response.data
+        if response_data.device_number != partition_id:
+            err = (
                 "Partition info response partition mismatch: "
-                f"expected {partition_id}, got {response.device_info.device_number}"
+                f"expected {partition_id}, got {response_data.device_number}"
             )
-            raise ValueError(msg)
+            raise ValueError(err)
 
-        return response.device_info
+        return response_data
 
     async def read_output_info(self, output_id: int) -> SatelOutputInfo | None:
         """Read metadata for a single output."""
@@ -591,14 +594,15 @@ class AsyncSatel:
         if response is None:
             return None
 
-        if response.device_info.device_number != output_id:
-            msg = (
+        response_data = response.data
+        if response_data.device_number != output_id:
+            err = (
                 "Output info response output mismatch: "
-                f"expected {output_id}, got {response.device_info.device_number}"
+                f"expected {output_id}, got {response_data.device_number}"
             )
-            raise ValueError(msg)
+            raise ValueError(err)
 
-        return response.device_info
+        return response_data
 
     async def read_panel_info(self) -> SatelPanelInfo | None:
         """Read structured panel information."""
@@ -611,7 +615,7 @@ class AsyncSatel:
         if response is None:
             return None
 
-        return response.panel_info
+        return response.data
 
     async def read_communication_module_info(
         self,
@@ -626,7 +630,7 @@ class AsyncSatel:
         if response is None:
             return None
 
-        return response.module_info
+        return response.data
 
     # endregion
 

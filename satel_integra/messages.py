@@ -1,9 +1,11 @@
 """Message classes for communication with Satel Integra panel."""
 
 import logging
+from collections.abc import Callable
+from dataclasses import dataclass
 from enum import IntEnum, unique
 from functools import cached_property
-from typing import ClassVar, TypeVar
+from typing import ClassVar, Protocol, Self, TypeVar
 from warnings import warn
 
 from satel_integra.commands import (
@@ -26,12 +28,11 @@ from satel_integra.models import (
     SatelPanelInfo,
     SatelPartitionInfo,
     SatelZoneInfo,
+    SatelZoneTemperature,
 )
 from satel_integra.utils import (
     checksum,
     decode_bitmask_le,
-    decode_device_number,
-    decode_temperature,
     encode_bitmask_le,
 )
 
@@ -39,6 +40,38 @@ _LOGGER = logging.getLogger(__name__)
 
 
 TCommand = TypeVar("TCommand", bound=SatelBaseCommand)
+
+
+class SatelReadMessageData(Protocol):
+    """Protocol for typed decoded read message data."""
+
+    @classmethod
+    def _from_payload(cls, payload: bytes) -> Self:
+        """Parse a raw response payload into typed data."""
+        ...
+
+
+@dataclass(frozen=True)
+class ReadCommandSpec:
+    """Defines how a read command response should be constructed."""
+
+    command: SatelReadCommand
+    message_type: type["SatelReadMessage"]
+    expected_data_lengths: tuple[int, ...] | None = None
+    decoder: Callable[[SatelReadCommand, bytearray], "SatelReadMessage"] | None = None
+
+    def construct(
+        self, cmd: SatelReadCommand, msg_data: bytearray
+    ) -> "SatelReadMessage":
+        """Construct a read message for this command spec."""
+        if self.decoder is not None:
+            return self.decoder(cmd, msg_data)
+
+        return self.message_type(
+            cmd,
+            msg_data,
+            expected_data_lengths=self.expected_data_lengths,
+        )
 
 
 @unique
@@ -59,19 +92,16 @@ def _decode_device_read_message(
             "READ_DEVICE_NAME response missing device type"
         )
 
-    match msg_data[0]:
-        case SatelDeviceSelector.PARTITION_WITH_OBJECT_ASSIGNMENT:
-            return SatelPartitionInfoReadMessage(cmd, msg_data)
-        case SatelDeviceSelector.OUTPUT:
-            return SatelOutputInfoReadMessage(cmd, msg_data)
-        case SatelDeviceSelector.ZONE_WITH_PARTITION_ASSIGNMENT:
-            return SatelZoneInfoReadMessage(cmd, msg_data)
+    try:
+        selector = SatelDeviceSelector(msg_data[0])
+    except ValueError:
+        _LOGGER.debug(
+            "Unsupported READ_DEVICE_NAME device type: 0x%02X",
+            msg_data[0],
+        )
+        return SatelReadMessage(cmd, msg_data)
 
-    _LOGGER.debug(
-        "Unsupported READ_DEVICE_NAME device type: 0x%02X; using default read message",
-        msg_data[0],
-    )
-    return SatelReadMessage(cmd, msg_data)
+    return READ_DEVICE_NAME_SPECS[selector].construct(cmd, msg_data)
 
 
 class SatelBaseMessage[TCommand: SatelBaseCommand]:
@@ -138,10 +168,15 @@ class SatelWriteMessage(SatelBaseMessage[SatelOutboundCommand]):
 class SatelReadMessage(SatelBaseMessage[SatelReadCommand]):
     """Message representing data received from the panel."""
 
-    expected_data_length: ClassVar[int | None] = None
-
-    def __init__(self, cmd: SatelReadCommand, msg_data: bytearray) -> None:
+    def __init__(
+        self,
+        cmd: SatelReadCommand,
+        msg_data: bytearray,
+        *,
+        expected_data_lengths: tuple[int, ...] | None = None,
+    ) -> None:
         super().__init__(cmd, msg_data)
+        self._expected_data_lengths = expected_data_lengths
         self._validate_data_length()
 
     @staticmethod
@@ -182,23 +217,17 @@ class SatelReadMessage(SatelBaseMessage[SatelReadCommand]):
 
         _LOGGER.debug("Received command: %s", cmd)
 
-        match cmd:
-            case SatelReadCommand.MODULE_VERSION:
-                return SatelModuleVersionReadMessage(cmd, bytearray(data))
-            case SatelReadCommand.ZONE_TEMPERATURE:
-                return SatelZoneTemperatureReadMessage(cmd, bytearray(data))
-            case SatelReadCommand.INTEGRA_VERSION:
-                return SatelIntegraVersionReadMessage(cmd, bytearray(data))
-            case SatelReadCommand.READ_EVENT:
-                _LOGGER.debug(
-                    "Received event message; event decoding is not implemented: %s",
-                    data.hex(),
-                )
-                return SatelReadMessage(cmd, bytearray(data))
-            case SatelReadCommand.READ_DEVICE_NAME:
-                return _decode_device_read_message(cmd, bytearray(data))
-            case _:
-                return SatelReadMessage(cmd, bytearray(data))
+        spec = READ_COMMAND_SPECS.get(cmd)
+        if spec is not None:
+            return spec.construct(cmd, bytearray(data))
+
+        if cmd is SatelReadCommand.READ_EVENT:
+            _LOGGER.debug(
+                "Received event message; event decoding is not implemented: %s",
+                data.hex(),
+            )
+
+        return SatelReadMessage(cmd, bytearray(data))
 
     def get_active_bits(self, expected_length: int) -> list[int]:
         """Convenience wrapper around decode_bitmask_le() for this message."""
@@ -206,87 +235,120 @@ class SatelReadMessage(SatelBaseMessage[SatelReadCommand]):
 
     def _validate_data_length(self) -> None:
         """Validate fixed-length structured responses."""
-        if self.expected_data_length is None:
+        expected_data_lengths = self._expected_data_lengths
+        if expected_data_lengths is None:
             return
 
-        if len(self.msg_data) == self.expected_data_length:
+        if len(self.msg_data) in expected_data_lengths:
             return
+
+        if len(expected_data_lengths) == 1:
+            expected = f"{expected_data_lengths[0]} bytes"
+        else:
+            expected = f"one of {expected_data_lengths} bytes"
 
         err = (
             f"Invalid response length for {self.cmd}: "
-            f"expected {self.expected_data_length} bytes, got {len(self.msg_data)} "
+            f"expected {expected}, got {len(self.msg_data)} "
             f"(payload={self.msg_data.hex()})"
         )
         _LOGGER.warning(err)
         raise SatelUnexpectedResponseError(err)
 
 
-class SatelZoneTemperatureReadMessage(SatelReadMessage):
+class SatelTypedReadMessage[TData: SatelReadMessageData](SatelReadMessage):
+    """Read message that exposes its decoded payload as typed data."""
+
+    data_type: ClassVar[type[TData]]
+
+    @cached_property
+    def data(self) -> TData:
+        """Return the decoded response data."""
+        return self.data_type._from_payload(self.msg_data)
+
+
+class SatelZoneTemperatureReadMessage(SatelTypedReadMessage[SatelZoneTemperature]):
     """Structured read message for a zone temperature response."""
 
-    expected_data_length = 3
-
-    @cached_property
-    def zone_id(self) -> int:
-        """Return the decoded zone id for this temperature response."""
-        return decode_device_number(self.msg_data[0])
-
-    @cached_property
-    def temperature(self) -> float | None:
-        """Return the decoded temperature in Celsius."""
-        return decode_temperature(self.msg_data[1], self.msg_data[2])
+    data_type = SatelZoneTemperature
 
 
-class SatelModuleVersionReadMessage(SatelReadMessage):
+class SatelModuleVersionReadMessage(
+    SatelTypedReadMessage[SatelCommunicationModuleInfo]
+):
     """Structured read message for an INT-RS/ETHM-1 module version response."""
 
-    expected_data_length = 12
-
-    @cached_property
-    def module_info(self) -> SatelCommunicationModuleInfo:
-        """Return parsed communication module information."""
-        return SatelCommunicationModuleInfo._from_payload(self.msg_data)
+    data_type = SatelCommunicationModuleInfo
 
 
-class SatelIntegraVersionReadMessage(SatelReadMessage):
+class SatelIntegraVersionReadMessage(SatelTypedReadMessage[SatelPanelInfo]):
     """Structured read message for an INTEGRA panel version response."""
 
-    expected_data_length = 14
-
-    @cached_property
-    def panel_info(self) -> SatelPanelInfo:
-        """Return parsed INTEGRA panel information."""
-        return SatelPanelInfo._from_payload(self.msg_data)
+    data_type = SatelPanelInfo
 
 
-class SatelZoneInfoReadMessage(SatelReadMessage):
+class SatelDeviceInfoReadMessage[TData: SatelReadMessageData](
+    SatelTypedReadMessage[TData]
+):
+    """Read message that exposes decoded device information."""
+
+
+class SatelZoneInfoReadMessage(SatelDeviceInfoReadMessage[SatelZoneInfo]):
     """Structured read message for a 0xEE zone info response."""
 
-    expected_data_length = 20
-
-    @cached_property
-    def device_info(self) -> SatelZoneInfo:
-        """Return parsed zone information."""
-        return SatelZoneInfo._from_payload(self.msg_data)
+    data_type = SatelZoneInfo
 
 
-class SatelPartitionInfoReadMessage(SatelReadMessage):
+class SatelPartitionInfoReadMessage(SatelDeviceInfoReadMessage[SatelPartitionInfo]):
     """Structured read message for a 0xEE partition info response."""
 
-    expected_data_length = 20
-
-    @cached_property
-    def device_info(self) -> SatelPartitionInfo:
-        """Return parsed partition information."""
-        return SatelPartitionInfo._from_payload(self.msg_data)
+    data_type = SatelPartitionInfo
 
 
-class SatelOutputInfoReadMessage(SatelReadMessage):
+class SatelOutputInfoReadMessage(SatelDeviceInfoReadMessage[SatelOutputInfo]):
     """Structured read message for a 0xEE output info response."""
 
-    expected_data_length = 19
+    data_type = SatelOutputInfo
 
-    @cached_property
-    def device_info(self) -> SatelOutputInfo:
-        """Return parsed output information."""
-        return SatelOutputInfo._from_payload(self.msg_data)
+
+READ_DEVICE_NAME_SPECS: dict[SatelDeviceSelector, ReadCommandSpec] = {
+    SatelDeviceSelector.PARTITION_WITH_OBJECT_ASSIGNMENT: ReadCommandSpec(
+        command=SatelReadCommand.READ_DEVICE_NAME,
+        message_type=SatelPartitionInfoReadMessage,
+        expected_data_lengths=(20,),
+    ),
+    SatelDeviceSelector.OUTPUT: ReadCommandSpec(
+        command=SatelReadCommand.READ_DEVICE_NAME,
+        message_type=SatelOutputInfoReadMessage,
+        expected_data_lengths=(19,),
+    ),
+    SatelDeviceSelector.ZONE_WITH_PARTITION_ASSIGNMENT: ReadCommandSpec(
+        command=SatelReadCommand.READ_DEVICE_NAME,
+        message_type=SatelZoneInfoReadMessage,
+        expected_data_lengths=(20,),
+    ),
+}
+
+
+READ_COMMAND_SPECS: dict[SatelReadCommand, ReadCommandSpec] = {
+    SatelReadCommand.MODULE_VERSION: ReadCommandSpec(
+        command=SatelReadCommand.MODULE_VERSION,
+        message_type=SatelModuleVersionReadMessage,
+        expected_data_lengths=(12,),
+    ),
+    SatelReadCommand.ZONE_TEMPERATURE: ReadCommandSpec(
+        command=SatelReadCommand.ZONE_TEMPERATURE,
+        message_type=SatelZoneTemperatureReadMessage,
+        expected_data_lengths=(3,),
+    ),
+    SatelReadCommand.INTEGRA_VERSION: ReadCommandSpec(
+        command=SatelReadCommand.INTEGRA_VERSION,
+        message_type=SatelIntegraVersionReadMessage,
+        expected_data_lengths=(14,),
+    ),
+    SatelReadCommand.READ_DEVICE_NAME: ReadCommandSpec(
+        command=SatelReadCommand.READ_DEVICE_NAME,
+        message_type=SatelReadMessage,
+        decoder=_decode_device_read_message,
+    ),
+}

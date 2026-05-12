@@ -258,7 +258,7 @@ async def test_read_zone_info_returns_zone_info(satel, mock_queue):
     result = await satel.read_zone_info(1)
 
     assert isinstance(response, SatelZoneInfoReadMessage)
-    assert result == response.device_info
+    assert result == response.data
 
     mock_queue.add_message.assert_awaited_once()
     sent_msg = mock_queue.add_message.await_args.args[0]
@@ -279,7 +279,7 @@ async def test_read_partition_info_returns_partition_info(satel, mock_queue):
     result = await satel.read_partition_info(1)
 
     assert isinstance(result, SatelPartitionInfo)
-    assert result == response.device_info
+    assert result == response.data
 
     mock_queue.add_message.assert_awaited_once()
     sent_msg = mock_queue.add_message.await_args.args[0]
@@ -318,7 +318,7 @@ async def test_read_output_info_returns_output_info(satel, mock_queue):
     result = await satel.read_output_info(1)
 
     assert isinstance(response, SatelOutputInfoReadMessage)
-    assert result == response.device_info
+    assert result == response.data
 
     mock_queue.add_message.assert_awaited_once()
     sent_msg = mock_queue.add_message.await_args.args[0]
@@ -362,7 +362,7 @@ async def test_read_panel_info_returns_panel_info(satel, mock_queue):
 
     result = await satel.read_panel_info()
 
-    assert result == response.panel_info
+    assert result == response.data
 
     mock_queue.add_message.assert_awaited_once()
     sent_msg = mock_queue.add_message.await_args.args[0]
@@ -417,7 +417,7 @@ async def test_read_communication_module_info_returns_module_info(satel, mock_qu
 
     result = await satel.read_communication_module_info()
 
-    assert result == response.module_info
+    assert result == response.data
 
     mock_queue.add_message.assert_awaited_once()
     sent_msg = mock_queue.add_message.await_args.args[0]

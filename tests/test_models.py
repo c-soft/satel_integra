@@ -2,6 +2,7 @@ import pytest
 
 from satel_integra.models import (
     SatelDeviceType,
+    SatelFirmwareVersion,
     SatelOutputInfo,
     SatelPartitionInfo,
     SatelZoneInfo,
@@ -129,3 +130,9 @@ def test_output_info_from_payload(
     assert output_info.device_number == expected_number
     assert output_info.name == expected_name
     assert output_info.type_code == 0x10
+
+
+def test_firmware_version_formats_as_string() -> None:
+    firmware = SatelFirmwareVersion("1.23", "2025-05-15")
+
+    assert str(firmware) == "1.23 (2025-05-15)"

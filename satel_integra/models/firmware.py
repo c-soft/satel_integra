@@ -15,6 +15,10 @@ class SatelFirmwareVersion:
     version: str
     release_date: str
 
+    def __str__(self) -> str:
+        """Return a display-friendly firmware version."""
+        return f"{self.version} ({self.release_date})"
+
     @classmethod
     def _from_payload(cls, payload: bytes) -> "SatelFirmwareVersion":
         """Parse an 11-byte Satel firmware payload like b'12320120527'."""

@@ -1,5 +1,4 @@
 import logging
-from datetime import date
 
 import pytest
 
@@ -67,7 +66,7 @@ def _invalid_payload_for_lengths(
             SatelPanelInfo(
                 type_code=72,
                 model=SatelPanelModel("INTEGRA 256 Plus"),
-                firmware=SatelFirmwareVersion("1.23", date(2012, 5, 27)),
+                firmware=SatelFirmwareVersion("1.23", "2012-05-27"),
                 language_code=0,
                 settings_stored_in_flash=True,
             ),
@@ -112,7 +111,7 @@ def _invalid_payload_for_lengths(
             + bytearray([0b0000_0111]),
             SatelModuleVersionReadMessage,
             SatelCommunicationModuleInfo(
-                firmware=SatelFirmwareVersion("1.23", date(2012, 5, 27)),
+                firmware=SatelFirmwareVersion("1.23", "2012-05-27"),
                 supports_256_zones_outputs=True,
                 supports_trouble_memory_part_8=True,
                 supports_arm_no_bypass=True,

@@ -1,5 +1,14 @@
 # Changelog
 
+## [untagged-6fad0ae80092339250d2](https://github.com/c-soft/satel_integra/compare/1.3.1...untagged-6fad0ae80092339250d2) - 2026-05-16
+
+### What’s Changed
+
+- #71 - Add str representation to firmware (@Tommatheussen)
+- #70 - Change firmware release_date type to string (@Tommatheussen)
+- #69 - Enhance read message handling and validation tests (@Tommatheussen)
+- #68 - Add ability to read partition information (@Tommatheussen)
+
 ## [1.3.1](https://github.com/c-soft/satel_integra/compare/1.3.0...1.3.1) - 2026-05-06
 
 ### What’s Changed
@@ -107,6 +116,7 @@ self.controller.monitor_status(
 
 
 
+
 ```
 ##### After
 
@@ -121,6 +131,7 @@ self.controller.register_callbacks(
 )
 
 await self.controller.start(enable_monitoring=True)
+
 
 
 

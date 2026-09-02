@@ -411,6 +411,26 @@ async def test_wait_reconnected_raises_when_connection_closes(
 
 
 @pytest.mark.asyncio
+async def test_wait_reconnected_cleans_up_waiters_when_cancelled(
+    mock_connection, mock_transport
+):
+    await mock_connection.connect()
+
+    existing_tasks = asyncio.all_tasks()
+    waiter = asyncio.create_task(mock_connection.wait_reconnected())
+    await asyncio.sleep(0)
+
+    internal_waiters = asyncio.all_tasks() - existing_tasks - {waiter}
+    assert len(internal_waiters) == 2
+
+    waiter.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await waiter
+
+    assert all(task.done() for task in internal_waiters)
+
+
+@pytest.mark.asyncio
 async def test_wait_stopped_blocks_until_connection_closes(
     mock_connection, mock_transport
 ):

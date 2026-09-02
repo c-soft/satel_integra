@@ -251,14 +251,20 @@ class SatelConnection:
         reconnected_waiter = asyncio.create_task(self._reconnected_event.wait())
         stopped_waiter = asyncio.create_task(self._stopped_event.wait())
 
-        done, pending = await asyncio.wait(
-            {reconnected_waiter, stopped_waiter},
-            return_when=asyncio.FIRST_COMPLETED,
-        )
-
-        for task in pending:
-            task.cancel()
-        await asyncio.gather(*pending, return_exceptions=True)
+        waiters = {reconnected_waiter, stopped_waiter}
+        try:
+            done, _ = await asyncio.wait(
+                waiters,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+        finally:
+            # These tasks are implementation details of this coroutine. In
+            # particular, cancelling the reconnection monitor during shutdown
+            # must not leave either Event.wait() task orphaned.
+            for task in waiters:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*waiters, return_exceptions=True)
 
         if stopped_waiter in done:
             self._assert_not_stopped()

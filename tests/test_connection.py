@@ -42,6 +42,19 @@ def mock_connection(mock_transport: AsyncMock) -> SatelConnection:
     return conn
 
 
+def test_add_connection_state_callback_returns_transport_unsubscribe(
+    mock_connection, mock_transport
+):
+    callback = MagicMock()
+    unsubscribe = MagicMock()
+    mock_transport.add_connection_state_callback.return_value = unsubscribe
+
+    result = mock_connection.add_connection_state_callback(callback)
+
+    mock_transport.add_connection_state_callback.assert_called_once_with(callback)
+    assert result is unsubscribe
+
+
 @pytest.mark.asyncio
 async def test_connect_success(mock_connection, mock_transport):
     await mock_connection.connect()

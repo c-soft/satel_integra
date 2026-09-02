@@ -980,10 +980,13 @@ async def test_connect_raises_in_strict_mode_for_connect_exceptions(
 
 def test_add_connection_status_callback_forwards_to_transport(satel, mock_connection):
     callback = MagicMock()
+    unsubscribe = MagicMock()
+    mock_connection.add_connection_state_callback.return_value = unsubscribe
 
-    satel.add_connection_status_callback(callback)
+    result = satel.add_connection_status_callback(callback)
 
     mock_connection.add_connection_state_callback.assert_any_call(callback)
+    assert result is unsubscribe
 
 
 def test_connection_state_changed_logs_lost_once(satel, mock_connection, caplog):

@@ -12,3 +12,4 @@ MESSAGE_RESPONSE_TIMEOUT = 5
 KEEPALIVE_INTERVAL = 15
 
 ConnectionStateCallback = Callable[[], None | Awaitable[None]]
+UnsubscribeCallback = Callable[[], None]

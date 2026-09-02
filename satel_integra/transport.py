@@ -4,7 +4,11 @@ import asyncio
 import inspect
 import logging
 
-from satel_integra.const import FRAME_END, ConnectionStateCallback
+from satel_integra.const import (
+    FRAME_END,
+    ConnectionStateCallback,
+    UnsubscribeCallback,
+)
 from satel_integra.encryption import EncryptedCommunicationHandler
 from satel_integra.exceptions import SatelConnectFailedError
 
@@ -28,9 +32,28 @@ class SatelBaseTransport:
         """Return True if connected to the panel."""
         return self._reader is not None and self._writer is not None
 
-    def add_connection_state_callback(self, callback: ConnectionStateCallback) -> None:
-        """Add a callback to be called when transport connection status changes."""
+    def add_connection_state_callback(
+        self, callback: ConnectionStateCallback
+    ) -> UnsubscribeCallback:
+        """Add a connection-state callback and return a function to remove it."""
         self._connection_state_callbacks.append(callback)
+        subscribed = True
+
+        def unsubscribe() -> None:
+            nonlocal subscribed
+
+            if not subscribed:
+                return
+
+            subscribed = False
+            for index, registered_callback in enumerate(
+                self._connection_state_callbacks
+            ):
+                if registered_callback is callback:
+                    del self._connection_state_callbacks[index]
+                    break
+
+        return unsubscribe
 
     async def _set_connection_state(self, connected: bool) -> None:
         """Set the connection event and notify callbacks."""
@@ -47,7 +70,7 @@ class SatelBaseTransport:
 
     async def _notify_connection_state_changed(self) -> None:
         """Invoke callback when connection state changes."""
-        for callback in self._connection_state_callbacks:
+        for callback in tuple(self._connection_state_callbacks):
             try:
                 result = callback()
                 if inspect.isawaitable(result):

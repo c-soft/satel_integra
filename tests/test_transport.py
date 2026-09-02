@@ -291,6 +291,19 @@ async def test_connection_state_callback_called_on_close(mock_transport):
 
 
 @pytest.mark.asyncio
+async def test_connection_state_callback_can_unsubscribe_before_close(mock_transport):
+    callback = AsyncMock()
+    unsubscribe = mock_transport.add_connection_state_callback(callback)
+    await mock_transport._set_connection_state(True)
+    callback.reset_mock()
+
+    unsubscribe()
+    await mock_transport.close()
+
+    callback.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_read_encrypted(encryption_handler, mock_encrypted_transport):
     with patch(
         "satel_integra.transport.SatelBaseTransport.connect",

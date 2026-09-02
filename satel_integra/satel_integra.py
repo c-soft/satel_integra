@@ -10,7 +10,11 @@ from warnings import warn
 
 from satel_integra.commands import SatelReadCommand, SatelWriteCommand
 from satel_integra.connection import SatelConnection
-from satel_integra.const import KEEPALIVE_INTERVAL, ConnectionStateCallback
+from satel_integra.const import (
+    KEEPALIVE_INTERVAL,
+    ConnectionStateCallback,
+    UnsubscribeCallback,
+)
 from satel_integra.exceptions import (
     SatelConnectFailedError,
     SatelConnectionInitializationError,
@@ -430,9 +434,11 @@ class AsyncSatel:
             _LOGGER.info("Connection to Satel Integra panel restored")
             self._connection_unavailable_logged = False
 
-    def add_connection_status_callback(self, callback: ConnectionStateCallback) -> None:
-        """Add a callback to be called when connection status changes."""
-        self._connection.add_connection_state_callback(callback)
+    def add_connection_status_callback(
+        self, callback: ConnectionStateCallback
+    ) -> UnsubscribeCallback:
+        """Add a connection-status callback and return a function to remove it."""
+        return self._connection.add_connection_state_callback(callback)
 
     # endregion
 

@@ -4,7 +4,11 @@ import asyncio
 import logging
 
 from satel_integra.commands import SatelReadCommand
-from satel_integra.const import MESSAGE_RESPONSE_TIMEOUT, ConnectionStateCallback
+from satel_integra.const import (
+    MESSAGE_RESPONSE_TIMEOUT,
+    ConnectionStateCallback,
+    UnsubscribeCallback,
+)
 from satel_integra.exceptions import (
     SatelConnectFailedError,
     SatelConnectionInitializationError,
@@ -75,9 +79,11 @@ class SatelConnection:
         if self.stopped:
             raise SatelConnectionStoppedError("Connection is stopped")
 
-    def add_connection_state_callback(self, callback: ConnectionStateCallback) -> None:
-        """Register callback called when connection status changes."""
-        self._transport.add_connection_state_callback(callback)
+    def add_connection_state_callback(
+        self, callback: ConnectionStateCallback
+    ) -> UnsubscribeCallback:
+        """Register a connection-state callback and return a function to remove it."""
+        return self._transport.add_connection_state_callback(callback)
 
     def _now(self) -> float:
         """Return the running loop's monotonic time for interval tracking."""

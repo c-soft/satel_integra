@@ -21,6 +21,10 @@ class SatelResultCode(IntEnum):
     CANNOT_ARM = 0x12
     COMMAND_ACCEPTED = 0xFF
 
+    def __str__(self) -> str:
+        """Format the result code as NAME [HEX]."""
+        return f"{self.name} [0x{self.value:02X}]"
+
 
 @dataclass(frozen=True)
 class SatelCommandResult:

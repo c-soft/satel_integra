@@ -6,6 +6,7 @@ import pytest
 
 from satel_integra.commands import SatelReadCommand
 from satel_integra.exceptions import (
+    SatelCommandRejectedError,
     SatelConnectFailedError,
     SatelConnectionInitializationError,
     SatelConnectionStoppedError,
@@ -18,11 +19,16 @@ from satel_integra.messages import (
     SatelOutputInfoReadMessage,
     SatelPartitionInfoReadMessage,
     SatelReadMessage,
+    SatelResultReadMessage,
     SatelZoneInfoReadMessage,
     SatelZoneTemperatureReadMessage,
 )
-from satel_integra.models import SatelPartitionInfo
+from satel_integra.models import SatelPartitionInfo, SatelResultCode
 from satel_integra.satel_integra import AlarmState, AsyncSatel
+
+
+def _make_result_message(raw_code: int) -> SatelResultReadMessage:
+    return SatelResultReadMessage(SatelReadCommand.RESULT, bytearray([raw_code]))
 
 
 class FakeLoop:
@@ -104,9 +110,9 @@ def fake_sleep_factory(monkeypatch, fake_loop):
 
 @pytest.mark.asyncio
 async def test_start_monitoring_success(satel, mock_queue):
-    mock_msg = MagicMock()
-    mock_msg.msg_data = b"\xff"
-    mock_queue.add_message.return_value = mock_msg
+    mock_queue.add_message.return_value = _make_result_message(
+        SatelResultCode.COMMAND_ACCEPTED
+    )
 
     await satel.start_monitoring()
 
@@ -115,11 +121,12 @@ async def test_start_monitoring_success(satel, mock_queue):
 
 @pytest.mark.asyncio
 async def test_start_monitoring_rejected(satel, mock_queue, caplog):
-    mock_msg = MagicMock()
-    mock_msg.msg_data = b"\x00"
-    mock_queue.add_message.return_value = mock_msg
+    mock_queue.add_message.return_value = _make_result_message(
+        SatelResultCode.NO_ACCESS
+    )
 
-    await satel.start_monitoring()
+    with caplog.at_level(logging.WARNING):
+        await satel.start_monitoring()
 
     assert "Monitoring not accepted" in caplog.text
 
@@ -169,23 +176,31 @@ def test_partitions_armed_state_callback(satel):
     assert called
 
 
-def test_command_result_ok(satel, caplog):
-    msg = MagicMock()
-    msg.msg_data = [b"\xff"]
+def test_command_result_accepted(satel, caplog):
+    msg = _make_result_message(SatelResultCode.COMMAND_ACCEPTED)
 
     with caplog.at_level(logging.DEBUG):
         satel._command_result(msg)
 
-    assert "OK" in caplog.text
+    assert "Received command result: COMMAND_ACCEPTED [0xFF]" in caplog.text
 
 
 def test_command_result_user_code_not_found(satel, caplog):
-    msg = MagicMock()
-    msg.msg_data = [b"\x01"]
+    msg = _make_result_message(SatelResultCode.USER_CODE_NOT_FOUND)
 
     with caplog.at_level(logging.DEBUG):
         satel._command_result(msg)
-    assert "User code not found" in caplog.text
+
+    assert "Received command result: USER_CODE_NOT_FOUND [0x01]" in caplog.text
+
+
+def test_command_result_warns_for_untyped_result(satel, caplog):
+    msg = SatelReadMessage(SatelReadCommand.RESULT, bytearray([0x01]))
+
+    with caplog.at_level(logging.WARNING):
+        satel._command_result(msg)
+
+    assert "Received untyped command result" in caplog.text
 
 
 @pytest.mark.asyncio
@@ -199,8 +214,11 @@ def test_command_result_user_code_not_found(satel, caplog):
     ],
 )
 async def test_send_methods_call_queue_add(satel, mock_queue, method, args):
-    await getattr(satel, method)(*args)
-    mock_queue.add_message.assert_awaited()
+    result = await getattr(satel, method)(*args)
+
+    assert result is None
+    mock_queue.add_message.assert_awaited_once()
+    assert mock_queue.add_message.await_args.args[1] is False
 
 
 @pytest.mark.asyncio
@@ -490,53 +508,32 @@ async def test_read_output_info_returns_none_without_response(satel, mock_queue)
 
 
 @pytest.mark.asyncio
-async def test_read_partition_info_returns_none_for_unavailable_partition_result(
-    satel, mock_queue
-):
-    mock_queue.add_message.return_value = SatelReadMessage(
-        SatelReadCommand.RESULT, bytearray([0x08])
+@pytest.mark.parametrize(
+    "method,args",
+    [
+        ("read_partition_info", (1,)),
+        ("read_zone_info", (1,)),
+        ("read_output_info", (1,)),
+        ("read_panel_info", ()),
+    ],
+)
+async def test_read_method_raises_for_rejected_result(satel, mock_queue, method, args):
+    mock_queue.add_message.return_value = _make_result_message(
+        SatelResultCode.OTHER_ERROR
     )
 
-    result = await satel.read_partition_info(1)
+    with pytest.raises(SatelCommandRejectedError) as exc_info:
+        await getattr(satel, method)(*args)
 
-    assert result is None
+    assert exc_info.value.result.code is SatelResultCode.OTHER_ERROR
 
 
 @pytest.mark.asyncio
-async def test_read_zone_info_returns_none_for_unavailable_zone_result(
-    satel, mock_queue
-):
-    mock_queue.add_message.return_value = SatelReadMessage(
-        SatelReadCommand.RESULT, bytearray([0x08])
-    )
+async def test_read_method_rejects_success_result_without_data(satel, mock_queue):
+    mock_queue.add_message.return_value = _make_result_message(SatelResultCode.OK)
 
-    result = await satel.read_zone_info(1)
-
-    assert result is None
-
-
-@pytest.mark.asyncio
-async def test_read_output_info_returns_none_for_unavailable_output_result(
-    satel, mock_queue
-):
-    mock_queue.add_message.return_value = SatelReadMessage(
-        SatelReadCommand.RESULT, bytearray([0x08])
-    )
-
-    result = await satel.read_output_info(1)
-
-    assert result is None
-
-
-@pytest.mark.asyncio
-async def test_read_panel_info_returns_none_for_result_response(satel, mock_queue):
-    mock_queue.add_message.return_value = SatelReadMessage(
-        SatelReadCommand.RESULT, bytearray([0x08])
-    )
-
-    result = await satel.read_panel_info()
-
-    assert result is None
+    with pytest.raises(SatelUnexpectedResponseError, match="Unexpected response type"):
+        await satel.read_panel_info()
 
 
 @pytest.mark.asyncio

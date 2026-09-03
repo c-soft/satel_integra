@@ -14,17 +14,20 @@ from satel_integra.messages import (
     SatelOutputInfoReadMessage,
     SatelPartitionInfoReadMessage,
     SatelReadMessage,
+    SatelResultReadMessage,
     SatelWriteMessage,
     SatelZoneInfoReadMessage,
     SatelZoneTemperatureReadMessage,
 )
 from satel_integra.models import (
+    SatelCommandResult,
     SatelCommunicationModuleInfo,
     SatelFirmwareVersion,
     SatelOutputInfo,
     SatelPanelInfo,
     SatelPanelModel,
     SatelPartitionInfo,
+    SatelResultCode,
     SatelZoneInfo,
     SatelZoneTemperature,
 )
@@ -53,6 +56,11 @@ def _invalid_payload_for_lengths(
 @pytest.mark.parametrize(
     "payload,message_type,expected_data",
     [
+        (
+            bytearray([SatelReadCommand.RESULT, 0xFF]),
+            SatelResultReadMessage,
+            SatelCommandResult(code=SatelResultCode.COMMAND_ACCEPTED),
+        ),
         (
             bytearray([SatelReadCommand.ZONE_TEMPERATURE, 0x01, 0x00, 0x96]),
             SatelZoneTemperatureReadMessage,
@@ -127,6 +135,45 @@ def test_decode_frame_returns_typed_read_message(
     assert isinstance(msg, message_type)
     assert msg.msg_data == payload[1:]
     assert msg.data == expected_data
+
+
+@pytest.mark.parametrize(
+    "raw_code,code",
+    [
+        (0x00, SatelResultCode.OK),
+        (0x01, SatelResultCode.USER_CODE_NOT_FOUND),
+        (0x02, SatelResultCode.NO_ACCESS),
+        (0x03, SatelResultCode.USER_DOES_NOT_EXIST),
+        (0x04, SatelResultCode.USER_ALREADY_EXISTS),
+        (0x05, SatelResultCode.WRONG_CODE_OR_CODE_ALREADY_EXISTS),
+        (0x06, SatelResultCode.TELEPHONE_CODE_ALREADY_EXISTS),
+        (0x07, SatelResultCode.CHANGED_CODE_IS_THE_SAME),
+        (0x08, SatelResultCode.OTHER_ERROR),
+        (0x11, SatelResultCode.CANNOT_ARM_CAN_FORCE),
+        (0x12, SatelResultCode.CANNOT_ARM),
+        (0xFF, SatelResultCode.COMMAND_ACCEPTED),
+    ],
+)
+def test_command_result_decodes_known_codes(raw_code, code) -> None:
+    result = SatelCommandResult._from_payload(bytes([raw_code]))
+
+    assert result.code is code
+    assert result.code.value == raw_code
+    assert str(result.code) == f"{code.name} [0x{raw_code:02X}]"
+    assert result.is_success is (
+        code in (SatelResultCode.OK, SatelResultCode.COMMAND_ACCEPTED)
+    )
+
+
+@pytest.mark.parametrize(
+    "raw_code",
+    [0x8A, 0x42],
+)
+def test_command_result_preserves_unknown_codes(raw_code) -> None:
+    result = SatelCommandResult._from_payload(bytes([raw_code]))
+
+    assert result.code == raw_code
+    assert result.is_success is False
 
 
 def test_read_message_parsed_property_is_cached(monkeypatch) -> None:
@@ -205,6 +252,7 @@ def test_decode_frame_rejects_missing_device_type() -> None:
 )
 def test_decode_frame_uses_read_command_specs(spec) -> None:
     payloads = {
+        SatelReadCommand.RESULT: bytearray([0x00]),
         SatelReadCommand.MODULE_VERSION: bytearray(b"12320120527")
         + bytearray([0b0000_0111]),
         SatelReadCommand.ZONE_TEMPERATURE: bytearray([0x01, 0x00, 0x96]),

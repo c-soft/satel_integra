@@ -1,5 +1,13 @@
 """Custom exceptions for the Satel Integra library."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from satel_integra.commands import SatelOutboundCommand
+    from satel_integra.models import SatelCommandResult
+
 
 class SatelIntegraError(Exception):
     """Base exception for all library-specific errors."""
@@ -31,3 +39,18 @@ class SatelConnectionStoppedError(SatelConnectionError):
 
 class SatelUnexpectedResponseError(SatelIntegraError):
     """Raised when a panel response does not match the requested command."""
+
+
+class SatelCommandRejectedError(SatelIntegraError):
+    """Raised when the panel explicitly rejects a command with result 0xEF."""
+
+    def __init__(
+        self,
+        command: SatelOutboundCommand,
+        result: SatelCommandResult,
+    ) -> None:
+        self.command = command
+        self.result = result
+        super().__init__(
+            f"Command {command} rejected with result 0x{int(result.code):02X}"
+        )

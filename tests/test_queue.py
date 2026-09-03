@@ -5,7 +5,11 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from satel_integra.commands import SatelReadCommand, SatelWriteCommand
-from satel_integra.messages import SatelReadMessage, SatelWriteMessage
+from satel_integra.messages import (
+    SatelReadMessage,
+    SatelResultReadMessage,
+    SatelWriteMessage,
+)
 from satel_integra.queue import QueuedMessage, SatelMessageQueue
 
 
@@ -26,7 +30,7 @@ def write_msg():
 @pytest.fixture
 def result_msg():
     """Matching result message fixture."""
-    return SatelReadMessage(SatelReadCommand.RESULT, bytearray([0x01]))
+    return SatelResultReadMessage(SatelReadCommand.RESULT, bytearray([0x01]))
 
 
 @pytest.mark.asyncio

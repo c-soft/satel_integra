@@ -23,6 +23,7 @@ from satel_integra.const import (
 )
 from satel_integra.exceptions import SatelUnexpectedResponseError
 from satel_integra.models import (
+    SatelCommandResult,
     SatelCommunicationModuleInfo,
     SatelOutputInfo,
     SatelPanelInfo,
@@ -267,6 +268,12 @@ class SatelTypedReadMessage[TData: SatelReadMessageData](SatelReadMessage):
         return self.data_type._from_payload(self.msg_data)
 
 
+class SatelResultReadMessage(SatelTypedReadMessage[SatelCommandResult]):
+    """Structured command result response from command 0xEF."""
+
+    data_type = SatelCommandResult
+
+
 class SatelZoneTemperatureReadMessage(SatelTypedReadMessage[SatelZoneTemperature]):
     """Structured read message for a zone temperature response."""
 
@@ -331,6 +338,11 @@ READ_DEVICE_NAME_SPECS: dict[SatelDeviceSelector, ReadCommandSpec] = {
 
 
 READ_COMMAND_SPECS: dict[SatelReadCommand, ReadCommandSpec] = {
+    SatelReadCommand.RESULT: ReadCommandSpec(
+        command=SatelReadCommand.RESULT,
+        message_type=SatelResultReadMessage,
+        expected_data_lengths=(1,),
+    ),
     SatelReadCommand.MODULE_VERSION: ReadCommandSpec(
         command=SatelReadCommand.MODULE_VERSION,
         message_type=SatelModuleVersionReadMessage,

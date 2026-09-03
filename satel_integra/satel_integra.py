@@ -16,6 +16,7 @@ from satel_integra.const import (
     UnsubscribeCallback,
 )
 from satel_integra.exceptions import (
+    SatelCommandRejectedError,
     SatelConnectFailedError,
     SatelConnectionInitializationError,
     SatelConnectionStoppedError,
@@ -29,6 +30,7 @@ from satel_integra.messages import (
     SatelOutputInfoReadMessage,
     SatelPartitionInfoReadMessage,
     SatelReadMessage,
+    SatelResultReadMessage,
     SatelWriteMessage,
     SatelZoneInfoReadMessage,
     SatelZoneTemperatureReadMessage,
@@ -226,16 +228,13 @@ class AsyncSatel:
         if self._output_changed_callback:
             self._output_changed_callback(status)
 
-    def _command_result(self, msg: SatelReadMessage):
-        status = {"error": "Some problem!"}
-        error_code = msg.msg_data[0]
+    def _command_result(self, msg: SatelReadMessage) -> None:
+        """Log unsolicited command results using the structured result model."""
+        if not isinstance(msg, SatelResultReadMessage):
+            _LOGGER.warning("Received untyped command result: %s", msg)
+            return
 
-        if error_code in [b"\x00", b"\xff"]:
-            status = {"error": "OK"}
-        elif error_code == b"\x01":
-            status = {"error": "User code not found"}
-
-        _LOGGER.debug("Received error status: %s", status)
+        _LOGGER.debug("Received command result: %s", msg.data.code)
 
     def _partitions_armed_state(self, mode: AlarmState, msg: SatelReadMessage):
         partitions = msg.get_active_bits(4)
@@ -661,8 +660,11 @@ class AsyncSatel:
             _LOGGER.debug(f"No response received for {msg.cmd}")
             return None
 
-        if response.cmd is SatelReadCommand.RESULT:
-            return None
+        if isinstance(response, SatelResultReadMessage):
+            result = response.data
+
+            if not result.is_success:
+                raise SatelCommandRejectedError(msg.cmd, result)
 
         if not isinstance(response, expected_type):
             err = f"Unexpected response type for {msg.cmd}: {type(response).__name__}"

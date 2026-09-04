@@ -7,9 +7,10 @@ import pytest
 from satel_integra.commands import SatelReadCommand, SatelWriteCommand
 from satel_integra.messages import (
     SatelReadMessage,
-    SatelResultReadMessage,
+    SatelTypedReadMessage,
     SatelWriteMessage,
 )
+from satel_integra.models import SatelCommandResult
 from satel_integra.queue import QueuedMessage, SatelMessageQueue
 
 
@@ -30,7 +31,11 @@ def write_msg():
 @pytest.fixture
 def result_msg():
     """Matching result message fixture."""
-    return SatelResultReadMessage(SatelReadCommand.RESULT, bytearray([0x01]))
+    return SatelTypedReadMessage(
+        SatelReadCommand.RESULT,
+        bytearray([0x01]),
+        data_type=SatelCommandResult,
+    )
 
 
 @pytest.mark.asyncio

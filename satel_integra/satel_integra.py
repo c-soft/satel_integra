@@ -5,7 +5,7 @@ import logging
 import sys
 from collections.abc import Awaitable, Callable
 from enum import Enum, unique
-from typing import TypeVar, overload
+from typing import TypeVar, cast, overload
 from warnings import warn
 
 from satel_integra.commands import SatelReadCommand, SatelWriteCommand
@@ -25,27 +25,24 @@ from satel_integra.exceptions import (
 )
 from satel_integra.messages import (
     SatelDeviceSelector,
-    SatelIntegraVersionReadMessage,
-    SatelModuleVersionReadMessage,
-    SatelOutputInfoReadMessage,
-    SatelPartitionInfoReadMessage,
     SatelReadMessage,
-    SatelResultReadMessage,
+    SatelReadMessageData,
+    SatelTypedReadMessage,
     SatelWriteMessage,
-    SatelZoneInfoReadMessage,
-    SatelZoneTemperatureReadMessage,
 )
 from satel_integra.models import (
+    SatelCommandResult,
     SatelCommunicationModuleInfo,
     SatelOutputInfo,
     SatelPanelInfo,
     SatelPartitionInfo,
     SatelZoneInfo,
+    SatelZoneTemperature,
 )
 from satel_integra.queue import SatelMessageQueue
 from satel_integra.utils import encode_bitmask_le, encode_device_number
 
-TReadMessage = TypeVar("TReadMessage", bound=SatelReadMessage)
+TReadData = TypeVar("TReadData", bound=SatelReadMessageData)
 
 if sys.version_info >= (3, 13):
     from warnings import deprecated
@@ -230,11 +227,15 @@ class AsyncSatel:
 
     def _command_result(self, msg: SatelReadMessage) -> None:
         """Log unsolicited command results using the structured result model."""
-        if not isinstance(msg, SatelResultReadMessage):
+        if (
+            not isinstance(msg, SatelTypedReadMessage)
+            or msg.data_type is not SatelCommandResult
+        ):
             _LOGGER.warning("Received untyped command result: %s", msg)
             return
 
-        _LOGGER.debug("Received command result: %s", msg.data.code)
+        result = cast(SatelCommandResult, msg.data)
+        _LOGGER.debug("Received command result: %s", result.code)
 
     def _partitions_armed_state(self, mode: AlarmState, msg: SatelReadMessage):
         partitions = msg.get_active_bits(4)
@@ -495,15 +496,13 @@ class AsyncSatel:
         msg = SatelWriteMessage(
             SatelReadCommand.ZONE_TEMPERATURE, raw_data=bytearray([device_number])
         )
-        response = await self._typed_send_data_and_wait(
+        response_data = await self._typed_send_data_and_wait(
             msg,
-            SatelZoneTemperatureReadMessage,
+            SatelZoneTemperature,
         )
 
-        if response is None:
+        if response_data is None:
             return None
-
-        response_data = response.data
         if response_data.zone_id != zone_id:
             err = (
                 "Temperature response zone mismatch: "
@@ -537,15 +536,13 @@ class AsyncSatel:
                 [SatelDeviceSelector.ZONE_WITH_PARTITION_ASSIGNMENT, device_number]
             ),
         )
-        response = await self._typed_send_data_and_wait(
+        response_data = await self._typed_send_data_and_wait(
             msg,
-            SatelZoneInfoReadMessage,
+            SatelZoneInfo,
         )
 
-        if response is None:
+        if response_data is None:
             return None
-
-        response_data = response.data
         if response_data.device_number != zone_id:
             err = (
                 "Zone info response zone mismatch: "
@@ -566,15 +563,13 @@ class AsyncSatel:
                 [SatelDeviceSelector.PARTITION_WITH_OBJECT_ASSIGNMENT, partition_id]
             ),
         )
-        response = await self._typed_send_data_and_wait(
+        response_data = await self._typed_send_data_and_wait(
             msg,
-            SatelPartitionInfoReadMessage,
+            SatelPartitionInfo,
         )
 
-        if response is None:
+        if response_data is None:
             return None
-
-        response_data = response.data
         if response_data.device_number != partition_id:
             err = (
                 "Partition info response partition mismatch: "
@@ -591,15 +586,13 @@ class AsyncSatel:
             SatelReadCommand.READ_DEVICE_NAME,
             raw_data=bytearray([SatelDeviceSelector.OUTPUT, device_number]),
         )
-        response = await self._typed_send_data_and_wait(
+        response_data = await self._typed_send_data_and_wait(
             msg,
-            SatelOutputInfoReadMessage,
+            SatelOutputInfo,
         )
 
-        if response is None:
+        if response_data is None:
             return None
-
-        response_data = response.data
         if response_data.device_number != output_id:
             err = (
                 "Output info response output mismatch: "
@@ -612,30 +605,20 @@ class AsyncSatel:
     async def read_panel_info(self) -> SatelPanelInfo | None:
         """Read structured panel information."""
         msg = SatelWriteMessage(SatelReadCommand.INTEGRA_VERSION)
-        response = await self._typed_send_data_and_wait(
+        return await self._typed_send_data_and_wait(
             msg,
-            SatelIntegraVersionReadMessage,
+            SatelPanelInfo,
         )
-
-        if response is None:
-            return None
-
-        return response.data
 
     async def read_communication_module_info(
         self,
     ) -> SatelCommunicationModuleInfo | None:
         """Read structured communication module information."""
         msg = SatelWriteMessage(SatelReadCommand.MODULE_VERSION)
-        response = await self._typed_send_data_and_wait(
+        return await self._typed_send_data_and_wait(
             msg,
-            SatelModuleVersionReadMessage,
+            SatelCommunicationModuleInfo,
         )
-
-        if response is None:
-            return None
-
-        return response.data
 
     # endregion
 
@@ -651,26 +634,40 @@ class AsyncSatel:
     async def _typed_send_data_and_wait(
         self,
         msg: SatelWriteMessage,
-        expected_type: type[TReadMessage],
-    ) -> TReadMessage | None:
-        """Send a message and validate the response message type."""
+        expected_data_type: type[TReadData],
+    ) -> TReadData | None:
+        """Send a message and validate its decoded data type."""
         response = await self._send_data_and_wait(msg)
 
         if response is None:
             _LOGGER.debug(f"No response received for {msg.cmd}")
             return None
 
-        if isinstance(response, SatelResultReadMessage):
-            result = response.data
+        if (
+            isinstance(response, SatelTypedReadMessage)
+            and response.data_type is SatelCommandResult
+        ):
+            result = cast(SatelCommandResult, response.data)
 
             if not result.is_success:
                 raise SatelCommandRejectedError(msg.cmd, result)
 
-        if not isinstance(response, expected_type):
-            err = f"Unexpected response type for {msg.cmd}: {type(response).__name__}"
+        if (
+            not isinstance(response, SatelTypedReadMessage)
+            or response.data_type is not expected_data_type
+        ):
+            actual_type = (
+                response.data_type.__name__
+                if isinstance(response, SatelTypedReadMessage)
+                else type(response).__name__
+            )
+            err = (
+                f"Unexpected response type for {msg.cmd}: "
+                f"expected {expected_data_type.__name__}, got {actual_type}"
+            )
             raise SatelUnexpectedResponseError(err)
 
-        return response
+        return cast(TReadData, response.data)
 
     async def _send_encoded_frame(self, msg: SatelWriteMessage) -> None:
         """Encodes and actually sends message."""

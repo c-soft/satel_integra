@@ -20,6 +20,7 @@ from satel_integra.exceptions import (
     SatelConnectFailedError,
     SatelConnectionInitializationError,
     SatelConnectionStoppedError,
+    SatelMonitoringStartError,
     SatelPanelBusyError,
     SatelUnexpectedResponseError,
 )
@@ -152,8 +153,8 @@ class AsyncSatel:
             SatelReadCommand.RESULT: self._command_result,
         }
 
-    async def start_monitoring(self):
-        """Start monitoring for interesting events."""
+    async def start_monitoring(self) -> None:
+        """Start monitoring, raising if no successful acknowledgement is received."""
 
         monitored_commands = [
             SatelReadCommand.ZONES_VIOLATED,
@@ -179,15 +180,15 @@ class AsyncSatel:
             raw_data=bytearray(monitored_commands_bitmask),
         )
 
-        monitoring_result = await self._send_data_and_wait(msg)
+        try:
+            monitoring_result = await self._send_data_and_wait(msg, SatelCommandResult)
+        except (SatelCommandRejectedError, SatelUnexpectedResponseError) as err:
+            raise SatelMonitoringStartError(
+                "Monitoring startup did not receive a successful acknowledgement"
+            ) from err
 
         if monitoring_result is None:
-            _LOGGER.warning("Start monitoring - no data!")
-            return
-
-        if monitoring_result.msg_data != b"\xff":
-            _LOGGER.warning("Monitoring not accepted.")
-            return
+            raise SatelMonitoringStartError("No response to monitoring request")
 
         _LOGGER.debug("Monitoring started")
 

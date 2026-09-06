@@ -265,7 +265,11 @@ class AsyncSatel:
 
         if enable_monitoring:
             self._start_task(self._monitor_reconnection_loop())
-            await self.start_monitoring()
+            try:
+                await self.start_monitoring()
+            except (Exception, asyncio.CancelledError):
+                await self.close()
+                raise
 
     def _start_task(self, coro: Awaitable[object]) -> asyncio.Task[object]:
         """Create and track a background task."""

@@ -669,6 +669,10 @@ async def test_close_cancels_tasks(satel):
     await satel.close()
 
     assert not satel._running_tasks
+    assert reading_task.cancelled()
+    assert keepalive_task.cancelled()
+    satel._connection.close.assert_awaited_once()
+    satel._queue.stop.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -1080,3 +1084,21 @@ def test_connection_state_changed_does_not_log_during_shutdown(
         satel._connection_state_changed()
 
     assert "Connection to Satel Integra panel lost" not in caplog.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "error_type", [SatelMonitoringStartError, asyncio.CancelledError]
+)
+async def test_start_rolls_back_when_monitoring_fails(satel, error_type):
+    error = error_type()
+    # Dispose of background coroutines without scheduling real tasks.
+    satel._start_task = MagicMock(side_effect=lambda coro: coro.close())
+    satel.start_monitoring = AsyncMock(side_effect=error)
+    satel.close = AsyncMock()
+
+    with pytest.raises(error_type) as exc_info:
+        await satel.start(enable_monitoring=True)
+
+    satel.close.assert_awaited_once()
+    assert exc_info.value is error

@@ -20,6 +20,7 @@ from satel_integra.exceptions import (
     SatelConnectFailedError,
     SatelConnectionInitializationError,
     SatelConnectionStoppedError,
+    SatelMonitoringStartError,
     SatelPanelBusyError,
     SatelUnexpectedResponseError,
 )
@@ -152,8 +153,8 @@ class AsyncSatel:
             SatelReadCommand.RESULT: self._command_result,
         }
 
-    async def start_monitoring(self):
-        """Start monitoring for interesting events."""
+    async def start_monitoring(self) -> None:
+        """Start monitoring, raising if no successful acknowledgement is received."""
 
         monitored_commands = [
             SatelReadCommand.ZONES_VIOLATED,
@@ -179,15 +180,15 @@ class AsyncSatel:
             raw_data=bytearray(monitored_commands_bitmask),
         )
 
-        monitoring_result = await self._send_data_and_wait(msg)
+        try:
+            monitoring_result = await self._send_data_and_wait(msg, SatelCommandResult)
+        except (SatelCommandRejectedError, SatelUnexpectedResponseError) as err:
+            raise SatelMonitoringStartError(
+                "Monitoring startup did not receive a successful acknowledgement"
+            ) from err
 
         if monitoring_result is None:
-            _LOGGER.warning("Start monitoring - no data!")
-            return
-
-        if monitoring_result.msg_data != b"\xff":
-            _LOGGER.warning("Monitoring not accepted.")
-            return
+            raise SatelMonitoringStartError("No response to monitoring request")
 
         _LOGGER.debug("Monitoring started")
 
@@ -264,7 +265,11 @@ class AsyncSatel:
 
         if enable_monitoring:
             self._start_task(self._monitor_reconnection_loop())
-            await self.start_monitoring()
+            try:
+                await self.start_monitoring()
+            except (Exception, asyncio.CancelledError):
+                await self.close()
+                raise
 
     def _start_task(self, coro: Awaitable[object]) -> asyncio.Task[object]:
         """Create and track a background task."""
@@ -496,7 +501,7 @@ class AsyncSatel:
         msg = SatelWriteMessage(
             SatelReadCommand.ZONE_TEMPERATURE, raw_data=bytearray([device_number])
         )
-        response_data = await self._typed_send_data_and_wait(
+        response_data = await self._send_data_and_wait(
             msg,
             SatelZoneTemperature,
         )
@@ -536,7 +541,7 @@ class AsyncSatel:
                 [SatelDeviceSelector.ZONE_WITH_PARTITION_ASSIGNMENT, device_number]
             ),
         )
-        response_data = await self._typed_send_data_and_wait(
+        response_data = await self._send_data_and_wait(
             msg,
             SatelZoneInfo,
         )
@@ -563,7 +568,7 @@ class AsyncSatel:
                 [SatelDeviceSelector.PARTITION_WITH_OBJECT_ASSIGNMENT, partition_id]
             ),
         )
-        response_data = await self._typed_send_data_and_wait(
+        response_data = await self._send_data_and_wait(
             msg,
             SatelPartitionInfo,
         )
@@ -586,7 +591,7 @@ class AsyncSatel:
             SatelReadCommand.READ_DEVICE_NAME,
             raw_data=bytearray([SatelDeviceSelector.OUTPUT, device_number]),
         )
-        response_data = await self._typed_send_data_and_wait(
+        response_data = await self._send_data_and_wait(
             msg,
             SatelOutputInfo,
         )
@@ -605,7 +610,7 @@ class AsyncSatel:
     async def read_panel_info(self) -> SatelPanelInfo | None:
         """Read structured panel information."""
         msg = SatelWriteMessage(SatelReadCommand.INTEGRA_VERSION)
-        return await self._typed_send_data_and_wait(
+        return await self._send_data_and_wait(
             msg,
             SatelPanelInfo,
         )
@@ -615,7 +620,7 @@ class AsyncSatel:
     ) -> SatelCommunicationModuleInfo | None:
         """Read structured communication module information."""
         msg = SatelWriteMessage(SatelReadCommand.MODULE_VERSION)
-        return await self._typed_send_data_and_wait(
+        return await self._send_data_and_wait(
             msg,
             SatelCommunicationModuleInfo,
         )
@@ -624,24 +629,36 @@ class AsyncSatel:
 
     # region Data management
     async def _send_data(self, msg: SatelWriteMessage) -> None:
-        """Add message to the queue."""
+        """Add a message to the queue without waiting for its response."""
         await self._queue.add_message(msg, False)
 
-    async def _send_data_and_wait(self, msg: SatelWriteMessage):
-        """Add message to the queue and wait for the result."""
-        return await self._queue.add_message(msg, True)
+    @overload
+    async def _send_data_and_wait(
+        self,
+        msg: SatelWriteMessage,
+    ) -> SatelReadMessage | None: ...
 
-    async def _typed_send_data_and_wait(
+    @overload
+    async def _send_data_and_wait(
         self,
         msg: SatelWriteMessage,
         expected_data_type: type[TReadData],
-    ) -> TReadData | None:
-        """Send a message and validate its decoded data type."""
-        response = await self._send_data_and_wait(msg)
+    ) -> TReadData | None: ...
+
+    async def _send_data_and_wait(
+        self,
+        msg: SatelWriteMessage,
+        expected_data_type: type[TReadData] | None = None,
+    ) -> SatelReadMessage | SatelReadMessageData | None:
+        """Add a message to the queue and optionally decode its response."""
+        response = await self._queue.add_message(msg, True)
 
         if response is None:
             _LOGGER.debug(f"No response received for {msg.cmd}")
             return None
+
+        if expected_data_type is None:
+            return response
 
         if (
             isinstance(response, SatelTypedReadMessage)

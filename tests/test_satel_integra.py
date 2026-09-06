@@ -10,6 +10,7 @@ from satel_integra.exceptions import (
     SatelConnectFailedError,
     SatelConnectionInitializationError,
     SatelConnectionStoppedError,
+    SatelMonitoringStartError,
     SatelPanelBusyError,
     SatelUnexpectedResponseError,
 )
@@ -129,15 +130,39 @@ async def test_start_monitoring_success(satel, mock_queue):
 
 
 @pytest.mark.asyncio
-async def test_start_monitoring_rejected(satel, mock_queue, caplog):
+async def test_start_monitoring_rejected(satel, mock_queue):
     mock_queue.add_message.return_value = _make_result_message(
         SatelResultCode.NO_ACCESS
     )
 
-    with caplog.at_level(logging.WARNING):
+    with pytest.raises(
+        SatelMonitoringStartError,
+        match="Monitoring startup did not receive a successful acknowledgement",
+    ):
         await satel.start_monitoring()
 
-    assert "Monitoring not accepted" in caplog.text
+
+@pytest.mark.asyncio
+async def test_start_monitoring_no_response(satel, mock_queue):
+    mock_queue.add_message.return_value = None
+
+    with pytest.raises(
+        SatelMonitoringStartError, match="No response to monitoring request"
+    ):
+        await satel.start_monitoring()
+
+
+@pytest.mark.asyncio
+async def test_start_monitoring_unexpected_response(satel, mock_queue):
+    mock_queue.add_message.return_value = SatelReadMessage(
+        SatelReadCommand.ZONES_VIOLATED, bytearray(32)
+    )
+
+    with pytest.raises(
+        SatelMonitoringStartError,
+        match="Monitoring startup did not receive a successful acknowledgement",
+    ):
+        await satel.start_monitoring()
 
 
 def test_zones_violated_callback(satel):
@@ -644,6 +669,10 @@ async def test_close_cancels_tasks(satel):
     await satel.close()
 
     assert not satel._running_tasks
+    assert reading_task.cancelled()
+    assert keepalive_task.cancelled()
+    satel._connection.close.assert_awaited_once()
+    satel._queue.stop.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -1055,3 +1084,21 @@ def test_connection_state_changed_does_not_log_during_shutdown(
         satel._connection_state_changed()
 
     assert "Connection to Satel Integra panel lost" not in caplog.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "error_type", [SatelMonitoringStartError, asyncio.CancelledError]
+)
+async def test_start_rolls_back_when_monitoring_fails(satel, error_type):
+    error = error_type()
+    # Dispose of background coroutines without scheduling real tasks.
+    satel._start_task = MagicMock(side_effect=lambda coro: coro.close())
+    satel.start_monitoring = AsyncMock(side_effect=error)
+    satel.close = AsyncMock()
+
+    with pytest.raises(error_type) as exc_info:
+        await satel.start(enable_monitoring=True)
+
+    satel.close.assert_awaited_once()
+    assert exc_info.value is error

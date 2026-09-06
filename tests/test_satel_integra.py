@@ -10,6 +10,7 @@ from satel_integra.exceptions import (
     SatelConnectFailedError,
     SatelConnectionInitializationError,
     SatelConnectionStoppedError,
+    SatelMonitoringStartError,
     SatelPanelBusyError,
     SatelUnexpectedResponseError,
 )
@@ -129,15 +130,39 @@ async def test_start_monitoring_success(satel, mock_queue):
 
 
 @pytest.mark.asyncio
-async def test_start_monitoring_rejected(satel, mock_queue, caplog):
+async def test_start_monitoring_rejected(satel, mock_queue):
     mock_queue.add_message.return_value = _make_result_message(
         SatelResultCode.NO_ACCESS
     )
 
-    with caplog.at_level(logging.WARNING):
+    with pytest.raises(
+        SatelMonitoringStartError,
+        match="Monitoring startup did not receive a successful acknowledgement",
+    ):
         await satel.start_monitoring()
 
-    assert "Monitoring not accepted" in caplog.text
+
+@pytest.mark.asyncio
+async def test_start_monitoring_no_response(satel, mock_queue):
+    mock_queue.add_message.return_value = None
+
+    with pytest.raises(
+        SatelMonitoringStartError, match="No response to monitoring request"
+    ):
+        await satel.start_monitoring()
+
+
+@pytest.mark.asyncio
+async def test_start_monitoring_unexpected_response(satel, mock_queue):
+    mock_queue.add_message.return_value = SatelReadMessage(
+        SatelReadCommand.ZONES_VIOLATED, bytearray(32)
+    )
+
+    with pytest.raises(
+        SatelMonitoringStartError,
+        match="Monitoring startup did not receive a successful acknowledgement",
+    ):
+        await satel.start_monitoring()
 
 
 def test_zones_violated_callback(satel):

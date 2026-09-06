@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.5.0](https://github.com/c-soft/satel_integra/compare/1.4.0...1.5.0) - 2026-09-06
+
+### What’s Changed
+
+- #77 - Add RTC and status bits model (@Tommatheussen)
+- #76 - Improve monitoring error handling (@Tommatheussen)
+- #75 - Simplify typed read message specifications (@Tommatheussen)
+- #74 - Add proper Result message handling (@Tommatheussen)
+- #73 - Clean up reconnection tasks on connection close (@Tommatheussen)
+- #72 - Add unsubscribe functionality to connection status callbacks (@Tommatheussen)
+
 ## [1.4.0](https://github.com/c-soft/satel_integra/compare/untagged-6fad0ae80092339250d2...1.4.0) - 2026-05-16
 
 ### What’s Changed
@@ -118,6 +129,7 @@ self.controller.monitor_status(
 
 
 
+
 ```
 ##### After
 
@@ -132,6 +144,7 @@ self.controller.register_callbacks(
 )
 
 await self.controller.start(enable_monitoring=True)
+
 
 
 

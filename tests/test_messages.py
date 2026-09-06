@@ -22,6 +22,7 @@ from satel_integra.models import (
     SatelPanelModel,
     SatelPartitionInfo,
     SatelResultCode,
+    SatelRtcAndStatus,
     SatelZoneInfo,
     SatelZoneTemperature,
 )
@@ -255,6 +256,9 @@ def test_decode_frame_uses_read_command_specs(spec) -> None:
         SatelReadCommand.MODULE_VERSION: bytearray(b"12320120527")
         + bytearray([0b0000_0111]),
         SatelReadCommand.ZONE_TEMPERATURE: bytearray([0x01, 0x00, 0x96]),
+        SatelReadCommand.RTC_AND_STATUS: bytearray(
+            [0x20, 0x24, 0x02, 0x29, 0x12, 0x34, 0x56, 0xC3, 0xF2]
+        ),
         SatelReadCommand.INTEGRA_VERSION: bytearray([72])
         + bytearray(b"12320120527")
         + bytearray([0x00, 0xFF]),
@@ -383,4 +387,44 @@ def test_write_message_warns_for_deprecated_write_query_command() -> None:
     with pytest.warns(DeprecationWarning, match="SatelReadCommand.ZONE_TEMPERATURE"):
         SatelWriteMessage(
             SatelWriteCommand.ZONE_TEMPERATURE, raw_data=bytearray([0x01])
+        )
+
+
+def test_decode_rtc_and_status():
+    msg = SatelReadMessage.decode_frame(
+        _frame_payload(
+            bytearray(
+                [
+                    SatelReadCommand.RTC_AND_STATUS,
+                    0x20,
+                    0x24,
+                    0x02,
+                    0x29,
+                    0x12,
+                    0x34,
+                    0x56,
+                    0xC3,
+                    0xF2,
+                ]
+            )
+        )
+    )
+
+    assert isinstance(msg, SatelTypedReadMessage)
+    assert msg.data_type is SatelRtcAndStatus
+    assert msg.data.service_mode
+    assert msg.data.troubles
+    assert msg.data.acu_100_present
+    assert msg.data.int_rx_present
+    assert msg.data.troubles_memory
+    assert msg.data.grade_2_or_3
+
+
+@pytest.mark.parametrize("length", [0, 8, 10])
+def test_rtc_and_status_invalid_length(length):
+    with pytest.raises(SatelUnexpectedResponseError, match="Invalid response length"):
+        SatelReadMessage.decode_frame(
+            _frame_payload(
+                bytearray([SatelReadCommand.RTC_AND_STATUS]) + bytearray(length)
+            )
         )

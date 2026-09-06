@@ -23,6 +23,7 @@ from satel_integra.models import (
     SatelOutputInfo,
     SatelPartitionInfo,
     SatelResultCode,
+    SatelRtcAndStatus,
     SatelZoneInfo,
 )
 from satel_integra.satel_integra import AlarmState, AsyncSatel
@@ -760,6 +761,7 @@ async def test_keepalive_loop_sends_rtc_and_status_query(
 
     satel._send_data_and_wait.assert_called_once()
     keepalive_message = satel._send_data_and_wait.await_args.args[0]
+    assert satel._send_data_and_wait.await_args.args[1] is SatelRtcAndStatus
     assert keepalive_message.cmd is SatelReadCommand.RTC_AND_STATUS
     assert keepalive_message.msg_data == bytearray()
 

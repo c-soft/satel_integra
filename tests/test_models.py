@@ -5,6 +5,7 @@ from satel_integra.models import (
     SatelFirmwareVersion,
     SatelOutputInfo,
     SatelPartitionInfo,
+    SatelRtcAndStatus,
     SatelZoneInfo,
 )
 
@@ -136,3 +137,25 @@ def test_firmware_version_formats_as_string() -> None:
     firmware = SatelFirmwareVersion("1.23", "2025-05-15")
 
     assert str(firmware) == "1.23 (2025-05-15)"
+
+
+def test_rtc_and_status_from_payload():
+    result = SatelRtcAndStatus._from_payload(
+        bytes.fromhex("20 26 09 06 23 58 49 C6 C8")
+    )
+
+    assert result.service_mode
+    assert result.troubles
+    assert result.acu_100_present
+    assert result.int_rx_present
+    assert not result.troubles_memory
+    assert not result.grade_2_or_3
+
+
+def test_rtc_and_status_diagnostic_flags():
+    result = SatelRtcAndStatus._from_payload(
+        bytes.fromhex("20 26 09 06 23 58 49 00 30")
+    )
+
+    assert result.troubles_memory
+    assert result.grade_2_or_3

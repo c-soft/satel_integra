@@ -11,7 +11,7 @@
 - #73 - Clean up reconnection tasks on connection close (@Tommatheussen)
 - #72 - Add unsubscribe functionality to connection status callbacks (@Tommatheussen)
 
-## [1.4.0](https://github.com/c-soft/satel_integra/compare/untagged-6fad0ae80092339250d2...1.4.0) - 2026-05-16
+## [1.4.0](https://github.com/c-soft/satel_integra/compare/1.3.1...1.4.0) - 2026-05-16
 
 ### What’s Changed
 
@@ -119,17 +119,6 @@ self.controller.monitor_status(
     zones_update_callback,
     outputs_update_callback,
 )
-
-
-
-
-
-
-
-
-
-
-
 ```
 ##### After
 
@@ -144,17 +133,6 @@ self.controller.register_callbacks(
 )
 
 await self.controller.start(enable_monitoring=True)
-
-
-
-
-
-
-
-
-
-
-
 ```
 #### Callback Signature Changes
 

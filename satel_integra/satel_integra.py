@@ -37,6 +37,7 @@ from satel_integra.models import (
     SatelOutputInfo,
     SatelPanelInfo,
     SatelPartitionInfo,
+    SatelRtcAndStatus,
     SatelZoneInfo,
     SatelZoneTemperature,
 )
@@ -333,7 +334,7 @@ class AsyncSatel:
             connection_generation = self._connection.generation
 
             try:
-                result = await self._send_data_and_wait(data)
+                result = await self._send_data_and_wait(data, SatelRtcAndStatus)
                 if result is None:
                     # Check if connection is still the same and mark as lost if so
                     # This can happen when network is down, but the connection didn't really close

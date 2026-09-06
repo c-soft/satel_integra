@@ -23,6 +23,7 @@ from .models import (
     SatelPanelModel,
     SatelPartitionInfo,
     SatelResultCode,
+    SatelRtcAndStatus,
     SatelZoneInfo,
 )
 from .satel_integra import AlarmState, AsyncSatel
@@ -49,6 +50,7 @@ __all__ = [
     "SatelPanelModel",
     "SatelPartitionInfo",
     "SatelResultCode",
+    "SatelRtcAndStatus",
     "SatelUnexpectedResponseError",
     "SatelZoneInfo",
 ]

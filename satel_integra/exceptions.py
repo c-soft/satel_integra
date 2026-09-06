@@ -54,3 +54,7 @@ class SatelCommandRejectedError(SatelIntegraError):
         super().__init__(
             f"Command {command} rejected with result 0x{int(result.code):02X}"
         )
+
+
+class SatelMonitoringStartError(SatelIntegraError):
+    """Raised when monitoring startup receives no successful acknowledgement."""

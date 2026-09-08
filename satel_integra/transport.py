@@ -1,14 +1,10 @@
 """Connection management for Satel Integra panel."""
 
 import asyncio
-import inspect
 import logging
+from collections.abc import Awaitable, Callable
 
-from satel_integra.const import (
-    FRAME_END,
-    ConnectionStateCallback,
-    UnsubscribeCallback,
-)
+from satel_integra.const import FRAME_END
 from satel_integra.encryption import EncryptedCommunicationHandler
 from satel_integra.exceptions import SatelConnectFailedError
 
@@ -23,66 +19,25 @@ class SatelBaseTransport:
         self._port = port
         self._reader: asyncio.StreamReader | None = None
         self._writer: asyncio.StreamWriter | None = None
-
-        self._connection_event = asyncio.Event()
-        self._connection_state_callbacks: list[ConnectionStateCallback] = []
+        self._connection_lost_callback: Callable[[], Awaitable[None]] | None = None
 
     @property
     def connected(self) -> bool:
         """Return True if connected to the panel."""
         return self._reader is not None and self._writer is not None
 
-    def add_connection_state_callback(
-        self, callback: ConnectionStateCallback
-    ) -> UnsubscribeCallback:
-        """Add a connection-state callback and return a function to remove it."""
-        self._connection_state_callbacks.append(callback)
-        subscribed = True
-
-        def unsubscribe() -> None:
-            nonlocal subscribed
-
-            if not subscribed:
-                return
-
-            subscribed = False
-            for index, registered_callback in enumerate(
-                self._connection_state_callbacks
-            ):
-                if registered_callback is callback:
-                    del self._connection_state_callbacks[index]
-                    break
-
-        return unsubscribe
-
-    async def _set_connection_state(self, connected: bool) -> None:
-        """Set the connection event and notify callbacks."""
-        was_connected = self._connection_event.is_set()
-        if connected == was_connected:
-            return
-
-        if connected:
-            self._connection_event.set()
-        else:
-            self._connection_event.clear()
-
-        await self._notify_connection_state_changed()
-
-    async def _notify_connection_state_changed(self) -> None:
-        """Invoke callback when connection state changes."""
-        for callback in tuple(self._connection_state_callbacks):
-            try:
-                result = callback()
-                if inspect.isawaitable(result):
-                    await result
-            except Exception as exc:
-                _LOGGER.exception("Error in connection state callback: %s", exc)
+    def _set_connection_lost_callback(
+        self, callback: Callable[[], Awaitable[None]]
+    ) -> None:
+        """Set the callback invoked when an established transport is reset."""
+        self._connection_lost_callback = callback
 
     async def _reset_connection(self) -> None:
-        """Reset transport connection handles and clear connection event."""
+        """Reset the transport connection handles and signal connection loss."""
         self._reader = None
         self._writer = None
-        await self._set_connection_state(False)
+        if self._connection_lost_callback:
+            await self._connection_lost_callback()
 
     async def connect(self) -> None:
         """Establish TCP connection."""
@@ -92,7 +47,6 @@ class SatelBaseTransport:
                 self._host, self._port
             )
             _LOGGER.debug("TCP connection established to %s:%s", self._host, self._port)
-            await self._set_connection_state(True)
 
         except Exception as exc:
             _LOGGER.debug(

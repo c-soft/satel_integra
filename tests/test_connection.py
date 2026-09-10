@@ -508,6 +508,37 @@ async def test_reconnection_event_set_on_subsequent_connect(
 
 
 @pytest.mark.asyncio
+async def test_reconnection_waiter_blocks_until_ready_callback_completes(
+    mock_connection, mock_transport
+):
+    await mock_connection.connect()
+    await mock_connection.disconnect()
+
+    waiter = asyncio.create_task(mock_connection.wait_reconnected())
+    await asyncio.sleep(0)
+
+    callback_started = asyncio.Event()
+    release_callback = asyncio.Event()
+
+    async def blocking_callback():
+        callback_started.set()
+        await release_callback.wait()
+
+    mock_connection.add_connection_state_callback(blocking_callback)
+    reconnect_task = asyncio.create_task(mock_connection.connect())
+    await callback_started.wait()
+
+    assert mock_connection.connected is True
+    assert mock_connection.generation == 2
+    assert mock_connection._reconnected_event.is_set() is False
+    assert waiter.done() is False
+
+    release_callback.set()
+    await reconnect_task
+    await asyncio.wait_for(waiter, timeout=1.0)
+
+
+@pytest.mark.asyncio
 async def test_wait_reconnected_blocks_and_returns_true(
     mock_connection, mock_transport
 ):

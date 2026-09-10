@@ -70,7 +70,47 @@ async def test_connect_success(mock_connection, mock_transport):
     mock_transport.send_frame.assert_awaited_once()
     mock_transport.read_frame.assert_awaited_once()
     mock_transport.close.assert_not_awaited()
+    assert mock_connection.connected is True
     assert mock_connection.generation == 1
+    callback.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("validation_method", ["read_initial_data", "read_frame"])
+async def test_cancelled_validation_closes_transport_and_allows_retry(
+    mock_connection, mock_transport, validation_method
+):
+    validation_started = asyncio.Event()
+
+    async def wait_during_validation():
+        validation_started.set()
+        await asyncio.Event().wait()
+
+    validation_mock = getattr(mock_transport, validation_method)
+    validation_mock.side_effect = wait_during_validation
+    callback = AsyncMock()
+    mock_connection.add_connection_state_callback(callback)
+
+    connect_task = asyncio.create_task(mock_connection.connect())
+    await validation_started.wait()
+
+    assert mock_transport.connected is True
+    assert mock_connection.connected is False
+
+    connect_task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await connect_task
+
+    assert mock_transport.connected is False
+    assert mock_connection.connected is False
+    mock_transport.close.assert_awaited_once()
+    callback.assert_not_awaited()
+
+    validation_mock.side_effect = None
+    await mock_connection.connect()
+
+    assert mock_transport.connect.await_count == 2
+    assert mock_connection.connected is True
     callback.assert_awaited_once_with()
 
 
@@ -222,6 +262,7 @@ async def test_connect_raises_when_stopped(mock_connection, mock_transport):
 @pytest.mark.asyncio
 async def test_ensure_connected_already_connected(mock_connection, mock_transport):
     mock_transport.connected = True
+    mock_connection._ready = True
 
     await mock_connection.ensure_connected()
 
@@ -421,6 +462,7 @@ async def test_reconnection_event_set_on_subsequent_connect(
 
     mock_connection._reconnected_event.clear()
     mock_transport.connected = False
+    await mock_connection._transport_connection_lost()
 
     await mock_connection.connect()
 

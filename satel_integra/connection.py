@@ -60,8 +60,8 @@ class SatelConnection:
 
     @property
     def connected(self) -> bool:
-        """Return True if connected to the panel."""
-        return self._transport.connected
+        """Return True if the connection is validated and ready for use."""
+        return self._ready
 
     @property
     def stopped(self) -> bool:
@@ -150,6 +150,13 @@ class SatelConnection:
             _LOGGER.debug("TCP connection established, verifying panel responsiveness")
             try:
                 await self._check_connection()
+            except asyncio.CancelledError:
+                _LOGGER.debug(
+                    "Connection readiness validation was cancelled, closing the "
+                    "transport."
+                )
+                await self._close_locked(stop=False)
+                raise
             except SatelPanelBusyError:
                 _LOGGER.debug(
                     "Connected to the panel, but it is not ready for use. "
@@ -168,6 +175,12 @@ class SatelConnection:
             _LOGGER.debug("TCP connection established, verifying protocol round-trip")
             try:
                 await self._verify_protocol()
+            except asyncio.CancelledError:
+                _LOGGER.debug(
+                    "Protocol validation was cancelled, closing the transport."
+                )
+                await self._close_locked(stop=False)
+                raise
             except SatelConnectionInitializationError:
                 _LOGGER.debug(
                     "Connected to the panel, but startup validation failed. "

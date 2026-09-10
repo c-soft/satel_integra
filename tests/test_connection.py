@@ -115,6 +115,43 @@ async def test_cancelled_validation_closes_transport_and_allows_retry(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("reconnecting", [False, True])
+async def test_cancelled_ready_callback_leaves_connection_fully_finalized(
+    mock_connection, mock_transport, reconnecting
+):
+    if reconnecting:
+        await mock_connection.connect()
+        await mock_connection.disconnect()
+
+    callback_started = asyncio.Event()
+
+    async def blocking_callback():
+        callback_started.set()
+        await asyncio.Event().wait()
+
+    mock_connection.add_connection_state_callback(blocking_callback)
+    connect_task = asyncio.create_task(mock_connection.connect())
+    await callback_started.wait()
+
+    connect_task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await connect_task
+
+    expected_generation = 2 if reconnecting else 1
+    assert mock_connection.connected is True
+    assert mock_connection.generation == expected_generation
+    assert mock_connection._had_connection is True
+    assert mock_connection._reconnected_event.is_set() is reconnecting
+    assert mock_transport.connected is True
+    assert mock_transport.connect.await_count == expected_generation
+
+    await mock_connection.connect()
+
+    assert mock_connection.generation == expected_generation
+    assert mock_transport.connect.await_count == expected_generation
+
+
+@pytest.mark.asyncio
 async def test_read_frame_notifies_when_ready_connection_is_lost(
     mock_connection, mock_transport
 ):

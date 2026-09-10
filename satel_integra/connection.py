@@ -195,8 +195,6 @@ class SatelConnection:
                 "TCP connection established, skipping connection health check."
             )
 
-        _LOGGER.debug("Connected to Satel Integra.")
-        await self._set_ready_state(True)
         self._generation += 1
         # If we've had a successful connection before, this is a
         # reconnection — signal any waiters. Otherwise mark that we've
@@ -206,6 +204,9 @@ class SatelConnection:
             self._reconnected_event.set()
 
         self._had_connection = True
+
+        _LOGGER.debug("Connected to Satel Integra.")
+        await self._set_ready_state(True)
 
     async def connect(self, verify_connection: bool = True) -> None:
         """Establish TCP connection with a single attempt (no retries).

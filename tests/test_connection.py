@@ -39,24 +39,30 @@ def mock_connection(mock_transport: AsyncMock) -> SatelConnection:
     """Fixture that returns a SatelConnection with a patched _transport."""
     conn = SatelConnection("127.0.0.1", 7094)
     conn._transport = mock_transport
+
+    async def close():
+        mock_transport.connected = False
+        await conn._transport_connection_lost()
+
+    mock_transport.close.side_effect = close
     return conn
 
 
-def test_add_connection_state_callback_returns_transport_unsubscribe(
-    mock_connection, mock_transport
-):
+def test_connection_state_callback_unsubscribe_is_idempotent(mock_connection):
     callback = MagicMock()
-    unsubscribe = MagicMock()
-    mock_transport.add_connection_state_callback.return_value = unsubscribe
 
-    result = mock_connection.add_connection_state_callback(callback)
+    unsubscribe = mock_connection.add_connection_state_callback(callback)
+    unsubscribe()
+    unsubscribe()
 
-    mock_transport.add_connection_state_callback.assert_called_once_with(callback)
-    assert result is unsubscribe
+    assert callback not in mock_connection._connection_state_callbacks
 
 
 @pytest.mark.asyncio
 async def test_connect_success(mock_connection, mock_transport):
+    callback = AsyncMock()
+    mock_connection.add_connection_state_callback(callback)
+
     await mock_connection.connect()
 
     mock_transport.connect.assert_awaited_once()
@@ -64,7 +70,105 @@ async def test_connect_success(mock_connection, mock_transport):
     mock_transport.send_frame.assert_awaited_once()
     mock_transport.read_frame.assert_awaited_once()
     mock_transport.close.assert_not_awaited()
+    assert mock_connection.connected is True
     assert mock_connection.generation == 1
+    callback.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("validation_method", ["read_initial_data", "read_frame"])
+async def test_cancelled_validation_closes_transport_and_allows_retry(
+    mock_connection, mock_transport, validation_method
+):
+    validation_started = asyncio.Event()
+
+    async def wait_during_validation():
+        validation_started.set()
+        await asyncio.Event().wait()
+
+    validation_mock = getattr(mock_transport, validation_method)
+    validation_mock.side_effect = wait_during_validation
+    callback = AsyncMock()
+    mock_connection.add_connection_state_callback(callback)
+
+    connect_task = asyncio.create_task(mock_connection.connect())
+    await validation_started.wait()
+
+    assert mock_transport.connected is True
+    assert mock_connection.connected is False
+
+    connect_task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await connect_task
+
+    assert mock_transport.connected is False
+    assert mock_connection.connected is False
+    mock_transport.close.assert_awaited_once()
+    callback.assert_not_awaited()
+
+    validation_mock.side_effect = None
+    await mock_connection.connect()
+
+    assert mock_transport.connect.await_count == 2
+    assert mock_connection.connected is True
+    callback.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reconnecting", [False, True])
+async def test_cancelled_ready_callback_leaves_connection_fully_finalized(
+    mock_connection, mock_transport, reconnecting
+):
+    if reconnecting:
+        await mock_connection.connect()
+        await mock_connection.disconnect()
+
+    callback_started = asyncio.Event()
+
+    async def blocking_callback():
+        callback_started.set()
+        await asyncio.Event().wait()
+
+    mock_connection.add_connection_state_callback(blocking_callback)
+    connect_task = asyncio.create_task(mock_connection.connect())
+    await callback_started.wait()
+
+    connect_task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await connect_task
+
+    expected_generation = 2 if reconnecting else 1
+    assert mock_connection.connected is True
+    assert mock_connection.generation == expected_generation
+    assert mock_connection._had_connection is True
+    assert mock_connection._reconnected_event.is_set() is reconnecting
+    assert mock_transport.connected is True
+    assert mock_transport.connect.await_count == expected_generation
+
+    await mock_connection.connect()
+
+    assert mock_connection.generation == expected_generation
+    assert mock_transport.connect.await_count == expected_generation
+
+
+@pytest.mark.asyncio
+async def test_read_frame_notifies_when_ready_connection_is_lost(
+    mock_connection, mock_transport
+):
+    callback = AsyncMock()
+    mock_connection.add_connection_state_callback(callback)
+    await mock_connection.connect()
+    callback.reset_mock()
+
+    async def lose_connection():
+        mock_transport.connected = False
+        await mock_connection._transport_connection_lost()
+        return None
+
+    mock_transport.read_frame.side_effect = lose_connection
+
+    assert await mock_connection.read_frame() is None
+    callback.assert_awaited_once_with()
 
 
 @pytest.mark.asyncio
@@ -148,6 +252,25 @@ async def test_connect_protocol_probe_failure_raises(mock_connection, mock_trans
 
 
 @pytest.mark.asyncio
+async def test_failed_reconnection_verification_does_not_notify_ready(
+    mock_connection, mock_transport
+):
+    callback = AsyncMock()
+    mock_connection.add_connection_state_callback(callback)
+    await mock_connection.connect()
+
+    await mock_connection.disconnect()
+    callback.reset_mock()
+    mock_transport.read_frame.return_value = None
+
+    with pytest.raises(SatelConnectionInitializationError):
+        await mock_connection.connect()
+
+    callback.assert_not_awaited()
+    assert mock_connection._ready is False
+
+
+@pytest.mark.asyncio
 async def test_connect_protocol_probe_timeout_raises(mock_connection, mock_transport):
     mock_transport.read_frame.side_effect = asyncio.TimeoutError
 
@@ -176,6 +299,7 @@ async def test_connect_raises_when_stopped(mock_connection, mock_transport):
 @pytest.mark.asyncio
 async def test_ensure_connected_already_connected(mock_connection, mock_transport):
     mock_transport.connected = True
+    mock_connection._ready = True
 
     await mock_connection.ensure_connected()
 
@@ -375,11 +499,43 @@ async def test_reconnection_event_set_on_subsequent_connect(
 
     mock_connection._reconnected_event.clear()
     mock_transport.connected = False
+    await mock_connection._transport_connection_lost()
 
     await mock_connection.connect()
 
     assert mock_connection._reconnected_event.is_set() is True
     assert mock_connection.generation == 2
+
+
+@pytest.mark.asyncio
+async def test_reconnection_waiter_blocks_until_ready_callback_completes(
+    mock_connection, mock_transport
+):
+    await mock_connection.connect()
+    await mock_connection.disconnect()
+
+    waiter = asyncio.create_task(mock_connection.wait_reconnected())
+    await asyncio.sleep(0)
+
+    callback_started = asyncio.Event()
+    release_callback = asyncio.Event()
+
+    async def blocking_callback():
+        callback_started.set()
+        await release_callback.wait()
+
+    mock_connection.add_connection_state_callback(blocking_callback)
+    reconnect_task = asyncio.create_task(mock_connection.connect())
+    await callback_started.wait()
+
+    assert mock_connection.connected is True
+    assert mock_connection.generation == 2
+    assert mock_connection._reconnected_event.is_set() is False
+    assert waiter.done() is False
+
+    release_callback.set()
+    await reconnect_task
+    await asyncio.wait_for(waiter, timeout=1.0)
 
 
 @pytest.mark.asyncio

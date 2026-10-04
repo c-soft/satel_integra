@@ -1029,7 +1029,7 @@ async def test_connect_raises_in_strict_mode_for_connect_exceptions(
         await satel.connect(raise_exceptions=True)
 
 
-def test_add_connection_status_callback_forwards_to_transport(satel, mock_connection):
+def test_add_connection_status_callback_forwards_to_connection(satel, mock_connection):
     callback = MagicMock()
     unsubscribe = MagicMock()
     mock_connection.add_connection_state_callback.return_value = unsubscribe

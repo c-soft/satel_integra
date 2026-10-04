@@ -1,6 +1,7 @@
 """Connection management for Satel Integra panel."""
 
 import asyncio
+import inspect
 import logging
 
 from satel_integra.commands import SatelReadCommand
@@ -43,6 +44,9 @@ class SatelConnection:
             if integration_key
             else SatelPlainTransport(host, port)
         )
+        self._connection_state_callbacks: list[ConnectionStateCallback] = []
+        self._ready = False
+        self._transport._set_connection_lost_callback(self._transport_connection_lost)
 
         self._stopped = False
         self._stopped_event = asyncio.Event()
@@ -56,8 +60,8 @@ class SatelConnection:
 
     @property
     def connected(self) -> bool:
-        """Return True if connected to the panel."""
-        return self._transport.connected
+        """Return True if the connection is validated and ready for use."""
+        return self._ready
 
     @property
     def stopped(self) -> bool:
@@ -82,8 +86,42 @@ class SatelConnection:
     def add_connection_state_callback(
         self, callback: ConnectionStateCallback
     ) -> UnsubscribeCallback:
-        """Register a connection-state callback and return a function to remove it."""
-        return self._transport.add_connection_state_callback(callback)
+        """Register a ready-state callback and return a function to remove it."""
+        self._connection_state_callbacks.append(callback)
+        subscribed = True
+
+        def unsubscribe() -> None:
+            nonlocal subscribed
+
+            if not subscribed:
+                return
+
+            subscribed = False
+            for index, registered_callback in enumerate(
+                self._connection_state_callbacks
+            ):
+                if registered_callback is callback:
+                    del self._connection_state_callbacks[index]
+                    break
+
+        return unsubscribe
+
+    async def _set_ready_state(self, ready: bool) -> None:
+        """Notify callbacks when the verified connection state changes."""
+        if ready == self._ready:
+            return
+        self._ready = ready
+        for callback in tuple(self._connection_state_callbacks):
+            try:
+                result = callback()
+                if inspect.isawaitable(result):
+                    await result
+            except Exception as exc:
+                _LOGGER.exception("Error in connection state callback: %s", exc)
+
+    async def _transport_connection_lost(self) -> None:
+        """Clear ready state when the transport resets its connection."""
+        await self._set_ready_state(False)
 
     def _now(self) -> float:
         """Return the running loop's monotonic time for interval tracking."""
@@ -112,6 +150,13 @@ class SatelConnection:
             _LOGGER.debug("TCP connection established, verifying panel responsiveness")
             try:
                 await self._check_connection()
+            except asyncio.CancelledError:
+                _LOGGER.debug(
+                    "Connection readiness validation was cancelled, closing the "
+                    "transport."
+                )
+                await self._close_locked(stop=False)
+                raise
             except SatelPanelBusyError:
                 _LOGGER.debug(
                     "Connected to the panel, but it is not ready for use. "
@@ -130,6 +175,12 @@ class SatelConnection:
             _LOGGER.debug("TCP connection established, verifying protocol round-trip")
             try:
                 await self._verify_protocol()
+            except asyncio.CancelledError:
+                _LOGGER.debug(
+                    "Protocol validation was cancelled, closing the transport."
+                )
+                await self._close_locked(stop=False)
+                raise
             except SatelConnectionInitializationError:
                 _LOGGER.debug(
                     "Connected to the panel, but startup validation failed. "
@@ -144,16 +195,19 @@ class SatelConnection:
                 "TCP connection established, skipping connection health check."
             )
 
-        _LOGGER.debug("Connected to Satel Integra.")
+        was_reconnection = self._had_connection
         self._generation += 1
-        # If we've had a successful connection before, this is a
-        # reconnection — signal any waiters. Otherwise mark that we've
-        # now had a connection so future connects can be treated as
-        # reconnections.
-        if self._had_connection:
-            self._reconnected_event.set()
-
+        # Finalize durable state before callbacks, which may suspend or be
+        # cancelled.
         self._had_connection = True
+
+        _LOGGER.debug("Connected to Satel Integra.")
+        try:
+            await self._set_ready_state(True)
+        finally:
+            # Do not wake reconnection monitors until callback delivery exits.
+            if was_reconnection:
+                self._reconnected_event.set()
 
     async def connect(self, verify_connection: bool = True) -> None:
         """Establish TCP connection with a single attempt (no retries).

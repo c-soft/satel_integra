@@ -9,6 +9,7 @@ from .partition import SatelPartitionInfo
 from .result import SatelCommandResult, SatelResultCode
 from .rtc import SatelRtcAndStatus
 from .temperature import SatelZoneTemperature
+from .trouble import SatelTrouble, SatelTroubleType
 from .zone import SatelZoneInfo
 
 __all__ = [
@@ -23,6 +24,8 @@ __all__ = [
     "SatelPartitionInfo",
     "SatelResultCode",
     "SatelRtcAndStatus",
+    "SatelTrouble",
+    "SatelTroubleType",
     "SatelZoneInfo",
     "SatelZoneTemperature",
 ]

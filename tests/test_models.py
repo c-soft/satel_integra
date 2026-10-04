@@ -6,6 +6,8 @@ from satel_integra.models import (
     SatelOutputInfo,
     SatelPartitionInfo,
     SatelRtcAndStatus,
+    SatelTrouble,
+    SatelTroubleType,
     SatelZoneInfo,
 )
 
@@ -159,3 +161,19 @@ def test_rtc_and_status_diagnostic_flags():
 
     assert result.troubles_memory
     assert result.grade_2_or_3
+
+
+def test_trouble_is_identified_by_type_and_source() -> None:
+    trouble = SatelTrouble(SatelTroubleType.OUTPUT, source_id=2)
+
+    assert trouble.trouble_type is SatelTroubleType.OUTPUT
+    assert trouble.source_id == 2
+    assert trouble == SatelTrouble(SatelTroubleType.OUTPUT, source_id=2)
+    assert trouble != SatelTrouble(SatelTroubleType.OUTPUT, source_id=3)
+
+
+def test_trouble_without_source_is_hashable() -> None:
+    trouble = SatelTrouble(SatelTroubleType.PANEL_AC)
+
+    assert trouble.source_id is None
+    assert {trouble} == {SatelTrouble(SatelTroubleType.PANEL_AC)}

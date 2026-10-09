@@ -5,7 +5,7 @@ import logging
 from collections.abc import Awaitable, Callable
 
 from satel_integra.commands import SatelReadCommand, expected_response_command
-from satel_integra.const import MESSAGE_RESPONSE_TIMEOUT
+from satel_integra.const import COMMAND_GROUPING_DELAY, MESSAGE_RESPONSE_TIMEOUT
 from satel_integra.messages import SatelReadMessage, SatelWriteMessage
 
 _LOGGER = logging.getLogger(__name__)
@@ -22,6 +22,18 @@ class QueuedMessage:
 
         self.expected_result_command = expected_response_command(message.cmd)
 
+    def can_group(self, message: SatelWriteMessage) -> bool:
+        """Return True if message can be grouped into this queued message."""
+        return not self.return_result and self.message.can_merge(message)
+
+
+class _PendingMessageQueue(asyncio.Queue[QueuedMessage]):
+    """Queue of messages that are not being processed yet."""
+
+    def pending(self) -> list[QueuedMessage]:
+        """Return the pending messages, oldest first."""
+        return list(self._queue)  # type: ignore[attr-defined]
+
 
 class SatelMessageQueue:
     """Queue ensuring write commands are sent sequentially and wait for a result."""
@@ -32,9 +44,10 @@ class SatelMessageQueue:
             send_func: coroutine function to send a frame, e.g. AsyncSatel._send_data
         """
         self._send_func: Callable[[SatelWriteMessage], Awaitable[None]] = send_func
-        self._queue: asyncio.Queue[QueuedMessage] = asyncio.Queue()
+        self._queue: _PendingMessageQueue = _PendingMessageQueue()
 
         self._current_message: QueuedMessage | None = None
+        self._grouping_message: QueuedMessage | None = None
         self._process_task: asyncio.Task | None = None
         self._stopped = False
 
@@ -65,6 +78,9 @@ class SatelMessageQueue:
         if self._stopped:
             raise RuntimeError("Queue is stopped")
 
+        if not wait_for_result and self._group_message(msg):
+            return
+
         _LOGGER.debug("Queueing message: %s", msg)
 
         queued = QueuedMessage(msg, wait_for_result)
@@ -83,6 +99,27 @@ class SatelMessageQueue:
         except Exception as exc:
             _LOGGER.debug("Couldn't wait for message result: %s", exc)
             return
+
+    def _group_message(self, msg: SatelWriteMessage) -> bool:
+        """Try to group msg into a compatible message that was not sent yet.
+
+        Grouping sends e.g. several outputs in a single frame, so they switch
+        at the same time. Messages queued after the grouping target must not
+        address any of the same devices, otherwise the order would change.
+        """
+        candidates = self._queue.pending()
+        if self._grouping_message is not None:
+            candidates.insert(0, self._grouping_message)
+
+        for queued in reversed(candidates):
+            if queued.can_group(msg):
+                _LOGGER.debug("Grouping message %s into %s", msg, queued.message)
+                queued.message.merge(msg)
+                return True
+            if queued.message.overlaps(msg):
+                return False
+
+        return False
 
     def _cancel_pending_messages(self) -> None:
         """Cancel any pending waiters when the queue shuts down."""
@@ -104,6 +141,7 @@ class SatelMessageQueue:
                 if self._current_message is None:
                     continue
 
+                await self._wait_for_grouping(self._current_message)
                 await self._send_and_wait_response(self._current_message)
 
             except Exception as e:
@@ -113,6 +151,17 @@ class SatelMessageQueue:
                 self._current_message = None
 
         _LOGGER.debug("Command queue worker stopped")
+
+    async def _wait_for_grouping(self, queued: QueuedMessage) -> None:
+        """Give messages issued at the same time a chance to be grouped."""
+        if not queued.can_group(queued.message):
+            return
+
+        self._grouping_message = queued
+        try:
+            await asyncio.sleep(COMMAND_GROUPING_DELAY)
+        finally:
+            self._grouping_message = None
 
     async def _get_next_message(self) -> QueuedMessage | None:
         """Get next message from queue with timeout."""

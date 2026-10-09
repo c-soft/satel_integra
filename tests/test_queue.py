@@ -415,3 +415,144 @@ async def test_send_and_wait_response_timeout(
     assert "for message:" in caplog.text
     assert queued.processed_future.done()
     assert queued.processed_future.cancelled()
+
+
+def _outputs_msg(cmd, outputs, code="1234"):
+    return SatelWriteMessage(cmd, code=code, zones_or_outputs=outputs)
+
+
+@pytest.mark.asyncio
+async def test_add_message_groups_pending_outputs(mock_queue):
+    await mock_queue.add_message(_outputs_msg(SatelWriteCommand.OUTPUTS_OFF, [1]))
+    await mock_queue.add_message(_outputs_msg(SatelWriteCommand.OUTPUTS_OFF, [2]))
+    await mock_queue.add_message(_outputs_msg(SatelWriteCommand.OUTPUTS_OFF, [10]))
+
+    pending = mock_queue._queue.pending()
+    assert len(pending) == 1
+    assert (
+        pending[0].message.msg_data
+        == _outputs_msg(SatelWriteCommand.OUTPUTS_OFF, [1, 2, 10]).msg_data
+    )
+
+
+@pytest.mark.asyncio
+async def test_add_message_groups_pending_partitions(mock_queue):
+    await mock_queue.add_message(
+        SatelWriteMessage(
+            SatelWriteCommand.PARTITIONS_DISARM, code="1234", partitions=[1]
+        )
+    )
+    await mock_queue.add_message(
+        SatelWriteMessage(
+            SatelWriteCommand.PARTITIONS_DISARM, code="1234", partitions=[3]
+        )
+    )
+
+    pending = mock_queue._queue.pending()
+    assert len(pending) == 1
+    assert (
+        pending[0].message.msg_data
+        == SatelWriteMessage(
+            SatelWriteCommand.PARTITIONS_DISARM, code="1234", partitions=[1, 3]
+        ).msg_data
+    )
+
+
+@pytest.mark.asyncio
+async def test_add_message_does_not_group_different_command_or_code(mock_queue):
+    await mock_queue.add_message(_outputs_msg(SatelWriteCommand.OUTPUTS_ON, [1]))
+    await mock_queue.add_message(_outputs_msg(SatelWriteCommand.OUTPUTS_OFF, [2]))
+    await mock_queue.add_message(
+        _outputs_msg(SatelWriteCommand.OUTPUTS_OFF, [3], code="9999")
+    )
+
+    assert len(mock_queue._queue.pending()) == 3
+
+
+@pytest.mark.asyncio
+async def test_add_message_does_not_group_raw_messages(mock_queue, write_msg):
+    await mock_queue.add_message(write_msg)
+    await mock_queue.add_message(
+        SatelWriteMessage(SatelWriteCommand.PARTITIONS_DISARM, raw_data=bytearray([1]))
+    )
+
+    assert len(mock_queue._queue.pending()) == 2
+
+
+@pytest.mark.asyncio
+async def test_add_message_does_not_group_waiting_messages(mock_queue):
+    queued = QueuedMessage(_outputs_msg(SatelWriteCommand.OUTPUTS_ON, [1]), True)
+    await mock_queue._queue.put(queued)
+
+    await mock_queue.add_message(_outputs_msg(SatelWriteCommand.OUTPUTS_ON, [2]))
+
+    assert len(mock_queue._queue.pending()) == 2
+
+
+@pytest.mark.asyncio
+async def test_add_message_groups_past_unrelated_messages(mock_queue):
+    await mock_queue.add_message(_outputs_msg(SatelWriteCommand.OUTPUTS_ON, [1]))
+    await mock_queue.add_message(_outputs_msg(SatelWriteCommand.OUTPUTS_OFF, [2]))
+    await mock_queue.add_message(_outputs_msg(SatelWriteCommand.OUTPUTS_ON, [3]))
+
+    pending = mock_queue._queue.pending()
+    assert len(pending) == 2
+    assert (
+        pending[0].message.msg_data
+        == _outputs_msg(SatelWriteCommand.OUTPUTS_ON, [1, 3]).msg_data
+    )
+
+
+@pytest.mark.asyncio
+async def test_add_message_keeps_order_for_same_device(mock_queue):
+    await mock_queue.add_message(_outputs_msg(SatelWriteCommand.OUTPUTS_ON, [1]))
+    await mock_queue.add_message(_outputs_msg(SatelWriteCommand.OUTPUTS_OFF, [1]))
+    await mock_queue.add_message(_outputs_msg(SatelWriteCommand.OUTPUTS_ON, [1]))
+
+    pending = mock_queue._queue.pending()
+    assert [queued.message.cmd for queued in pending] == [
+        SatelWriteCommand.OUTPUTS_ON,
+        SatelWriteCommand.OUTPUTS_OFF,
+        SatelWriteCommand.OUTPUTS_ON,
+    ]
+
+
+@pytest.mark.asyncio
+async def test_concurrent_outputs_are_sent_in_single_frame(mock_queue, result_msg):
+    """Outputs switched together (e.g. a group in Home Assistant) use one frame."""
+
+    async def send(msg):
+        asyncio.get_running_loop().call_soon(mock_queue.on_message_received, result_msg)
+
+    mock_queue._send_func = AsyncMock(side_effect=send)
+    await mock_queue.start()
+
+    async def switch_output(output):
+        await asyncio.sleep(0.01)
+        await mock_queue.add_message(
+            _outputs_msg(SatelWriteCommand.OUTPUTS_OFF, [output])
+        )
+
+    await asyncio.gather(*(switch_output(output) for output in (1, 5, 9, 17)))
+    await asyncio.sleep(0.2)
+    await mock_queue.stop()
+
+    mock_queue._send_func.assert_awaited_once()
+    sent = mock_queue._send_func.await_args.args[0]
+    assert (
+        sent.msg_data
+        == _outputs_msg(SatelWriteCommand.OUTPUTS_OFF, [1, 5, 9, 17]).msg_data
+    )
+
+
+@pytest.mark.asyncio
+async def test_wait_for_grouping_skips_non_mergeable(
+    mock_queue, write_msg, monkeypatch
+):
+    mock_sleep = AsyncMock()
+    monkeypatch.setattr("satel_integra.queue.asyncio.sleep", mock_sleep)
+
+    await mock_queue._wait_for_grouping(QueuedMessage(write_msg, False))
+
+    mock_sleep.assert_not_awaited()
+    assert mock_queue._grouping_message is None

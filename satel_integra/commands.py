@@ -68,6 +68,21 @@ DEPRECATED_QUERY_WRITE_COMMANDS: dict[SatelWriteCommand, SatelReadCommand] = {
 }
 
 
+MERGEABLE_WRITE_COMMANDS: frozenset[SatelWriteCommand] = frozenset(
+    {
+        SatelWriteCommand.PARTITIONS_ARM_MODE_0,
+        SatelWriteCommand.PARTITIONS_ARM_MODE_1,
+        SatelWriteCommand.PARTITIONS_ARM_MODE_2,
+        SatelWriteCommand.PARTITIONS_ARM_MODE_3,
+        SatelWriteCommand.PARTITIONS_DISARM,
+        SatelWriteCommand.PARTITIONS_CLEAR_ALARM,
+        SatelWriteCommand.OUTPUTS_ON,
+        SatelWriteCommand.OUTPUTS_OFF,
+    }
+)
+"""Commands taking a device bitmask, which can be grouped into a single frame."""
+
+
 def expected_response_command(command: SatelOutboundCommand) -> SatelReadCommand:
     """Return the response command expected for an outbound command."""
     if isinstance(command, SatelReadCommand):

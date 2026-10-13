@@ -596,3 +596,56 @@ async def test_wait_stopped_blocks_until_connection_closes(
     await mock_connection.close()
 
     await asyncio.wait_for(waiter, timeout=1.0)
+
+
+@pytest.mark.asyncio
+async def test_wait_ready_after_returns_for_connection_made_before_call(
+    mock_connection, mock_transport
+):
+    await mock_connection.connect()
+
+    # The connection became ready before anyone waited: it must not be missed.
+    assert await asyncio.wait_for(mock_connection.wait_ready_after(0), 1.0) == 1
+
+
+@pytest.mark.asyncio
+async def test_wait_ready_after_waits_for_newer_ready_connection(
+    mock_connection, mock_transport
+):
+    await mock_connection.connect()
+
+    waiter = asyncio.create_task(mock_connection.wait_ready_after(1))
+    await asyncio.sleep(0)
+    assert not waiter.done()
+
+    await mock_connection.disconnect()
+    await asyncio.sleep(0)
+    assert not waiter.done()
+
+    await mock_connection.connect()
+
+    assert await asyncio.wait_for(waiter, 1.0) == 2
+
+
+@pytest.mark.asyncio
+async def test_wait_ready_after_raises_when_connection_closes(
+    mock_connection, mock_transport
+):
+    await mock_connection.connect()
+
+    waiter = asyncio.create_task(mock_connection.wait_ready_after(1))
+    await asyncio.sleep(0)
+    await mock_connection.close()
+
+    with pytest.raises(SatelConnectionStoppedError):
+        await asyncio.wait_for(waiter, 1.0)
+
+
+@pytest.mark.asyncio
+async def test_notify_state_changed_calls_callbacks(mock_connection):
+    callback = AsyncMock()
+    mock_connection.add_connection_state_callback(callback)
+
+    await mock_connection.notify_state_changed()
+
+    callback.assert_awaited_once_with()

@@ -428,3 +428,70 @@ def test_rtc_and_status_invalid_length(length):
                 bytearray([SatelReadCommand.RTC_AND_STATUS]) + bytearray(length)
             )
         )
+
+
+def test_write_message_merge_outputs():
+    msg = SatelWriteMessage(
+        SatelWriteCommand.OUTPUTS_ON, code="1234", zones_or_outputs=[1]
+    )
+    other = SatelWriteMessage(
+        SatelWriteCommand.OUTPUTS_ON, code="1234", zones_or_outputs=[256]
+    )
+
+    assert msg.can_merge(other)
+    msg.merge(other)
+
+    expected = SatelWriteMessage(
+        SatelWriteCommand.OUTPUTS_ON, code="1234", zones_or_outputs=[1, 256]
+    )
+    assert msg.msg_data == expected.msg_data
+    assert msg.encode_frame() == expected.encode_frame()
+
+
+def test_write_message_cannot_merge_incompatible():
+    msg = SatelWriteMessage(
+        SatelWriteCommand.OUTPUTS_ON, code="1234", zones_or_outputs=[1]
+    )
+
+    assert not msg.can_merge(
+        SatelWriteMessage(
+            SatelWriteCommand.OUTPUTS_OFF, code="1234", zones_or_outputs=[2]
+        )
+    )
+    assert not msg.can_merge(
+        SatelWriteMessage(
+            SatelWriteCommand.OUTPUTS_ON, code="4321", zones_or_outputs=[2]
+        )
+    )
+    assert not SatelWriteMessage(SatelReadCommand.ZONE_TEMPERATURE).can_merge(
+        SatelWriteMessage(SatelReadCommand.ZONE_TEMPERATURE)
+    )
+
+    with pytest.raises(ValueError, match="Cannot merge"):
+        msg.merge(
+            SatelWriteMessage(
+                SatelWriteCommand.OUTPUTS_OFF, code="1234", zones_or_outputs=[2]
+            )
+        )
+
+
+def test_write_message_overlaps():
+    msg = SatelWriteMessage(
+        SatelWriteCommand.OUTPUTS_ON, code="1234", zones_or_outputs=[1, 2]
+    )
+
+    assert msg.overlaps(
+        SatelWriteMessage(
+            SatelWriteCommand.OUTPUTS_OFF, code="1234", zones_or_outputs=[2]
+        )
+    )
+    assert not msg.overlaps(
+        SatelWriteMessage(
+            SatelWriteCommand.OUTPUTS_OFF, code="1234", zones_or_outputs=[3]
+        )
+    )
+    assert not msg.overlaps(
+        SatelWriteMessage(
+            SatelWriteCommand.PARTITIONS_DISARM, code="1234", partitions=[1]
+        )
+    )

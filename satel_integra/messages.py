@@ -10,6 +10,7 @@ from warnings import warn
 
 from satel_integra.commands import (
     DEPRECATED_QUERY_WRITE_COMMANDS,
+    MERGEABLE_WRITE_COMMANDS,
     SatelBaseCommand,
     SatelOutboundCommand,
     SatelReadCommand,
@@ -151,19 +152,54 @@ class SatelWriteMessage(SatelBaseMessage[SatelOutboundCommand]):
                 stacklevel=2,
             )
 
-        msg_data = bytearray()
+        self._code = code
+        self._partitions = set(partitions or ())
+        self._zones_or_outputs = set(zones_or_outputs or ())
+        self._is_raw = raw_data is not None
 
         if raw_data is not None:
-            msg_data += raw_data
+            msg_data = bytearray(raw_data)
         else:
-            if code:
-                msg_data += bytearray.fromhex(code.strip().ljust(16, "F"))
-            if partitions:
-                msg_data += encode_bitmask_le(partitions, 4)
-            if zones_or_outputs:
-                msg_data += encode_bitmask_le(zones_or_outputs, 32)
+            msg_data = self._encode_payload()
 
         super().__init__(cmd, msg_data)
+
+    def _encode_payload(self) -> bytearray:
+        """Encode code and device bitmasks into the message payload."""
+        msg_data = bytearray()
+        if self._code:
+            msg_data += bytearray.fromhex(self._code.strip().ljust(16, "F"))
+        if self._partitions:
+            msg_data += encode_bitmask_le(sorted(self._partitions), 4)
+        if self._zones_or_outputs:
+            msg_data += encode_bitmask_le(sorted(self._zones_or_outputs), 32)
+        return msg_data
+
+    def can_merge(self, other: "SatelWriteMessage") -> bool:
+        """Return True if other can be grouped into this message."""
+        return (
+            not self._is_raw
+            and not other._is_raw
+            and self.cmd is other.cmd
+            and self.cmd in MERGEABLE_WRITE_COMMANDS
+            and self._code == other._code
+        )
+
+    def merge(self, other: "SatelWriteMessage") -> None:
+        """Group the devices of other into this message."""
+        if not self.can_merge(other):
+            raise ValueError(f"Cannot merge {other} into {self}")
+
+        self._partitions |= other._partitions
+        self._zones_or_outputs |= other._zones_or_outputs
+        self.msg_data = self._encode_payload()
+
+    def overlaps(self, other: "SatelWriteMessage") -> bool:
+        """Return True if both messages address any of the same devices."""
+        return bool(
+            self._partitions & other._partitions
+            or self._zones_or_outputs & other._zones_or_outputs
+        )
 
     def encode_frame(self) -> bytearray:
         """Construct full message frame for sending to panel."""

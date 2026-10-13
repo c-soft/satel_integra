@@ -78,6 +78,21 @@ async def test_connect_failure(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_connect_timeout(monkeypatch):
+    async def never_connects(*args, **kwargs):
+        await asyncio.sleep(3600)
+
+    monkeypatch.setattr(asyncio, "open_connection", never_connects)
+    monkeypatch.setattr("satel_integra.transport.TCP_CONNECT_TIMEOUT", 0.01)
+    transport = SatelBaseTransport("localhost", 1234)
+
+    with pytest.raises(SatelConnectFailedError):
+        await transport.connect()
+
+    assert not transport.connected
+
+
+@pytest.mark.asyncio
 async def test_read_initial_data(mock_transport):
     mock_transport._reader.read.return_value = b"Busy!\r\n"
 

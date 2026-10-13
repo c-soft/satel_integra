@@ -4,7 +4,7 @@ import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 
-from satel_integra.const import FRAME_END
+from satel_integra.const import FRAME_END, TCP_CONNECT_TIMEOUT
 from satel_integra.encryption import EncryptedCommunicationHandler
 from satel_integra.exceptions import SatelConnectFailedError
 
@@ -43,8 +43,10 @@ class SatelBaseTransport:
         """Establish TCP connection."""
 
         try:
-            self._reader, self._writer = await asyncio.open_connection(
-                self._host, self._port
+            # Bounded: an unreachable module would otherwise hold the caller
+            # (and the connection lock) for the OS connect timeout.
+            self._reader, self._writer = await asyncio.wait_for(
+                asyncio.open_connection(self._host, self._port), TCP_CONNECT_TIMEOUT
             )
             _LOGGER.debug("TCP connection established to %s:%s", self._host, self._port)
 

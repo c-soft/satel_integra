@@ -488,7 +488,7 @@ class AsyncSatel:
                   + 16/32 bytes - output list
                   If function is accepted, function result can be
                   checked by observe the system state """
-        _LOGGER.debug("Turn on, output: %s, code: %s", output_id, code)
+        _LOGGER.debug("Set output %s to %s", output_id, state)
 
         mode_command = (
             SatelWriteCommand.OUTPUTS_ON if state else SatelWriteCommand.OUTPUTS_OFF

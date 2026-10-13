@@ -258,6 +258,25 @@ async def test_send_methods_call_queue_add(satel, mock_queue, method, args):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
+    "method,args",
+    [
+        ("arm", ("9876", [1], 0)),
+        ("disarm", ("9876", [1])),
+        ("clear_alarm", ("9876", [1])),
+        ("set_output", ("9876", 3, True)),
+    ],
+)
+async def test_send_methods_do_not_log_user_code(
+    satel, mock_queue, caplog, method, args
+):
+    with caplog.at_level(logging.DEBUG):
+        await getattr(satel, method)(*args)
+
+    assert "9876" not in caplog.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
     "zone_number, payload, expected",
     [
         (1, bytearray([1, 0x00, 0x96]), 20.0),

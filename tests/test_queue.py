@@ -5,6 +5,8 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from satel_integra.commands import SatelReadCommand, SatelWriteCommand
+from satel_integra.const import CONTROL_COMMAND_TTL
+from satel_integra.exceptions import SatelNotConnectedError
 from satel_integra.messages import (
     SatelReadMessage,
     SatelTypedReadMessage,
@@ -556,3 +558,90 @@ async def test_wait_for_grouping_skips_non_mergeable(
 
     mock_sleep.assert_not_awaited()
     assert mock_queue._grouping_message is None
+
+
+@pytest.fixture
+def link():
+    """Connection state seen by a queue created with connected/generation."""
+    return {"connected": True, "generation": 1}
+
+
+@pytest.fixture
+def bound_queue(link):
+    return SatelMessageQueue(
+        AsyncMock(),
+        connected=lambda: link["connected"],
+        generation=lambda: link["generation"],
+    )
+
+
+def _output_on():
+    return SatelWriteMessage(
+        SatelWriteCommand.OUTPUTS_ON, code="1234", zones_or_outputs=[3]
+    )
+
+
+@pytest.mark.asyncio
+async def test_control_command_without_connection_fails_immediately(bound_queue, link):
+    link["connected"] = False
+
+    with pytest.raises(SatelNotConnectedError):
+        await bound_queue.add_message(_output_on())
+
+    assert bound_queue._queue.empty()
+
+
+@pytest.mark.asyncio
+async def test_query_without_connection_is_still_queued(bound_queue, link):
+    link["connected"] = False
+
+    await bound_queue.add_message(SatelWriteMessage(SatelReadCommand.RTC_AND_STATUS))
+
+    assert bound_queue._queue.qsize() == 1
+
+
+@pytest.mark.asyncio
+async def test_control_command_from_previous_connection_is_not_sent(bound_queue, link):
+    queued = QueuedMessage(_output_on(), True, generation=1)
+    link["generation"] = 2  # reconnected before the command was sent
+
+    await bound_queue._send_and_wait_response(queued)
+
+    bound_queue._send_func.assert_not_awaited()
+    assert queued.processed_future.result() is None
+
+
+@pytest.mark.asyncio
+async def test_expired_control_command_is_not_sent(bound_queue):
+    queued = QueuedMessage(_output_on(), False, generation=1)
+    queued.created -= CONTROL_COMMAND_TTL + 1
+
+    await bound_queue._send_and_wait_response(queued)
+
+    bound_queue._send_func.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_fresh_control_command_is_sent(bound_queue, result_msg):
+    queued = QueuedMessage(_output_on(), True, generation=1)
+    queued.processed_future.set_result(result_msg)
+
+    await bound_queue._send_and_wait_response(queued)
+
+    bound_queue._send_func.assert_awaited_once_with(queued.message)
+
+
+@pytest.mark.asyncio
+async def test_message_not_grouped_into_one_from_previous_connection(bound_queue, link):
+    off = SatelWriteCommand.OUTPUTS_OFF
+    await bound_queue.add_message(
+        SatelWriteMessage(off, code="1234", zones_or_outputs=[1])
+    )
+    link["generation"] = 2  # reconnected; the pending command above is now stale
+    await bound_queue.add_message(
+        SatelWriteMessage(off, code="1234", zones_or_outputs=[2])
+    )
+
+    pending = bound_queue._queue.pending()
+    assert len(pending) == 2
+    assert [q.generation for q in pending] == [1, 2]

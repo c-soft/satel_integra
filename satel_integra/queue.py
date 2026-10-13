@@ -4,17 +4,49 @@ import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 
-from satel_integra.commands import SatelReadCommand, expected_response_command
-from satel_integra.const import COMMAND_GROUPING_DELAY, MESSAGE_RESPONSE_TIMEOUT
+from satel_integra.commands import (
+    SatelReadCommand,
+    SatelWriteCommand,
+    expected_response_command,
+)
+from satel_integra.const import (
+    COMMAND_GROUPING_DELAY,
+    CONTROL_COMMAND_TTL,
+    MESSAGE_RESPONSE_TIMEOUT,
+)
+from satel_integra.exceptions import SatelNotConnectedError
 from satel_integra.messages import SatelReadMessage, SatelWriteMessage
 
 _LOGGER = logging.getLogger(__name__)
 
+# Commands that act on the premises. They must not be sent late: not after the
+# connection they were issued on is gone, and not after CONTROL_COMMAND_TTL.
+CONTROL_COMMANDS = frozenset(
+    {
+        SatelWriteCommand.PARTITIONS_ARM_MODE_0,
+        SatelWriteCommand.PARTITIONS_ARM_MODE_1,
+        SatelWriteCommand.PARTITIONS_ARM_MODE_2,
+        SatelWriteCommand.PARTITIONS_ARM_MODE_3,
+        SatelWriteCommand.PARTITIONS_DISARM,
+        SatelWriteCommand.PARTITIONS_CLEAR_ALARM,
+        SatelWriteCommand.OUTPUTS_ON,
+        SatelWriteCommand.OUTPUTS_OFF,
+    }
+)
+
 
 class QueuedMessage:
-    def __init__(self, message: SatelWriteMessage, wait_for_result: bool):
+    def __init__(
+        self,
+        message: SatelWriteMessage,
+        wait_for_result: bool,
+        generation: int | None = None,
+    ):
         self.message = message
         self.return_result = wait_for_result
+        self.created = asyncio.get_running_loop().time()
+        # Connection generation the message was issued on (None = not bound).
+        self.generation = generation
 
         self.processed_future: asyncio.Future[SatelReadMessage | None] = (
             asyncio.get_running_loop().create_future()
@@ -38,12 +70,23 @@ class _PendingMessageQueue(asyncio.Queue[QueuedMessage]):
 class SatelMessageQueue:
     """Queue ensuring write commands are sent sequentially and wait for a result."""
 
-    def __init__(self, send_func: Callable[[SatelWriteMessage], Awaitable[None]]):
+    def __init__(
+        self,
+        send_func: Callable[[SatelWriteMessage], Awaitable[None]],
+        connected: Callable[[], bool] | None = None,
+        generation: Callable[[], int] | None = None,
+    ):
         """
         Args:
             send_func: coroutine function to send a frame, e.g. AsyncSatel._send_data
+            connected: returns whether the connection is ready; control commands
+                fail immediately when it is not
+            generation: returns the current connection generation; a control
+                command is dropped if the connection changed before it was sent
         """
         self._send_func: Callable[[SatelWriteMessage], Awaitable[None]] = send_func
+        self._connected = connected
+        self._generation = generation
         self._queue: _PendingMessageQueue = _PendingMessageQueue()
 
         self._current_message: QueuedMessage | None = None
@@ -78,12 +121,23 @@ class SatelMessageQueue:
         if self._stopped:
             raise RuntimeError("Queue is stopped")
 
-        if not wait_for_result and self._group_message(msg):
+        if (
+            msg.cmd in CONTROL_COMMANDS
+            and self._connected is not None
+            and not self._connected()
+        ):
+            raise SatelNotConnectedError(
+                f"Not connected to the panel, {msg.cmd} was not sent"
+            )
+
+        generation = self._generation() if self._generation is not None else None
+
+        if not wait_for_result and self._group_message(msg, generation):
             return
 
         _LOGGER.debug("Queueing message: %s", msg)
 
-        queued = QueuedMessage(msg, wait_for_result)
+        queued = QueuedMessage(msg, wait_for_result, generation)
         await self._queue.put(queued)
 
         if not wait_for_result:
@@ -100,19 +154,21 @@ class SatelMessageQueue:
             _LOGGER.debug("Couldn't wait for message result: %s", exc)
             return
 
-    def _group_message(self, msg: SatelWriteMessage) -> bool:
+    def _group_message(self, msg: SatelWriteMessage, generation: int | None) -> bool:
         """Try to group msg into a compatible message that was not sent yet.
 
         Grouping sends e.g. several outputs in a single frame, so they switch
         at the same time. Messages queued after the grouping target must not
         address any of the same devices, otherwise the order would change.
+        A message is not grouped into one issued on an earlier connection,
+        which may be dropped as stale before it is sent.
         """
         candidates = self._queue.pending()
         if self._grouping_message is not None:
             candidates.insert(0, self._grouping_message)
 
         for queued in reversed(candidates):
-            if queued.can_group(msg):
+            if queued.can_group(msg) and queued.generation == generation:
                 _LOGGER.debug("Grouping message %s into %s", msg, queued.message)
                 queued.message.merge(msg)
                 return True
@@ -173,6 +229,14 @@ class SatelMessageQueue:
     async def _send_and_wait_response(self, queued: QueuedMessage) -> None:
         """Send a queued message and wait for its response."""
 
+        if (reason := self._stale_control_reason(queued)) is not None:
+            _LOGGER.warning(
+                "Control command %s dropped, not sent: %s", queued.message.cmd, reason
+            )
+            if not queued.processed_future.done():
+                queued.processed_future.set_result(None)
+            return
+
         try:
             _LOGGER.debug("Sending message: %s", queued.message)
             await self._send_func(queued.message)
@@ -198,6 +262,23 @@ class SatelMessageQueue:
             if not queued.processed_future.done():
                 queued.processed_future.cancel()
             return
+
+    def _stale_control_reason(self, queued: QueuedMessage) -> str | None:
+        """Return why a queued control command must not be sent, or None."""
+        if queued.message.cmd not in CONTROL_COMMANDS:
+            return None
+        if self._connected is not None and not self._connected():
+            return "not connected"
+        if (
+            self._generation is not None
+            and queued.generation is not None
+            and queued.generation != self._generation()
+        ):
+            return "the connection changed since it was issued"
+        age = asyncio.get_running_loop().time() - queued.created
+        if age > CONTROL_COMMAND_TTL:
+            return f"it waited {age:.1f}s in the queue"
+        return None
 
     def on_message_received(self, result: SatelReadMessage) -> None:
         """Handle a message if it is relevant to the current queued command."""

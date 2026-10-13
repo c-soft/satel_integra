@@ -179,6 +179,32 @@ def test_zones_violated_callback(satel):
     assert satel.violated_zones == [1]
 
 
+@pytest.mark.parametrize("length", [16, 32])
+def test_zones_violated_accepts_16_and_32_byte_masks(satel, length):
+    data = bytearray(length)
+    data[0] = 0b00000010  # zone 2
+    msg = SatelReadMessage(SatelReadCommand.ZONES_VIOLATED, data)
+
+    called = {}
+    satel.register_callbacks(zone_changed_callback=lambda status: called.update(status))
+
+    satel._zones_violated(msg)
+
+    assert called == {1: 0, 2: 1}
+    assert satel.violated_zones == [2]
+
+
+@pytest.mark.parametrize("length", [16, 32])
+def test_outputs_changed_accepts_16_and_32_byte_masks(satel, length):
+    data = bytearray(length)
+    data[0] = 0b00001000  # output 4
+    msg = SatelReadMessage(SatelReadCommand.OUTPUTS_STATE, data)
+
+    satel._outputs_changed(msg)
+
+    assert satel.violated_outputs == [4]
+
+
 def test_outputs_changed_callback(satel):
     msg = MagicMock()
     msg.get_active_bits.return_value = [4]
@@ -904,6 +930,26 @@ async def test_reading_loop_processes_message(satel, mock_connection):
     await satel._reading_loop()
 
     cmd_handler.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_reading_loop_continues_after_handler_error(satel, mock_connection):
+    first = MagicMock()
+    first.cmd = 1
+    second = MagicMock()
+    second.cmd = 1
+
+    satel._connection.ensure_connected = AsyncMock(
+        side_effect=[None, None, SatelConnectionStoppedError]
+    )
+    satel._read_data = AsyncMock(side_effect=[first, second])
+
+    cmd_handler = MagicMock(side_effect=[ValueError("bad frame"), None])
+    satel._message_handlers = {1: cmd_handler}
+
+    await satel._reading_loop()
+
+    assert cmd_handler.call_count == 2
 
 
 @pytest.mark.asyncio

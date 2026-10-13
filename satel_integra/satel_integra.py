@@ -83,6 +83,16 @@ class AlarmState(Enum):
     DISARMED = 10
 
 
+def _bitmask_length(msg: SatelReadMessage) -> int:
+    """Return the bitmask length of a 0x00 / 0x17 answer.
+
+    The protocol allows both 16 and 32 bytes ("0x00 + 16/32 bytes"); the module
+    answers with 16 unless 32-byte mode is used. Any other length is decoded as
+    32 bytes and fails for that frame only.
+    """
+    return len(msg.msg_data) if len(msg.msg_data) in (16, 32) else 32
+
+
 class AsyncSatel:
     """Asynchronous interface to talk to Satel Integra alarm system."""
 
@@ -196,7 +206,7 @@ class AsyncSatel:
     def _zones_violated(self, msg: SatelReadMessage):
         status: dict[int, int] = {}
 
-        violated_zones = msg.get_active_bits(32)
+        violated_zones = msg.get_active_bits(_bitmask_length(msg))
         self.violated_zones = violated_zones
         _LOGGER.debug("Violated zones: %s", violated_zones)
         for zone in self._monitored_zones:
@@ -212,7 +222,7 @@ class AsyncSatel:
 
         status: dict[int, int] = {}
 
-        output_states = msg.get_active_bits(32)
+        output_states = msg.get_active_bits(_bitmask_length(msg))
         self.violated_outputs = output_states
         _LOGGER.debug(
             "Output states: %s, monitored outputs: %s",
@@ -380,7 +390,15 @@ class AsyncSatel:
 
                 if msg.cmd in self._message_handlers:
                     _LOGGER.debug("Calling handler for command: %s", msg.cmd)
-                    self._message_handlers[msg.cmd](msg)
+                    # One frame that cannot be handled must not end the reading
+                    # loop: the loop would exit with TCP still open, so there
+                    # would be no reconnection and no more data.
+                    try:
+                        self._message_handlers[msg.cmd](msg)
+                    except Exception as ex:
+                        _LOGGER.warning(
+                            "Dropping frame %s, handler failed: %s", msg.cmd, ex
+                        )
                 else:
                     _LOGGER.debug("No handler for command: %s", msg.cmd)
 

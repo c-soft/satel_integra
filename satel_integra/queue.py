@@ -14,7 +14,7 @@ from satel_integra.const import (
     CONTROL_COMMAND_TTL,
     MESSAGE_RESPONSE_TIMEOUT,
 )
-from satel_integra.exceptions import SatelNotConnectedError
+from satel_integra.exceptions import SatelCommandExpiredError, SatelNotConnectedError
 from satel_integra.messages import SatelReadMessage, SatelWriteMessage
 
 _LOGGER = logging.getLogger(__name__)
@@ -151,6 +151,8 @@ class SatelMessageQueue:
                 _LOGGER.debug("Waiting for message result cancelled")
                 return
             raise
+        except SatelCommandExpiredError:
+            raise
         except Exception as exc:
             _LOGGER.debug("Couldn't wait for message result: %s", exc)
             return
@@ -239,7 +241,14 @@ class SatelMessageQueue:
                 "Control command %s dropped, not sent: %s", queued.message.cmd, reason
             )
             if not queued.processed_future.done():
-                queued.processed_future.set_result(None)
+                if queued.return_result:
+                    queued.processed_future.set_exception(
+                        SatelCommandExpiredError(
+                            f"Control command {queued.message.cmd} not sent: {reason}"
+                        )
+                    )
+                else:
+                    queued.processed_future.set_result(None)
             return
 
         try:

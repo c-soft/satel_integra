@@ -4,13 +4,14 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from satel_integra.commands import SatelReadCommand
+from satel_integra.commands import SatelReadCommand, SatelWriteCommand
 from satel_integra.exceptions import (
     SatelCommandRejectedError,
     SatelConnectFailedError,
     SatelConnectionInitializationError,
     SatelConnectionStoppedError,
     SatelMonitoringStartError,
+    SatelNoResponseError,
     SatelPanelBusyError,
     SatelUnexpectedResponseError,
 )
@@ -20,6 +21,7 @@ from satel_integra.messages import (
     SatelTypedReadMessage,
 )
 from satel_integra.models import (
+    SatelCommandResult,
     SatelOutputInfo,
     SatelPartitionInfo,
     SatelResultCode,
@@ -451,6 +453,57 @@ async def test_send_methods_do_not_log_user_code(
 ):
     with caplog.at_level(logging.DEBUG):
         await getattr(satel, method)(*args)
+
+    assert "9876" not in caplog.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "state, command",
+    [(True, SatelWriteCommand.OUTPUTS_ON), (False, SatelWriteCommand.OUTPUTS_OFF)],
+)
+async def test_set_output_confirmed_waits_for_result(satel, mock_queue, state, command):
+    mock_queue.add_message.return_value = _make_result_message(
+        SatelResultCode.COMMAND_ACCEPTED
+    )
+
+    result = await satel.set_output_confirmed("1234", 3, state)
+
+    assert isinstance(result, SatelCommandResult)
+    assert result.is_success
+    sent_msg, wait_for_result = mock_queue.add_message.await_args.args
+    assert sent_msg.cmd is command
+    assert wait_for_result is True
+
+
+@pytest.mark.asyncio
+async def test_set_output_confirmed_rejected(satel, mock_queue):
+    mock_queue.add_message.return_value = _make_result_message(
+        SatelResultCode.NO_ACCESS
+    )
+
+    with pytest.raises(SatelCommandRejectedError) as err:
+        await satel.set_output_confirmed("1234", 3, True)
+
+    assert err.value.result.code == SatelResultCode.NO_ACCESS
+
+
+@pytest.mark.asyncio
+async def test_set_output_confirmed_no_response(satel, mock_queue):
+    mock_queue.add_message.return_value = None
+
+    with pytest.raises(SatelNoResponseError):
+        await satel.set_output_confirmed("1234", 3, True)
+
+
+@pytest.mark.asyncio
+async def test_set_output_confirmed_does_not_log_user_code(satel, mock_queue, caplog):
+    mock_queue.add_message.return_value = _make_result_message(
+        SatelResultCode.COMMAND_ACCEPTED
+    )
+
+    with caplog.at_level(logging.DEBUG):
+        await satel.set_output_confirmed("9876", 3, True)
 
     assert "9876" not in caplog.text
 

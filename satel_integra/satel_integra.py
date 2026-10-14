@@ -26,6 +26,7 @@ from satel_integra.exceptions import (
     SatelConnectionInitializationError,
     SatelConnectionStoppedError,
     SatelMonitoringStartError,
+    SatelNoResponseError,
     SatelPanelBusyError,
     SatelUnexpectedResponseError,
 )
@@ -629,6 +630,28 @@ class AsyncSatel:
         )
         msg = SatelWriteMessage(mode_command, code=code, zones_or_outputs=[output_id])
         await self._send_data(msg)
+
+    async def set_output_confirmed(self, code, output_id, state) -> SatelCommandResult:
+        """Set an output and wait for the panel's result (0xEF).
+
+        Raises SatelCommandRejectedError when the panel rejects the command
+        (e.g. 0x01 unknown user code, 0x02 no rights; the code is in `.result`),
+        SatelNoResponseError when it does not answer, and
+        SatelCommandExpiredError when the command was dropped instead of sent
+        late. An accepted command only means the panel took it: the output
+        state itself is reported by monitoring (0x17), which the caller can
+        watch.
+        """
+        _LOGGER.debug("Set output %s to %s, waiting for the result", output_id, state)
+
+        mode_command = (
+            SatelWriteCommand.OUTPUTS_ON if state else SatelWriteCommand.OUTPUTS_OFF
+        )
+        msg = SatelWriteMessage(mode_command, code=code, zones_or_outputs=[output_id])
+        result = await self._send_data_and_wait(msg, SatelCommandResult)
+        if result is None:
+            raise SatelNoResponseError(f"No result from the panel for {msg.cmd}")
+        return result
 
     async def read_temperature(self, zone_id: int) -> float | None:
         """Read the temperature for a single zone sensor."""

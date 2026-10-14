@@ -66,3 +66,19 @@ class SatelNotConnectedError(SatelConnectionError):
     The command is not queued for later: sending it after the connection comes
     back (e.g. opening a gate minutes later) would surprise the user.
     """
+
+
+class SatelCommandExpiredError(SatelConnectionError):
+    """Raised when a control command awaiting its result was dropped, not sent.
+
+    It was issued on a connection that is gone, or waited longer than
+    CONTROL_COMMAND_TTL in the queue.
+    """
+
+
+class SatelNoResponseError(SatelIntegraError):
+    """Raised when the panel does not answer a command with a result (0xEF).
+
+    The command may or may not have been executed; check the state before
+    retrying.
+    """

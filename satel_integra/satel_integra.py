@@ -12,6 +12,7 @@ from satel_integra.commands import SatelReadCommand, SatelWriteCommand
 from satel_integra.connection import SatelConnection
 from satel_integra.const import (
     KEEPALIVE_INTERVAL,
+    MONITORING_REFRESH_INTERVAL,
     ConnectionStateCallback,
     UnsubscribeCallback,
 )
@@ -123,6 +124,8 @@ class AsyncSatel:
         self._partitions: list[int] = partitions
 
         self._alarm_status_callback: Callable[[], None] | None = None
+        # Connection generation on which monitoring was acknowledged (-1 = none).
+        self._monitoring_generation = -1
         self._zone_changed_callback: Callable[[dict[int, int]], None] | None = None
         self._output_changed_callback: Callable[[dict[int, int]], None] | None = None
 
@@ -182,6 +185,7 @@ class AsyncSatel:
             SatelReadCommand.OUTPUTS_STATE,
         ]
 
+        generation = self._connection.generation
         monitored_commands_bitmask = encode_bitmask_le(
             [cmd.value + 1 for cmd in monitored_commands], 12
         )
@@ -200,6 +204,12 @@ class AsyncSatel:
 
         if monitoring_result is None:
             raise SatelMonitoringStartError("No response to monitoring request")
+
+        was_ready = self.monitoring_ready
+        self._monitoring_generation = generation
+        if not was_ready and self.monitoring_ready:
+            # Let consumers update availability now that data is flowing.
+            await self._connection.notify_state_changed()
 
         _LOGGER.debug("Monitoring started")
 
@@ -275,12 +285,14 @@ class AsyncSatel:
         self._start_task(self._keepalive_loop())
 
         if enable_monitoring:
-            self._start_task(self._monitor_reconnection_loop())
             try:
                 await self.start_monitoring()
             except (Exception, asyncio.CancelledError):
                 await self.close()
                 raise
+            # Started after the first acknowledgement, so the loop does not
+            # send a second monitoring request on the same connection.
+            self._start_task(self._monitor_reconnection_loop())
 
     def _start_task(self, coro: Awaitable[object]) -> asyncio.Task[object]:
         """Create and track a background task."""
@@ -410,17 +422,42 @@ class AsyncSatel:
             _LOGGER.exception("Error in _reading_loop loop, %s", ex)
 
     async def _monitor_reconnection_loop(self):
-        """Monitor for reconnection events and reinitialize monitoring.
+        """Keep monitoring enabled on every connection.
 
-        This task is only created when monitoring is enabled, so we can assume
-        monitoring should be restarted on reconnection.
+        This task is only created when monitoring is enabled.
+
+        - On a connection without acknowledged monitoring, retry the request
+          with backoff until it succeeds or the connection changes. Previously a
+          single unanswered request left monitoring off until the next
+          reconnection, which keepalive could postpone indefinitely: the client
+          looked connected while no state updates arrived.
+        - Wait for a newer ready connection by generation rather than a shared
+          event, so a reconnection during a monitoring request is not missed.
+        - On an unchanged connection, re-send the request every
+          MONITORING_REFRESH_INTERVAL; the module then re-sends the state of all
+          monitored commands, which recovers any lost update.
         """
         while True:
+            if self._connection.stopped:
+                return
             try:
-                # Wait indefinitely for a reconnection event
-                await self._connection.wait_reconnected()
-                _LOGGER.info("Connection re-established, reinitializing monitoring...")
-                await self.start_monitoring()
+                generation = self._connection.generation
+                if self.connected and self._monitoring_generation != generation:
+                    await self._start_monitoring_until_ok()
+                    continue
+                try:
+                    await asyncio.wait_for(
+                        self._connection.wait_ready_after(generation),
+                        MONITORING_REFRESH_INTERVAL,
+                    )
+                except TimeoutError:
+                    if self.connected:
+                        _LOGGER.debug("Refreshing monitoring on the same connection")
+                        try:
+                            await self.start_monitoring()
+                        except SatelMonitoringStartError as ex:
+                            _LOGGER.warning("Monitoring refresh failed: %s", ex)
+                            self._monitoring_generation = -1
             except SatelConnectionStoppedError:
                 return
             except asyncio.CancelledError:
@@ -428,6 +465,29 @@ class AsyncSatel:
             except Exception as ex:
                 _LOGGER.exception("Error in _monitor_reconnection: %s", ex)
                 await asyncio.sleep(1)
+
+    async def _start_monitoring_until_ok(self) -> None:
+        """Enable monitoring on the current connection.
+
+        Retries with backoff (1 s up to 30 s) until acknowledged or until the
+        connection is lost or replaced.
+        """
+        generation = self._connection.generation
+        delay = 1.0
+        while self.connected and self._connection.generation == generation:
+            try:
+                await self.start_monitoring()
+            except SatelConnectionStoppedError:
+                raise
+            except Exception as ex:
+                _LOGGER.warning(
+                    "Starting monitoring failed (%s), retrying in %.0fs", ex, delay
+                )
+                await asyncio.sleep(delay)
+                delay = min(delay * 2, 30.0)
+            else:
+                _LOGGER.info("Monitoring enabled")
+                return
 
     def register_callbacks(
         self,
@@ -749,6 +809,18 @@ class AsyncSatel:
     def stopped(self) -> bool:
         """Return true if connection is stopped."""
         return self._connection.stopped
+
+    @property
+    def monitoring_ready(self) -> bool:
+        """Return true if connected and monitoring is acknowledged on this connection.
+
+        A connection alone does not mean state updates are arriving; use this
+        for availability. Connection state callbacks also fire when it changes.
+        """
+        return (
+            self.connected
+            and self._monitoring_generation == self._connection.generation
+        )
 
     @overload
     @deprecated("Use connect with 'verify_connection' property instead")

@@ -57,6 +57,10 @@ class SatelConnection:
         self._had_connection = False
         self._last_outbound_activity: float | None = None
         self._generation = 0
+        # Replaced (and the old one set) every time a connection becomes ready.
+        # Waiters never clear it, so a connection made between two waits is
+        # never missed.
+        self._ready_event = asyncio.Event()
 
     @property
     def connected(self) -> bool:
@@ -111,6 +115,17 @@ class SatelConnection:
         if ready == self._ready:
             return
         self._ready = ready
+        await self._notify_connection_state_callbacks()
+
+    async def notify_state_changed(self) -> None:
+        """Notify state callbacks of a change outside the connection itself.
+
+        Used when monitoring becomes ready, so consumers can update availability.
+        """
+        await self._notify_connection_state_callbacks()
+
+    async def _notify_connection_state_callbacks(self) -> None:
+        """Invoke all connection state callbacks."""
         for callback in tuple(self._connection_state_callbacks):
             try:
                 result = callback()
@@ -208,6 +223,8 @@ class SatelConnection:
             # Do not wake reconnection monitors until callback delivery exits.
             if was_reconnection:
                 self._reconnected_event.set()
+            ready_event, self._ready_event = self._ready_event, asyncio.Event()
+            ready_event.set()
 
     async def connect(self, verify_connection: bool = True) -> None:
         """Establish TCP connection with a single attempt (no retries).
@@ -292,6 +309,27 @@ class SatelConnection:
         """Drop the current transport without terminally stopping the client."""
         async with self._connection_lock:
             await self._close_locked(stop=False)
+
+    async def wait_ready_after(self, generation: int) -> int:
+        """Wait until a connection newer than `generation` is ready; return its generation.
+
+        Unlike wait_reconnected(), nothing is cleared: a connection that became
+        ready before this call (or between two calls) returns immediately.
+        Raises if the connection is terminally stopped.
+        """
+        while not (self._ready and self._generation > generation):
+            self._assert_not_stopped()
+            ready_waiter = asyncio.create_task(self._ready_event.wait())
+            stopped_waiter = asyncio.create_task(self._stopped_event.wait())
+            waiters = {ready_waiter, stopped_waiter}
+            try:
+                await asyncio.wait(waiters, return_when=asyncio.FIRST_COMPLETED)
+            finally:
+                for task in waiters:
+                    if not task.done():
+                        task.cancel()
+                await asyncio.gather(*waiters, return_exceptions=True)
+        return self._generation
 
     async def wait_reconnected(self) -> None:
         """Wait for connection to be re-established after being lost.

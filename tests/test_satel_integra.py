@@ -131,6 +131,68 @@ async def test_start_monitoring_success(satel, mock_queue):
 
 
 @pytest.mark.asyncio
+async def test_start_monitoring_sets_monitoring_ready_and_notifies(
+    satel, mock_queue, mock_connection
+):
+    mock_queue.add_message.return_value = _make_result_message(
+        SatelResultCode.COMMAND_ACCEPTED
+    )
+    assert satel.monitoring_ready is False
+
+    await satel.start_monitoring()
+
+    assert satel.monitoring_ready is True
+    mock_connection.notify_state_changed.assert_awaited_once()
+
+    # A new connection needs its own acknowledgement.
+    mock_connection.generation = 2
+    assert satel.monitoring_ready is False
+
+
+@pytest.mark.asyncio
+async def test_monitor_loop_retries_monitoring_on_same_connection(
+    satel, mock_connection, fake_sleep_factory
+):
+    sleep_calls = fake_sleep_factory()
+    calls = 0
+
+    async def start_monitoring():
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise SatelMonitoringStartError("No response to monitoring request")
+        satel._monitoring_generation = mock_connection.generation
+
+    satel.start_monitoring = AsyncMock(side_effect=start_monitoring)
+    mock_connection.wait_ready_after = AsyncMock(
+        side_effect=SatelConnectionStoppedError
+    )
+
+    await satel._monitor_reconnection_loop()
+
+    # Previously one unanswered request left monitoring off until the next
+    # reconnection; now it is retried on the same connection.
+    assert satel.start_monitoring.await_count == 2
+    assert sleep_calls == [1.0]
+    assert satel.monitoring_ready is True
+
+
+@pytest.mark.asyncio
+async def test_monitor_loop_refreshes_monitoring_on_unchanged_connection(
+    satel, mock_connection
+):
+    satel._monitoring_generation = mock_connection.generation
+    satel.start_monitoring = AsyncMock()
+    mock_connection.wait_ready_after = AsyncMock(
+        side_effect=[TimeoutError, SatelConnectionStoppedError]
+    )
+
+    await satel._monitor_reconnection_loop()
+
+    satel.start_monitoring.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_start_monitoring_rejected(satel, mock_queue):
     mock_queue.add_message.return_value = _make_result_message(
         SatelResultCode.NO_ACCESS

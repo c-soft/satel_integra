@@ -108,7 +108,11 @@ class AsyncSatel:
     ):
         """Init the Satel alarm data."""
         self._connection = SatelConnection(host, port, integration_key=integration_key)
-        self._queue = SatelMessageQueue(self._send_encoded_frame)
+        self._queue = SatelMessageQueue(
+            self._send_encoded_frame,
+            connected=lambda: self._connection.connected,
+            generation=lambda: self._connection.generation,
+        )
         self._running_tasks: set[asyncio.Task[object]] = set()
         self._closing = False
         self._connection_unavailable_logged = False

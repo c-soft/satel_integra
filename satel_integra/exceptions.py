@@ -58,3 +58,11 @@ class SatelCommandRejectedError(SatelIntegraError):
 
 class SatelMonitoringStartError(SatelIntegraError):
     """Raised when monitoring startup receives no successful acknowledgement."""
+
+
+class SatelNotConnectedError(SatelConnectionError):
+    """Raised when a control command is issued while not connected.
+
+    The command is not queued for later: sending it after the connection comes
+    back (e.g. opening a gate minutes later) would surprise the user.
+    """

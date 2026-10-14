@@ -20,3 +20,6 @@ MONITORING_REFRESH_INTERVAL = 300
 
 ConnectionStateCallback = Callable[[], None | Awaitable[None]]
 UnsubscribeCallback = Callable[[], None]
+
+# A queued control command (arm, disarm, outputs) older than this is not sent.
+CONTROL_COMMAND_TTL = 3

@@ -300,6 +300,57 @@ def test_partitions_armed_state_callback(satel):
     assert called
 
 
+def test_system_status_callback(satel):
+    msg = _typed_message(SatelReadCommand.RTC_AND_STATUS, bytearray(9))
+    called = []
+    satel.add_system_status_callback(lambda: called.append(satel.system_status))
+
+    assert satel.system_status is None
+
+    satel._system_status_changed(msg)
+
+    assert called == [msg.data]
+    assert satel.system_status == msg.data
+
+
+def test_system_status_changes_notify(satel):
+    clear = _typed_message(SatelReadCommand.RTC_AND_STATUS, bytearray(9))
+    active = _typed_message(
+        SatelReadCommand.RTC_AND_STATUS, bytearray(7) + bytearray([0xC0, 0])
+    )
+    satel.system_status = clear.data
+    called = []
+    satel.add_system_status_callback(lambda: called.append(satel.system_status))
+
+    satel._system_status_changed(active)
+    satel._system_status_changed(clear)
+
+    assert called == [active.data, clear.data]
+    assert satel.system_status == clear.data
+
+
+def test_unchanged_system_status_does_not_notify(satel):
+    msg = _typed_message(SatelReadCommand.RTC_AND_STATUS, bytearray(9))
+    satel.system_status = msg.data
+    callback = MagicMock()
+    satel.add_system_status_callback(callback)
+
+    satel._system_status_changed(msg)
+
+    callback.assert_not_called()
+
+
+def test_system_status_subscription_can_be_removed(satel):
+    callback = MagicMock()
+    unsubscribe = satel.add_system_status_callback(callback)
+    msg = _typed_message(SatelReadCommand.RTC_AND_STATUS, bytearray(9))
+    unsubscribe()
+
+    satel._system_status_changed(msg)
+
+    callback.assert_not_called()
+
+
 def test_command_result_accepted(satel, caplog):
     msg = _make_result_message(SatelResultCode.COMMAND_ACCEPTED)
 

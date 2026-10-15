@@ -8,13 +8,17 @@ from enum import Enum, unique
 from typing import TypeVar, cast, overload
 from warnings import warn
 
+from satel_integra.callbacks import (
+    AsyncStateChangeCallback,
+    CallbackRegistry,
+    StateChangeCallback,
+    UnsubscribeCallback,
+)
 from satel_integra.commands import SatelReadCommand, SatelWriteCommand
 from satel_integra.connection import SatelConnection
 from satel_integra.const import (
     KEEPALIVE_INTERVAL,
     MONITORING_REFRESH_INTERVAL,
-    ConnectionStateCallback,
-    UnsubscribeCallback,
 )
 from satel_integra.exceptions import (
     SatelCommandRejectedError,
@@ -127,7 +131,11 @@ class AsyncSatel:
         self.partition_states: dict[AlarmState, list[int]] = {}
         self._partitions: list[int] = partitions
 
+        # None until the first RTC/status response has been received.
+        self.system_status: SatelRtcAndStatus | None = None
+
         self._alarm_status_callback: Callable[[], None] | None = None
+        self._system_status_callbacks = CallbackRegistry()
         # Connection generation on which monitoring was acknowledged (-1 = none).
         self._monitoring_generation = -1
         self._zone_changed_callback: Callable[[dict[int, int]], None] | None = None
@@ -169,6 +177,7 @@ class AsyncSatel:
                 self._partitions_armed_state(AlarmState.ARMED_MODE1, msg)
             ),
             SatelReadCommand.RESULT: self._command_result,
+            SatelReadCommand.RTC_AND_STATUS: self._system_status_changed,
         }
 
     async def start_monitoring(self) -> None:
@@ -187,6 +196,7 @@ class AsyncSatel:
             SatelReadCommand.PARTITIONS_ALARM,
             SatelReadCommand.PARTITIONS_FIRE_ALARM,
             SatelReadCommand.OUTPUTS_STATE,
+            SatelReadCommand.RTC_AND_STATUS,
         ]
 
         generation = self._connection.generation
@@ -262,6 +272,23 @@ class AsyncSatel:
 
         result = cast(SatelCommandResult, msg.data)
         _LOGGER.debug("Received command result: %s", result.code)
+
+    def _system_status_changed(self, msg: SatelReadMessage) -> None:
+        """Store panel status and notify consumers when decoded flags change."""
+        if (
+            not isinstance(msg, SatelTypedReadMessage)
+            or msg.data_type is not SatelRtcAndStatus
+        ):
+            _LOGGER.warning("Received unexpected system status response: %s", msg)
+            return
+
+        status = cast(SatelRtcAndStatus, msg.data)
+        if status == self.system_status:
+            return
+
+        self.system_status = status
+        _LOGGER.debug("System status changed: %s", status)
+        self._system_status_callbacks.notify()
 
     def _partitions_armed_state(self, mode: AlarmState, msg: SatelReadMessage):
         partitions = msg.get_active_bits(4)
@@ -507,6 +534,12 @@ class AsyncSatel:
         if output_changed_callback:
             self._output_changed_callback = output_changed_callback
 
+    def add_system_status_callback(
+        self, callback: StateChangeCallback
+    ) -> UnsubscribeCallback:
+        """Subscribe to system status changes and return a function to unsubscribe."""
+        return self._system_status_callbacks.add(callback)
+
     def _connection_state_changed(self) -> None:
         """Log user-facing connection availability changes once per outage."""
         if self._closing or self.stopped:
@@ -523,7 +556,7 @@ class AsyncSatel:
             self._connection_unavailable_logged = False
 
     def add_connection_status_callback(
-        self, callback: ConnectionStateCallback
+        self, callback: AsyncStateChangeCallback
     ) -> UnsubscribeCallback:
         """Add a connection-status callback and return a function to remove it."""
         return self._connection.add_connection_state_callback(callback)

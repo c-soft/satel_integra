@@ -39,9 +39,11 @@ class QueuedMessage:
     def __init__(
         self,
         message: SatelWriteMessage,
+        wait_for_result: bool,
         generation: int | None = None,
     ):
         self.message = message
+        self.return_result = wait_for_result
         self.created = asyncio.get_running_loop().time()
         # Connection generation the message was issued on (None = not bound).
         self.generation = generation
@@ -130,8 +132,10 @@ class SatelMessageQueue:
         if queued is None:
             _LOGGER.debug("Queueing message: %s", msg)
 
-            queued = QueuedMessage(msg, generation=generation)
+            queued = QueuedMessage(msg, wait_for_result, generation=generation)
             await self._queue.put(queued)
+        elif wait_for_result:
+            queued.return_result = True
 
         if not wait_for_result:
             return

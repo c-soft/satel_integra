@@ -48,14 +48,19 @@ def mock_connection(mock_transport: AsyncMock) -> SatelConnection:
     return conn
 
 
-def test_connection_state_callback_unsubscribe_is_idempotent(mock_connection):
+@pytest.mark.asyncio
+async def test_connection_state_subscription_can_be_removed(mock_connection):
     callback = MagicMock()
 
     unsubscribe = mock_connection.add_connection_state_callback(callback)
-    unsubscribe()
+    await mock_connection.notify_state_changed()
+    callback.assert_called_once_with()
+
     unsubscribe()
 
-    assert callback not in mock_connection._connection_state_callbacks
+    await mock_connection.notify_state_changed()
+
+    callback.assert_called_once_with()
 
 
 @pytest.mark.asyncio

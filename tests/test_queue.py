@@ -605,6 +605,54 @@ async def test_concurrent_waiting_outputs_share_one_result(mock_queue, result_ms
 
 
 @pytest.mark.asyncio
+async def test_result_during_grouping_does_not_complete_waiters(mock_queue, result_msg):
+    """A result received before the grouped frame is sent must be ignored."""
+    sent_result = SatelTypedReadMessage(
+        SatelReadCommand.RESULT,
+        bytearray([0x01]),
+        data_type=SatelCommandResult,
+    )
+
+    async def send(_msg):
+        asyncio.get_running_loop().call_soon(
+            mock_queue.on_message_received, sent_result
+        )
+
+    mock_queue._send_func = AsyncMock(side_effect=send)
+    await mock_queue.start()
+
+    waiters = [
+        asyncio.create_task(
+            mock_queue.add_message(
+                _outputs_msg(SatelWriteCommand.OUTPUTS_ON, [output]),
+                wait_for_result=True,
+            )
+        )
+        for output in (1, 2, 3)
+    ]
+    grouped_data = _outputs_msg(SatelWriteCommand.OUTPUTS_ON, [1, 2, 3]).msg_data
+    while (
+        not mock_queue._is_grouping
+        or mock_queue._current_message is None
+        or mock_queue._current_message.message.msg_data != grouped_data
+    ):
+        await asyncio.sleep(0)
+
+    mock_queue.on_message_received(result_msg)
+
+    assert mock_queue._current_message is not None
+    assert not mock_queue._current_message.processed_future.done()
+    assert all(not waiter.done() for waiter in waiters)
+    mock_queue._send_func.assert_not_awaited()
+
+    results = await asyncio.gather(*waiters)
+    await mock_queue.stop()
+
+    mock_queue._send_func.assert_awaited_once()
+    assert all(result is sent_result for result in results)
+
+
+@pytest.mark.asyncio
 async def test_concurrent_waiting_non_mergeable_messages_are_sent_separately(
     mock_queue,
 ):
@@ -642,7 +690,7 @@ async def test_wait_for_grouping_skips_non_mergeable(
     await mock_queue._wait_for_grouping(QueuedMessage(write_msg, False))
 
     mock_sleep.assert_not_awaited()
-    assert mock_queue._grouping_message is None
+    assert mock_queue._is_grouping is False
 
 
 @pytest.fixture

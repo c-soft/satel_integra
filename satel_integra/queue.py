@@ -39,11 +39,9 @@ class QueuedMessage:
     def __init__(
         self,
         message: SatelWriteMessage,
-        wait_for_result: bool,
         generation: int | None = None,
     ):
         self.message = message
-        self.return_result = wait_for_result
         self.created = asyncio.get_running_loop().time()
         # Connection generation the message was issued on (None = not bound).
         self.generation = generation
@@ -53,10 +51,6 @@ class QueuedMessage:
         )
 
         self.expected_result_command = expected_response_command(message.cmd)
-
-    def can_group(self, message: SatelWriteMessage) -> bool:
-        """Return True if message can be grouped into this queued message."""
-        return not self.return_result and self.message.can_merge(message)
 
 
 class _PendingMessageQueue(asyncio.Queue[QueuedMessage]):
@@ -132,13 +126,12 @@ class SatelMessageQueue:
 
         generation = self._generation() if self._generation is not None else None
 
-        if not wait_for_result and self._group_message(msg, generation):
-            return
+        queued = self._group_message(msg, generation)
+        if queued is None:
+            _LOGGER.debug("Queueing message: %s", msg)
 
-        _LOGGER.debug("Queueing message: %s", msg)
-
-        queued = QueuedMessage(msg, wait_for_result, generation)
-        await self._queue.put(queued)
+            queued = QueuedMessage(msg, generation=generation)
+            await self._queue.put(queued)
 
         if not wait_for_result:
             return
@@ -154,28 +147,32 @@ class SatelMessageQueue:
             _LOGGER.debug("Couldn't wait for message result: %s", exc)
             return
 
-    def _group_message(self, msg: SatelWriteMessage, generation: int | None) -> bool:
-        """Try to group msg into a compatible message that was not sent yet.
+    def _group_message(
+        self, msg: SatelWriteMessage, generation: int | None
+    ) -> QueuedMessage | None:
+        """Group message into an unsent message and return that queue entry.
 
         Grouping sends e.g. several outputs in a single frame, so they switch
         at the same time. Messages queued after the grouping target must not
         address any of the same devices, otherwise the order would change.
         A message is not grouped into one issued on an earlier connection,
         which may be dropped as stale before it is sent.
+
+        Returning the queue entry lets callers share its response future.
         """
         candidates = self._queue.pending()
         if self._grouping_message is not None:
             candidates.insert(0, self._grouping_message)
 
         for queued in reversed(candidates):
-            if queued.can_group(msg) and queued.generation == generation:
+            if queued.message.can_merge(msg) and queued.generation == generation:
                 _LOGGER.debug("Grouping message %s into %s", msg, queued.message)
                 queued.message.merge(msg)
-                return True
+                return queued
             if queued.message.overlaps(msg):
-                return False
+                return None
 
-        return False
+        return None
 
     def _cancel_pending_messages(self) -> None:
         """Cancel any pending waiters when the queue shuts down."""
@@ -210,7 +207,7 @@ class SatelMessageQueue:
 
     async def _wait_for_grouping(self, queued: QueuedMessage) -> None:
         """Give messages issued at the same time a chance to be grouped."""
-        if not queued.can_group(queued.message):
+        if not queued.message.can_merge(queued.message):
             return
 
         self._grouping_message = queued

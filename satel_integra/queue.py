@@ -86,7 +86,7 @@ class SatelMessageQueue:
         self._queue: _PendingMessageQueue = _PendingMessageQueue()
 
         self._current_message: QueuedMessage | None = None
-        self._grouping_message: QueuedMessage | None = None
+        self._is_grouping = False
         self._process_task: asyncio.Task | None = None
         self._stopped = False
 
@@ -165,8 +165,8 @@ class SatelMessageQueue:
         Returning the queue entry lets callers share its response future.
         """
         candidates = self._queue.pending()
-        if self._grouping_message is not None:
-            candidates.insert(0, self._grouping_message)
+        if self._is_grouping and self._current_message is not None:
+            candidates.insert(0, self._current_message)
 
         for queued in reversed(candidates):
             if queued.message.can_merge(msg) and queued.generation == generation:
@@ -214,11 +214,11 @@ class SatelMessageQueue:
         if not queued.message.can_merge(queued.message):
             return
 
-        self._grouping_message = queued
+        self._is_grouping = True
         try:
             await asyncio.sleep(COMMAND_GROUPING_DELAY)
         finally:
-            self._grouping_message = None
+            self._is_grouping = False
 
     async def _get_next_message(self) -> QueuedMessage | None:
         """Get next message from queue with timeout."""
@@ -283,6 +283,12 @@ class SatelMessageQueue:
 
     def on_message_received(self, result: SatelReadMessage) -> None:
         """Handle a message if it is relevant to the current queued command."""
+        if self._is_grouping:
+            _LOGGER.debug(
+                "Ignoring response received while grouping message: %s", result
+            )
+            return
+
         if self._current_message is None:
             # Received a message but no command is being processed.
             # These are likely standard read messages reported by the monitoring.

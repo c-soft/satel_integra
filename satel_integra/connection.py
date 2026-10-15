@@ -4,8 +4,8 @@ import asyncio
 import logging
 
 from satel_integra.callbacks import (
-    CallbackRegistry,
-    StateChangeCallback,
+    AsyncCallbackRegistry,
+    AsyncStateChangeCallback,
     UnsubscribeCallback,
 )
 from satel_integra.commands import SatelReadCommand
@@ -44,7 +44,7 @@ class SatelConnection:
             if integration_key
             else SatelPlainTransport(host, port)
         )
-        self._connection_state_callbacks = CallbackRegistry()
+        self._connection_state_callbacks = AsyncCallbackRegistry()
         self._ready = False
         self._transport._set_connection_lost_callback(self._transport_connection_lost)
 
@@ -88,7 +88,7 @@ class SatelConnection:
             raise SatelConnectionStoppedError("Connection is stopped")
 
     def add_connection_state_callback(
-        self, callback: StateChangeCallback
+        self, callback: AsyncStateChangeCallback
     ) -> UnsubscribeCallback:
         """Register a ready-state callback and return a function to remove it."""
         return self._connection_state_callbacks.add(callback)

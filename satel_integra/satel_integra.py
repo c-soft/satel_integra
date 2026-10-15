@@ -1,7 +1,6 @@
 """Main module for Satel Integra alarm system client."""
 
 import asyncio
-import inspect
 import logging
 import sys
 from collections.abc import Awaitable, Callable
@@ -10,6 +9,7 @@ from typing import TypeVar, cast, overload
 from warnings import warn
 
 from satel_integra.callbacks import (
+    AsyncStateChangeCallback,
     CallbackRegistry,
     StateChangeCallback,
     UnsubscribeCallback,
@@ -142,7 +142,7 @@ class AsyncSatel:
         self._output_changed_callback: Callable[[dict[int, int]], None] | None = None
 
         self._message_handlers: dict[
-            SatelReadCommand, Callable[[SatelReadMessage], None | Awaitable[None]]
+            SatelReadCommand, Callable[[SatelReadMessage], None]
         ] = {
             SatelReadCommand.ZONES_VIOLATED: self._zones_violated,
             SatelReadCommand.PARTITIONS_ARMED_SUPPRESSED: lambda msg: (
@@ -273,7 +273,7 @@ class AsyncSatel:
         result = cast(SatelCommandResult, msg.data)
         _LOGGER.debug("Received command result: %s", result.code)
 
-    async def _system_status_changed(self, msg: SatelReadMessage) -> None:
+    def _system_status_changed(self, msg: SatelReadMessage) -> None:
         """Store panel status and notify consumers when decoded flags change."""
         if (
             not isinstance(msg, SatelTypedReadMessage)
@@ -288,7 +288,7 @@ class AsyncSatel:
 
         self.system_status = status
         _LOGGER.debug("System status changed: %s", status)
-        await self._system_status_callbacks.notify()
+        self._system_status_callbacks.notify()
 
     def _partitions_armed_state(self, mode: AlarmState, msg: SatelReadMessage):
         partitions = msg.get_active_bits(4)
@@ -437,9 +437,7 @@ class AsyncSatel:
                     # loop: the loop would exit with TCP still open, so there
                     # would be no reconnection and no more data.
                     try:
-                        result = self._message_handlers[msg.cmd](msg)
-                        if inspect.isawaitable(result):
-                            await result
+                        self._message_handlers[msg.cmd](msg)
                     except Exception as ex:
                         _LOGGER.warning(
                             "Dropping frame %s, handler failed: %s", msg.cmd, ex
@@ -558,7 +556,7 @@ class AsyncSatel:
             self._connection_unavailable_logged = False
 
     def add_connection_status_callback(
-        self, callback: StateChangeCallback
+        self, callback: AsyncStateChangeCallback
     ) -> UnsubscribeCallback:
         """Add a connection-status callback and return a function to remove it."""
         return self._connection.add_connection_state_callback(callback)

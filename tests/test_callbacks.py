@@ -4,12 +4,12 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from satel_integra.callbacks import CallbackRegistry
+from satel_integra.callbacks import AsyncCallbackRegistry, CallbackRegistry
 
 
 @pytest.mark.asyncio
 async def test_notify_awaits_callbacks_in_registration_order():
-    registry = CallbackRegistry()
+    registry = AsyncCallbackRegistry()
     calls = []
 
     async def async_callback():
@@ -26,8 +26,7 @@ async def test_notify_awaits_callbacks_in_registration_order():
     assert calls == ["first", "async", "last"]
 
 
-@pytest.mark.asyncio
-async def test_unsubscribe_is_idempotent_and_independent_for_duplicate_callbacks():
+def test_unsubscribe_is_idempotent_and_independent_for_duplicate_callbacks():
     registry = CallbackRegistry()
     callback = MagicMock()
     unsubscribe_first = registry.add(callback)
@@ -35,18 +34,17 @@ async def test_unsubscribe_is_idempotent_and_independent_for_duplicate_callbacks
 
     unsubscribe_second()
     unsubscribe_second()
-    await registry.notify()
+    registry.notify()
 
     callback.assert_called_once_with()
 
     unsubscribe_first()
-    await registry.notify()
+    registry.notify()
 
     callback.assert_called_once_with()
 
 
-@pytest.mark.asyncio
-async def test_subscription_changes_apply_to_next_notification():
+def test_subscription_changes_apply_to_next_notification():
     registry = CallbackRegistry()
     calls = []
 
@@ -59,19 +57,33 @@ async def test_subscription_changes_apply_to_next_notification():
     unsubscribe_first = registry.add(first_callback)
     unsubscribe_second = registry.add(lambda: calls.append("second"))
 
-    await registry.notify()
+    registry.notify()
     assert calls == ["first", "second"]
 
-    await registry.notify()
+    registry.notify()
     assert calls == ["first", "second", "new"]
+
+
+def test_callback_failure_is_logged_and_other_subscribers_are_notified(caplog):
+    registry = CallbackRegistry()
+    registry.add(MagicMock(side_effect=ValueError("callback failed")))
+    next_callback = MagicMock()
+    registry.add(next_callback)
+
+    with caplog.at_level(logging.ERROR):
+        registry.notify()
+
+    next_callback.assert_called_once_with()
+    assert "Error in state-change callback" in caplog.text
+    assert "callback failed" in caplog.text
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("callback_type", [MagicMock, AsyncMock])
-async def test_callback_failure_is_logged_and_other_subscribers_are_notified(
+async def test_async_callback_failure_is_logged_and_other_subscribers_are_notified(
     callback_type, caplog
 ):
-    registry = CallbackRegistry()
+    registry = AsyncCallbackRegistry()
     registry.add(callback_type(side_effect=ValueError("callback failed")))
     next_callback = MagicMock()
     registry.add(next_callback)
@@ -86,7 +98,7 @@ async def test_callback_failure_is_logged_and_other_subscribers_are_notified(
 
 @pytest.mark.asyncio
 async def test_cancellation_propagates():
-    registry = CallbackRegistry()
+    registry = AsyncCallbackRegistry()
     registry.add(AsyncMock(side_effect=asyncio.CancelledError))
     next_callback = MagicMock()
     registry.add(next_callback)

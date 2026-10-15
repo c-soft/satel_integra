@@ -23,6 +23,9 @@ from satel_integra.models import (
     SatelPartitionInfo,
     SatelResultCode,
     SatelRtcAndStatus,
+    SatelSystemTroubles,
+    SatelTrouble,
+    SatelTroubleType,
     SatelZoneInfo,
     SatelZoneTemperature,
 )
@@ -55,6 +58,14 @@ def _invalid_payload_for_lengths(
             bytearray([SatelReadCommand.RESULT, 0xFF]),
             SatelCommandResult,
             SatelCommandResult(code=SatelResultCode.COMMAND_ACCEPTED),
+        ),
+        (
+            bytearray([SatelReadCommand.TROUBLES_PART_1])
+            + bytearray(40)
+            + bytearray.fromhex("80 00 00")
+            + bytearray(4),
+            SatelSystemTroubles,
+            SatelSystemTroubles(frozenset({SatelTrouble(SatelTroubleType.PANEL_AC)})),
         ),
         (
             bytearray([SatelReadCommand.ZONE_TEMPERATURE, 0x01, 0x00, 0x96]),
@@ -253,6 +264,7 @@ def test_decode_frame_rejects_missing_device_type() -> None:
 def test_decode_frame_uses_read_command_specs(spec) -> None:
     payloads = {
         SatelReadCommand.RESULT: bytearray([0x00]),
+        SatelReadCommand.TROUBLES_PART_1: bytearray(47),
         SatelReadCommand.MODULE_VERSION: bytearray(b"12320120527")
         + bytearray([0b0000_0111]),
         SatelReadCommand.ZONE_TEMPERATURE: bytearray([0x01, 0x00, 0x96]),

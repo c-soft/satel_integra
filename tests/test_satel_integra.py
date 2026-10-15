@@ -351,6 +351,46 @@ def test_system_status_subscription_can_be_removed(satel):
     callback.assert_not_called()
 
 
+def test_system_troubles_callback(satel):
+    msg = _typed_message(SatelReadCommand.TROUBLES_PART_1, bytearray(47))
+    called = []
+    satel.add_system_status_callback(lambda: called.append(satel.system_troubles))
+
+    assert satel.system_troubles is None
+
+    satel._system_troubles_changed(msg)
+
+    assert called == [msg.data]
+    assert satel.system_troubles == msg.data
+
+
+def test_system_troubles_changes_notify(satel):
+    clear = _typed_message(SatelReadCommand.TROUBLES_PART_1, bytearray(47))
+    payload = bytearray(47)
+    payload[40] = 0x80
+    active = _typed_message(SatelReadCommand.TROUBLES_PART_1, payload)
+    satel.system_troubles = clear.data
+    called = []
+    satel.add_system_status_callback(lambda: called.append(satel.system_troubles))
+
+    satel._system_troubles_changed(active)
+    satel._system_troubles_changed(clear)
+
+    assert called == [active.data, clear.data]
+    assert satel.system_troubles == clear.data
+
+
+def test_repeated_system_troubles_reports_notify(satel):
+    msg = _typed_message(SatelReadCommand.TROUBLES_PART_1, bytearray(47))
+    callback = MagicMock()
+    satel.add_system_status_callback(callback)
+
+    satel._system_troubles_changed(msg)
+    satel._system_troubles_changed(msg)
+
+    assert callback.call_count == 2
+
+
 def test_command_result_accepted(satel, caplog):
     msg = _make_result_message(SatelResultCode.COMMAND_ACCEPTED)
 

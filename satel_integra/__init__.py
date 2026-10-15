@@ -25,6 +25,9 @@ from .models import (
     SatelPartitionInfo,
     SatelResultCode,
     SatelRtcAndStatus,
+    SatelSystemTroubles,
+    SatelTrouble,
+    SatelTroubleType,
     SatelZoneInfo,
 )
 from .satel_integra import AlarmState, AsyncSatel
@@ -53,6 +56,9 @@ __all__ = [
     "SatelPartitionInfo",
     "SatelResultCode",
     "SatelRtcAndStatus",
+    "SatelSystemTroubles",
+    "SatelTrouble",
+    "SatelTroubleType",
     "SatelUnexpectedResponseError",
     "SatelZoneInfo",
 ]

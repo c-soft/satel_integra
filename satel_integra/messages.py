@@ -30,6 +30,7 @@ from satel_integra.models import (
     SatelPanelInfo,
     SatelPartitionInfo,
     SatelRtcAndStatus,
+    SatelSystemTroubles,
     SatelZoneInfo,
     SatelZoneTemperature,
 )
@@ -346,6 +347,11 @@ READ_DEVICE_NAME_SPECS: dict[SatelDeviceSelector, ReadCommandSpec] = {
 
 
 READ_COMMAND_SPECS: dict[SatelReadCommand, ReadCommandSpec] = {
+    SatelReadCommand.TROUBLES_PART_1: ReadCommandSpec(
+        command=SatelReadCommand.TROUBLES_PART_1,
+        data_type=SatelSystemTroubles,
+        expected_data_lengths=(47,),
+    ),
     SatelReadCommand.RTC_AND_STATUS: ReadCommandSpec(
         command=SatelReadCommand.RTC_AND_STATUS,
         data_type=SatelRtcAndStatus,

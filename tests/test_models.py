@@ -6,6 +6,9 @@ from satel_integra.models import (
     SatelOutputInfo,
     SatelPartitionInfo,
     SatelRtcAndStatus,
+    SatelSystemTroubles,
+    SatelTrouble,
+    SatelTroubleType,
     SatelZoneInfo,
 )
 
@@ -159,3 +162,87 @@ def test_rtc_and_status_diagnostic_flags():
 
     assert result.troubles_memory
     assert result.grade_2_or_3
+
+
+def test_trouble_is_identified_by_type_and_source() -> None:
+    trouble = SatelTrouble(SatelTroubleType.OUTPUT, source_id=2)
+
+    assert trouble.trouble_type is SatelTroubleType.OUTPUT
+    assert trouble.source_id == 2
+    assert trouble == SatelTrouble(SatelTroubleType.OUTPUT, source_id=2)
+    assert trouble != SatelTrouble(SatelTroubleType.OUTPUT, source_id=3)
+
+
+def test_trouble_without_source_is_hashable() -> None:
+    trouble = SatelTrouble(SatelTroubleType.PANEL_AC)
+
+    assert trouble.source_id is None
+    assert {trouble} == {SatelTrouble(SatelTroubleType.PANEL_AC)}
+
+
+@pytest.mark.parametrize(
+    "system_bytes,expected",
+    [
+        ("01 00 00", SatelTrouble(SatelTroubleType.OUTPUT, source_id=1)),
+        ("02 00 00", SatelTrouble(SatelTroubleType.OUTPUT, source_id=2)),
+        ("04 00 00", SatelTrouble(SatelTroubleType.OUTPUT, source_id=3)),
+        ("08 00 00", SatelTrouble(SatelTroubleType.OUTPUT, source_id=4)),
+        ("10 00 00", SatelTrouble(SatelTroubleType.KEYPAD_POWER_SUPPLY)),
+        ("20 00 00", SatelTrouble(SatelTroubleType.EXPANDER_POWER_SUPPLY)),
+        ("40 00 00", SatelTrouble(SatelTroubleType.PANEL_BATTERY)),
+        ("80 00 00", SatelTrouble(SatelTroubleType.PANEL_AC)),
+        ("00 01 00", SatelTrouble(SatelTroubleType.DT1)),
+        ("00 02 00", SatelTrouble(SatelTroubleType.DT2)),
+        ("00 04 00", SatelTrouble(SatelTroubleType.DTM)),
+        ("00 08 00", SatelTrouble(SatelTroubleType.RTC)),
+        ("00 10 00", SatelTrouble(SatelTroubleType.EXTERNAL_DEVICE_DTR)),
+        ("00 20 00", SatelTrouble(SatelTroubleType.PANEL_BATTERY_MISSING)),
+        ("00 40 00", SatelTrouble(SatelTroubleType.EXTERNAL_MODEM_INITIALIZATION)),
+        ("00 80 00", SatelTrouble(SatelTroubleType.EXTERNAL_MODEM_COMMAND)),
+        (
+            "00 00 01",
+            SatelTrouble(
+                SatelTroubleType.TELEPHONE_LINE_VOLTAGE_OR_AUXILIARY_PROCESSOR
+            ),
+        ),
+        ("00 00 02", SatelTrouble(SatelTroubleType.TELEPHONE_LINE_BAD_SIGNAL)),
+        ("00 00 04", SatelTrouble(SatelTroubleType.TELEPHONE_LINE_NO_SIGNAL)),
+        ("00 00 08", SatelTrouble(SatelTroubleType.MONITORING_STATION, source_id=1)),
+        ("00 00 10", SatelTrouble(SatelTroubleType.MONITORING_STATION, source_id=2)),
+        ("00 00 20", SatelTrouble(SatelTroubleType.EEPROM_OR_RTC_ACCESS)),
+        ("00 00 40", SatelTrouble(SatelTroubleType.RAM)),
+        ("00 00 80", SatelTrouble(SatelTroubleType.PANEL_RESTART_MEMORY)),
+    ],
+)
+def test_system_troubles_from_payload(system_bytes, expected):
+    payload = bytes(40) + bytes.fromhex(system_bytes) + bytes(4)
+
+    result = SatelSystemTroubles._from_payload(payload)
+
+    assert result.troubles == frozenset({expected})
+
+
+@pytest.mark.parametrize("other_byte", [0x00, 0xFF])
+def test_system_troubles_ignores_other_part1_fields(other_byte):
+    payload = bytearray([other_byte] * 47)
+    payload[40:43] = bytes(3)
+
+    result = SatelSystemTroubles._from_payload(payload)
+
+    assert result.troubles == frozenset()
+
+
+def test_system_troubles_combines_active_flags():
+    payload = bytes(40) + bytes.fromhex("C0 20 18") + bytes(4)
+
+    result = SatelSystemTroubles._from_payload(payload)
+
+    assert result.troubles == frozenset(
+        {
+            SatelTrouble(SatelTroubleType.PANEL_BATTERY),
+            SatelTrouble(SatelTroubleType.PANEL_AC),
+            SatelTrouble(SatelTroubleType.PANEL_BATTERY_MISSING),
+            SatelTrouble(SatelTroubleType.MONITORING_STATION, source_id=1),
+            SatelTrouble(SatelTroubleType.MONITORING_STATION, source_id=2),
+        }
+    )

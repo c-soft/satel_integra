@@ -3,13 +3,13 @@
 import asyncio
 import logging
 
-from satel_integra.callbacks import CallbackRegistry
-from satel_integra.commands import SatelReadCommand
-from satel_integra.const import (
-    MESSAGE_RESPONSE_TIMEOUT,
+from satel_integra.callbacks import (
+    CallbackRegistry,
     StateChangeCallback,
     UnsubscribeCallback,
 )
+from satel_integra.commands import SatelReadCommand
+from satel_integra.const import MESSAGE_RESPONSE_TIMEOUT
 from satel_integra.exceptions import (
     SatelConnectFailedError,
     SatelConnectionInitializationError,

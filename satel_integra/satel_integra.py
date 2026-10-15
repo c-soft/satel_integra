@@ -8,13 +8,16 @@ from enum import Enum, unique
 from typing import TypeVar, cast, overload
 from warnings import warn
 
+from satel_integra.callbacks import (
+    CallbackRegistry,
+    StateChangeCallback,
+    UnsubscribeCallback,
+)
 from satel_integra.commands import SatelReadCommand, SatelWriteCommand
 from satel_integra.connection import SatelConnection
 from satel_integra.const import (
     KEEPALIVE_INTERVAL,
     MONITORING_REFRESH_INTERVAL,
-    StateChangeCallback,
-    UnsubscribeCallback,
 )
 from satel_integra.exceptions import (
     SatelCommandRejectedError,
@@ -131,6 +134,7 @@ class AsyncSatel:
         self.system_status: SatelRtcAndStatus | None = None
 
         self._alarm_status_callback: Callable[[], None] | None = None
+        self._system_status_callbacks = CallbackRegistry()
         # Connection generation on which monitoring was acknowledged (-1 = none).
         self._monitoring_generation = -1
         self._zone_changed_callback: Callable[[dict[int, int]], None] | None = None
@@ -525,6 +529,12 @@ class AsyncSatel:
             self._zone_changed_callback = zone_changed_callback
         if output_changed_callback:
             self._output_changed_callback = output_changed_callback
+
+    def add_system_status_callback(
+        self, callback: StateChangeCallback
+    ) -> UnsubscribeCallback:
+        """Subscribe to system status changes and return a function to unsubscribe."""
+        return self._system_status_callbacks.add(callback)
 
     def _connection_state_changed(self) -> None:
         """Log user-facing connection availability changes once per outage."""

@@ -2,8 +2,10 @@
 
 import inspect
 import logging
+from collections.abc import Awaitable, Callable
 
-from satel_integra.const import StateChangeCallback, UnsubscribeCallback
+StateChangeCallback = Callable[[], None | Awaitable[None]]
+UnsubscribeCallback = Callable[[], None]
 
 _LOGGER = logging.getLogger(__name__)
 

@@ -195,6 +195,7 @@ class AsyncSatel:
             SatelReadCommand.PARTITIONS_ALARM,
             SatelReadCommand.PARTITIONS_FIRE_ALARM,
             SatelReadCommand.OUTPUTS_STATE,
+            SatelReadCommand.RTC_AND_STATUS,
         ]
 
         generation = self._connection.generation

@@ -1,6 +1,7 @@
 """Main module for Satel Integra alarm system client."""
 
 import asyncio
+import inspect
 import logging
 import sys
 from collections.abc import Awaitable, Callable
@@ -141,7 +142,7 @@ class AsyncSatel:
         self._output_changed_callback: Callable[[dict[int, int]], None] | None = None
 
         self._message_handlers: dict[
-            SatelReadCommand, Callable[[SatelReadMessage], None]
+            SatelReadCommand, Callable[[SatelReadMessage], None | Awaitable[None]]
         ] = {
             SatelReadCommand.ZONES_VIOLATED: self._zones_violated,
             SatelReadCommand.PARTITIONS_ARMED_SUPPRESSED: lambda msg: (
@@ -272,7 +273,7 @@ class AsyncSatel:
         result = cast(SatelCommandResult, msg.data)
         _LOGGER.debug("Received command result: %s", result.code)
 
-    def _system_status_changed(self, msg: SatelReadMessage) -> None:
+    async def _system_status_changed(self, msg: SatelReadMessage) -> None:
         """Store panel status and notify consumers when decoded flags change."""
         if (
             not isinstance(msg, SatelTypedReadMessage)
@@ -286,6 +287,8 @@ class AsyncSatel:
             return
 
         self.system_status = status
+        _LOGGER.debug("System status changed: %s", status)
+        await self._system_status_callbacks.notify()
 
     def _partitions_armed_state(self, mode: AlarmState, msg: SatelReadMessage):
         partitions = msg.get_active_bits(4)
@@ -434,7 +437,9 @@ class AsyncSatel:
                     # loop: the loop would exit with TCP still open, so there
                     # would be no reconnection and no more data.
                     try:
-                        self._message_handlers[msg.cmd](msg)
+                        result = self._message_handlers[msg.cmd](msg)
+                        if inspect.isawaitable(result):
+                            await result
                     except Exception as ex:
                         _LOGGER.warning(
                             "Dropping frame %s, handler failed: %s", msg.cmd, ex

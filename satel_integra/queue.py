@@ -54,6 +54,10 @@ class QueuedMessage:
 
         self.expected_result_command = expected_response_command(message.cmd)
 
+    def can_group(self, message: SatelWriteMessage) -> bool:
+        """Return whether message can be grouped into this queue entry."""
+        return self.message.can_merge(message)
+
 
 class _PendingMessageQueue(asyncio.Queue[QueuedMessage]):
     """Queue of messages that are not being processed yet."""
@@ -169,7 +173,7 @@ class SatelMessageQueue:
             candidates.insert(0, self._current_message)
 
         for queued in reversed(candidates):
-            if queued.message.can_merge(msg) and queued.generation == generation:
+            if queued.can_group(msg) and queued.generation == generation:
                 _LOGGER.debug("Grouping message %s into %s", msg, queued.message)
                 queued.message.merge(msg)
                 return queued
@@ -211,7 +215,7 @@ class SatelMessageQueue:
 
     async def _wait_for_grouping(self, queued: QueuedMessage) -> None:
         """Give messages issued at the same time a chance to be grouped."""
-        if not queued.message.can_merge(queued.message):
+        if not queued.can_group(queued.message):
             return
 
         self._is_grouping = True

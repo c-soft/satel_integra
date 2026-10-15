@@ -43,6 +43,7 @@ from satel_integra.models import (
     SatelPanelInfo,
     SatelPartitionInfo,
     SatelRtcAndStatus,
+    SatelSystemTroubles,
     SatelZoneInfo,
     SatelZoneTemperature,
 )
@@ -131,8 +132,9 @@ class AsyncSatel:
         self.partition_states: dict[AlarmState, list[int]] = {}
         self._partitions: list[int] = partitions
 
-        # None until the first RTC/status response has been received.
+        # None until the corresponding first response has been received.
         self.system_status: SatelRtcAndStatus | None = None
+        self.system_troubles: SatelSystemTroubles | None = None
 
         self._alarm_status_callback: Callable[[], None] | None = None
         self._system_status_callbacks = CallbackRegistry()
@@ -178,6 +180,7 @@ class AsyncSatel:
             ),
             SatelReadCommand.RESULT: self._command_result,
             SatelReadCommand.RTC_AND_STATUS: self._system_status_changed,
+            SatelReadCommand.TROUBLES_PART_1: self._system_troubles_changed,
         }
 
     async def start_monitoring(self) -> None:
@@ -197,6 +200,7 @@ class AsyncSatel:
             SatelReadCommand.PARTITIONS_FIRE_ALARM,
             SatelReadCommand.OUTPUTS_STATE,
             SatelReadCommand.RTC_AND_STATUS,
+            SatelReadCommand.TROUBLES_PART_1,
         ]
 
         generation = self._connection.generation
@@ -288,6 +292,21 @@ class AsyncSatel:
 
         self.system_status = status
         _LOGGER.debug("System status changed: %s", status)
+        self._system_status_callbacks.notify()
+
+    def _system_troubles_changed(self, msg: SatelReadMessage) -> None:
+        """Store system troubles and notify consumers for every report."""
+        if (
+            not isinstance(msg, SatelTypedReadMessage)
+            or msg.data_type is not SatelSystemTroubles
+        ):
+            _LOGGER.warning("Received unexpected system troubles response: %s", msg)
+            return
+
+        troubles = cast(SatelSystemTroubles, msg.data)
+        self.system_troubles = troubles
+
+        _LOGGER.debug("System troubles reported: %s", troubles)
         self._system_status_callbacks.notify()
 
     def _partitions_armed_state(self, mode: AlarmState, msg: SatelReadMessage):

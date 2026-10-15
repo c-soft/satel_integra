@@ -55,8 +55,8 @@ class QueuedMessage:
         self.expected_result_command = expected_response_command(message.cmd)
 
     def can_group(self, message: SatelWriteMessage) -> bool:
-        """Return True if message can be grouped into this queued message."""
-        return not self.return_result and self.message.can_merge(message)
+        """Return whether message can be grouped into this queue entry."""
+        return self.message.can_merge(message)
 
 
 class _PendingMessageQueue(asyncio.Queue[QueuedMessage]):
@@ -90,7 +90,7 @@ class SatelMessageQueue:
         self._queue: _PendingMessageQueue = _PendingMessageQueue()
 
         self._current_message: QueuedMessage | None = None
-        self._grouping_message: QueuedMessage | None = None
+        self._is_grouping = False
         self._process_task: asyncio.Task | None = None
         self._stopped = False
 
@@ -132,13 +132,14 @@ class SatelMessageQueue:
 
         generation = self._generation() if self._generation is not None else None
 
-        if not wait_for_result and self._group_message(msg, generation):
-            return
+        queued = self._group_message(msg, generation)
+        if queued is None:
+            _LOGGER.debug("Queueing message: %s", msg)
 
-        _LOGGER.debug("Queueing message: %s", msg)
-
-        queued = QueuedMessage(msg, wait_for_result, generation)
-        await self._queue.put(queued)
+            queued = QueuedMessage(msg, wait_for_result, generation=generation)
+            await self._queue.put(queued)
+        elif wait_for_result:
+            queued.return_result = True
 
         if not wait_for_result:
             return
@@ -154,28 +155,32 @@ class SatelMessageQueue:
             _LOGGER.debug("Couldn't wait for message result: %s", exc)
             return
 
-    def _group_message(self, msg: SatelWriteMessage, generation: int | None) -> bool:
-        """Try to group msg into a compatible message that was not sent yet.
+    def _group_message(
+        self, msg: SatelWriteMessage, generation: int | None
+    ) -> QueuedMessage | None:
+        """Group message into an unsent message and return that queue entry.
 
         Grouping sends e.g. several outputs in a single frame, so they switch
         at the same time. Messages queued after the grouping target must not
         address any of the same devices, otherwise the order would change.
         A message is not grouped into one issued on an earlier connection,
         which may be dropped as stale before it is sent.
+
+        Returning the queue entry lets callers share its response future.
         """
         candidates = self._queue.pending()
-        if self._grouping_message is not None:
-            candidates.insert(0, self._grouping_message)
+        if self._is_grouping and self._current_message is not None:
+            candidates.insert(0, self._current_message)
 
         for queued in reversed(candidates):
             if queued.can_group(msg) and queued.generation == generation:
                 _LOGGER.debug("Grouping message %s into %s", msg, queued.message)
                 queued.message.merge(msg)
-                return True
+                return queued
             if queued.message.overlaps(msg):
-                return False
+                return None
 
-        return False
+        return None
 
     def _cancel_pending_messages(self) -> None:
         """Cancel any pending waiters when the queue shuts down."""
@@ -213,11 +218,11 @@ class SatelMessageQueue:
         if not queued.can_group(queued.message):
             return
 
-        self._grouping_message = queued
+        self._is_grouping = True
         try:
             await asyncio.sleep(COMMAND_GROUPING_DELAY)
         finally:
-            self._grouping_message = None
+            self._is_grouping = False
 
     async def _get_next_message(self) -> QueuedMessage | None:
         """Get next message from queue with timeout."""
@@ -282,6 +287,12 @@ class SatelMessageQueue:
 
     def on_message_received(self, result: SatelReadMessage) -> None:
         """Handle a message if it is relevant to the current queued command."""
+        if self._is_grouping:
+            _LOGGER.debug(
+                "Ignoring response received while grouping message: %s", result
+            )
+            return
+
         if self._current_message is None:
             # Received a message but no command is being processed.
             # These are likely standard read messages reported by the monitoring.

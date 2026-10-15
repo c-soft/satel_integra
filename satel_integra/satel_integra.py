@@ -127,6 +127,9 @@ class AsyncSatel:
         self.partition_states: dict[AlarmState, list[int]] = {}
         self._partitions: list[int] = partitions
 
+        # None until the first RTC/status response has been received.
+        self.system_status: SatelRtcAndStatus | None = None
+
         self._alarm_status_callback: Callable[[], None] | None = None
         # Connection generation on which monitoring was acknowledged (-1 = none).
         self._monitoring_generation = -1
@@ -169,6 +172,7 @@ class AsyncSatel:
                 self._partitions_armed_state(AlarmState.ARMED_MODE1, msg)
             ),
             SatelReadCommand.RESULT: self._command_result,
+            SatelReadCommand.RTC_AND_STATUS: self._system_status_changed,
         }
 
     async def start_monitoring(self) -> None:
@@ -262,6 +266,21 @@ class AsyncSatel:
 
         result = cast(SatelCommandResult, msg.data)
         _LOGGER.debug("Received command result: %s", result.code)
+
+    def _system_status_changed(self, msg: SatelReadMessage) -> None:
+        """Store panel status and notify consumers when decoded flags change."""
+        if (
+            not isinstance(msg, SatelTypedReadMessage)
+            or msg.data_type is not SatelRtcAndStatus
+        ):
+            _LOGGER.warning("Received unexpected system status response: %s", msg)
+            return
+
+        status = cast(SatelRtcAndStatus, msg.data)
+        if status == self.system_status:
+            return
+
+        self.system_status = status
 
     def _partitions_armed_state(self, mode: AlarmState, msg: SatelReadMessage):
         partitions = msg.get_active_bits(4)

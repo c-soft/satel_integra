@@ -13,7 +13,7 @@ from satel_integra.connection import SatelConnection
 from satel_integra.const import (
     KEEPALIVE_INTERVAL,
     MONITORING_REFRESH_INTERVAL,
-    ConnectionStateCallback,
+    StateChangeCallback,
     UnsubscribeCallback,
 )
 from satel_integra.exceptions import (
@@ -542,7 +542,7 @@ class AsyncSatel:
             self._connection_unavailable_logged = False
 
     def add_connection_status_callback(
-        self, callback: ConnectionStateCallback
+        self, callback: StateChangeCallback
     ) -> UnsubscribeCallback:
         """Add a connection-status callback and return a function to remove it."""
         return self._connection.add_connection_state_callback(callback)

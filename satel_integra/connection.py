@@ -1,13 +1,13 @@
 """Connection management for Satel Integra panel."""
 
 import asyncio
-import inspect
 import logging
 
+from satel_integra.callbacks import CallbackRegistry
 from satel_integra.commands import SatelReadCommand
 from satel_integra.const import (
     MESSAGE_RESPONSE_TIMEOUT,
-    ConnectionStateCallback,
+    StateChangeCallback,
     UnsubscribeCallback,
 )
 from satel_integra.exceptions import (
@@ -44,7 +44,7 @@ class SatelConnection:
             if integration_key
             else SatelPlainTransport(host, port)
         )
-        self._connection_state_callbacks: list[ConnectionStateCallback] = []
+        self._connection_state_callbacks = CallbackRegistry()
         self._ready = False
         self._transport._set_connection_lost_callback(self._transport_connection_lost)
 
@@ -88,51 +88,24 @@ class SatelConnection:
             raise SatelConnectionStoppedError("Connection is stopped")
 
     def add_connection_state_callback(
-        self, callback: ConnectionStateCallback
+        self, callback: StateChangeCallback
     ) -> UnsubscribeCallback:
         """Register a ready-state callback and return a function to remove it."""
-        self._connection_state_callbacks.append(callback)
-        subscribed = True
-
-        def unsubscribe() -> None:
-            nonlocal subscribed
-
-            if not subscribed:
-                return
-
-            subscribed = False
-            for index, registered_callback in enumerate(
-                self._connection_state_callbacks
-            ):
-                if registered_callback is callback:
-                    del self._connection_state_callbacks[index]
-                    break
-
-        return unsubscribe
+        return self._connection_state_callbacks.add(callback)
 
     async def _set_ready_state(self, ready: bool) -> None:
         """Notify callbacks when the verified connection state changes."""
         if ready == self._ready:
             return
         self._ready = ready
-        await self._notify_connection_state_callbacks()
+        await self._connection_state_callbacks.notify()
 
     async def notify_state_changed(self) -> None:
         """Notify state callbacks of a change outside the connection itself.
 
         Used when monitoring becomes ready, so consumers can update availability.
         """
-        await self._notify_connection_state_callbacks()
-
-    async def _notify_connection_state_callbacks(self) -> None:
-        """Invoke all connection state callbacks."""
-        for callback in tuple(self._connection_state_callbacks):
-            try:
-                result = callback()
-                if inspect.isawaitable(result):
-                    await result
-            except Exception as exc:
-                _LOGGER.exception("Error in connection state callback: %s", exc)
+        await self._connection_state_callbacks.notify()
 
     async def _transport_connection_lost(self) -> None:
         """Clear ready state when the transport resets its connection."""

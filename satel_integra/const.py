@@ -18,7 +18,7 @@ KEEPALIVE_INTERVAL = 15
 # protocol the module then re-sends the state of all monitored commands.
 MONITORING_REFRESH_INTERVAL = 300
 
-ConnectionStateCallback = Callable[[], None | Awaitable[None]]
+StateChangeCallback = Callable[[], None | Awaitable[None]]
 UnsubscribeCallback = Callable[[], None]
 
 # A queued control command (arm, disarm, outputs) older than this is not sent.

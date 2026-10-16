@@ -596,15 +596,17 @@ class AsyncSatel:
 
         return await self._send_control_message(msg, wait_for_result)
 
-    async def disarm(self, code, partition_list):
-        """Send command to disarm."""
+    async def disarm(
+        self, code, partition_list, *, wait_for_result: bool = False
+    ) -> SatelCommandResult | None:
+        """Disarm partitions, optionally returning the panel's 0xEF result."""
         _LOGGER.info("Sending disarm command.")
 
         msg = SatelWriteMessage(
             SatelWriteCommand.PARTITIONS_DISARM, code=code, partitions=partition_list
         )
 
-        await self._send_data(msg)
+        return await self._send_control_message(msg, wait_for_result)
 
     async def clear_alarm(self, code, partition_list):
         """Send command to clear the alarm."""

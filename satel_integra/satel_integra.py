@@ -574,19 +574,19 @@ class AsyncSatel:
     def add_zone_changed_callback(
         self, callback: StateChangeCallback
     ) -> UnsubscribeCallback:
-        """Subscribe to zone changes; inspect state.violated_zones for current state."""
+        """Subscribe to zone changes and return a function to unsubscribe."""
         return self._zone_changed_callbacks.add(callback)
 
     def add_output_changed_callback(
         self, callback: StateChangeCallback
     ) -> UnsubscribeCallback:
-        """Subscribe to output changes; inspect state.violated_outputs for current state."""
+        """Subscribe to output changes and return a function to unsubscribe."""
         return self._output_changed_callbacks.add(callback)
 
     def add_system_status_callback(
         self, callback: StateChangeCallback
     ) -> UnsubscribeCallback:
-        """Subscribe to system status changes; inspect state for current values."""
+        """Subscribe to system status changes and return a function to unsubscribe."""
         return self._system_status_callbacks.add(callback)
 
     @property

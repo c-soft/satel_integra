@@ -33,6 +33,7 @@ from .models import (
     SatelZoneInfo,
 )
 from .satel_integra import AlarmState, AsyncSatel
+from .state import SatelState
 
 __all__ = [
     "AlarmState",
@@ -60,6 +61,7 @@ __all__ = [
     "SatelPartitionInfo",
     "SatelResultCode",
     "SatelRtcAndStatus",
+    "SatelState",
     "SatelSystemTroubles",
     "SatelTrouble",
     "SatelTroubleType",

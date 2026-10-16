@@ -5,7 +5,7 @@ import logging
 import sys
 from collections.abc import Awaitable, Callable
 from enum import Enum, unique
-from typing import Literal, TypeVar, cast, overload
+from typing import TypeVar, cast, overload
 from warnings import warn
 
 from satel_integra.callbacks import (
@@ -621,16 +621,6 @@ class AsyncSatel:
         )
 
         return await self._send_control_message(msg, wait_for_result)
-
-    @overload
-    async def set_output(
-        self, code, output_id, state, *, wait_for_result: Literal[False] = False
-    ) -> None: ...
-
-    @overload
-    async def set_output(
-        self, code, output_id, state, *, wait_for_result: Literal[True]
-    ) -> SatelCommandResult: ...
 
     async def set_output(
         self, code, output_id, state, *, wait_for_result: bool = False

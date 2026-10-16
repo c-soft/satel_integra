@@ -944,7 +944,6 @@ class AsyncSatel:
         finally:
             if self._alarm_status_callback:
                 self._alarm_status_callback()
-            self._alarm_status_callbacks.notify()
 
     # endregion
 

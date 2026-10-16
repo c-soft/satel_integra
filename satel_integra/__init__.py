@@ -32,8 +32,8 @@ from .models import (
     SatelTroubleType,
     SatelZoneInfo,
 )
-from .satel_integra import AlarmState, AsyncSatel
-from .state import SatelState
+from .satel_integra import AsyncSatel
+from .state import AlarmState, SatelState
 
 __all__ = [
     "AlarmState",

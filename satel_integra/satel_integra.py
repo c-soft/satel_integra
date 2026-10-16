@@ -4,7 +4,6 @@ import asyncio
 import logging
 import sys
 from collections.abc import Awaitable, Callable
-from enum import Enum, unique
 from typing import TypeVar, cast, overload
 from warnings import warn
 
@@ -49,7 +48,7 @@ from satel_integra.models import (
     SatelZoneTemperature,
 )
 from satel_integra.queue import SatelMessageQueue
-from satel_integra.state import SatelState
+from satel_integra.state import AlarmState, SatelState
 from satel_integra.utils import encode_bitmask_le, encode_device_number
 
 TReadData = TypeVar("TReadData", bound=SatelReadMessageData)
@@ -72,23 +71,6 @@ else:
 
 
 _LOGGER = logging.getLogger(__name__)
-
-
-@unique
-class AlarmState(Enum):
-    """Represents status of the alarm."""
-
-    ARMED_MODE0 = 0
-    ARMED_MODE1 = 1
-    ARMED_MODE2 = 2
-    ARMED_MODE3 = 3
-    ARMED_SUPPRESSED = 4
-    ENTRY_TIME = 5
-    EXIT_COUNTDOWN_OVER_10 = 6
-    EXIT_COUNTDOWN_UNDER_10 = 7
-    TRIGGERED = 8
-    TRIGGERED_FIRE = 9
-    DISARMED = 10
 
 
 def _bitmask_length(msg: SatelReadMessage) -> int:
@@ -608,7 +590,7 @@ class AsyncSatel:
 
     @property
     @deprecated("Use state.partition_states instead")
-    def partition_states(self) -> dict[Enum, list[int]]:
+    def partition_states(self) -> dict[AlarmState, list[int]]:
         """Return partition states (deprecated; use state.partition_states)."""
         return self._state.partition_states
 

@@ -512,6 +512,78 @@ async def test_set_output_wait_for_result_does_not_log_user_code(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
+    "method,args,command",
+    [
+        ("arm", ("1234", [1], 0), SatelWriteCommand.PARTITIONS_ARM_MODE_0),
+        ("arm", ("1234", [1], 1), SatelWriteCommand.PARTITIONS_ARM_MODE_1),
+        ("arm", ("1234", [1], 2), SatelWriteCommand.PARTITIONS_ARM_MODE_2),
+        ("arm", ("1234", [1], 3), SatelWriteCommand.PARTITIONS_ARM_MODE_3),
+        ("disarm", ("1234", [1]), SatelWriteCommand.PARTITIONS_DISARM),
+        (
+            "clear_alarm",
+            ("1234", [1]),
+            SatelWriteCommand.PARTITIONS_CLEAR_ALARM,
+        ),
+    ],
+)
+async def test_partition_control_waits_for_result(
+    satel, mock_queue, method, args, command
+):
+    mock_queue.add_message.return_value = _make_result_message(
+        SatelResultCode.COMMAND_ACCEPTED
+    )
+
+    result = await getattr(satel, method)(*args, wait_for_result=True)
+
+    assert isinstance(result, SatelCommandResult)
+    assert result.is_success
+    sent_msg, wait_for_result = mock_queue.add_message.await_args.args
+    assert sent_msg.cmd is command
+    assert wait_for_result is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "method,args",
+    [
+        ("arm", ("1234", [1], 0)),
+        ("disarm", ("1234", [1])),
+        ("clear_alarm", ("1234", [1])),
+    ],
+)
+async def test_partition_control_wait_for_result_rejected(
+    satel, mock_queue, method, args
+):
+    mock_queue.add_message.return_value = _make_result_message(
+        SatelResultCode.NO_ACCESS
+    )
+
+    with pytest.raises(SatelCommandRejectedError) as err:
+        await getattr(satel, method)(*args, wait_for_result=True)
+
+    assert err.value.result.code == SatelResultCode.NO_ACCESS
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "method,args",
+    [
+        ("arm", ("1234", [1], 0)),
+        ("disarm", ("1234", [1])),
+        ("clear_alarm", ("1234", [1])),
+    ],
+)
+async def test_partition_control_wait_for_result_no_response(
+    satel, mock_queue, method, args
+):
+    mock_queue.add_message.return_value = None
+
+    with pytest.raises(SatelNoResponseError):
+        await getattr(satel, method)(*args, wait_for_result=True)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
     "zone_number, payload, expected",
     [
         (1, bytearray([1, 0x00, 0x96]), 20.0),

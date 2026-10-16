@@ -584,15 +584,17 @@ class AsyncSatel:
     # endregion
 
     # region Write actions
-    async def arm(self, code, partition_list, mode=0):
-        """Send arming command to the alarm. Modes allowed: from 0 till 3."""
+    async def arm(
+        self, code, partition_list, mode=0, *, wait_for_result: bool = False
+    ) -> SatelCommandResult | None:
+        """Arm partitions, optionally returning the panel's 0xEF result. Modes 0 through 3 are supported."""
         _LOGGER.debug("Sending arm command, mode: %s!", mode)
 
         mode_command = SatelWriteCommand(SatelWriteCommand.PARTITIONS_ARM_MODE_0 + mode)
 
         msg = SatelWriteMessage(mode_command, code=code, partitions=partition_list)
 
-        await self._send_data(msg)
+        return await self._send_control_message(msg, wait_for_result)
 
     async def disarm(self, code, partition_list):
         """Send command to disarm."""

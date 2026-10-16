@@ -1,8 +1,7 @@
-"""Dispatch incoming messages to state handlers."""
+"""Dispatch incoming messages to typed handlers."""
 
 import logging
 from collections.abc import Callable
-from dataclasses import dataclass
 from typing import cast
 
 from satel_integra.commands import SatelReadCommand
@@ -11,16 +10,13 @@ from satel_integra.messages import (
     SatelReadMessageData,
     SatelTypedReadMessage,
 )
-from satel_integra.state import SatelState
+
+from .state import SatelState
+from .subscriptions import SatelSubscriptions
 
 _LOGGER = logging.getLogger(__name__)
 
 MessageHandler = Callable[[SatelReadMessage], None]
-
-
-@dataclass
-class SatelSubscriptions:
-    """Subscriptions notified when message-derived state changes."""
 
 
 class MessageHandlerRegistry:
@@ -35,6 +31,10 @@ class MessageHandlerRegistry:
         self._state = state
         self._subscriptions = subscriptions
         self._handlers: dict[SatelReadCommand, MessageHandler] = {}
+        self._register_handlers()
+
+    def _register_handlers(self) -> None:
+        """Register the built-in message handlers."""
 
     def register[TData: SatelReadMessageData](
         self,

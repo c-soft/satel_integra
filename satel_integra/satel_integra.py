@@ -102,8 +102,8 @@ def _bitmask_length(msg: SatelReadMessage) -> int:
 
 def _validate_user_code(code: str) -> None:
     """Validate the supported user-code length."""
-    if not 4 <= len(code) <= 8:
-        raise ValueError("code must contain between 4 and 8 characters")
+    if not 4 <= len(code) <= 16:
+        raise ValueError("code must contain between 4 and 16 characters")
 
 
 class AsyncSatel:

@@ -596,13 +596,13 @@ async def test_partition_control_wait_for_result_no_response(
     "code",
     [
         "123",
-        "123456789",
+        "12345678901234567",
     ],
 )
 async def test_control_actions_reject_invalid_user_code_without_sending(
     satel: AsyncSatel, mock_queue, method, args, code
 ):
-    with pytest.raises(ValueError, match="between 4 and 8 characters"):
+    with pytest.raises(ValueError, match="between 4 and 16 characters"):
         await getattr(satel, method)(code, *args)
 
     mock_queue.add_message.assert_not_awaited()

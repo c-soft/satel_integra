@@ -5,7 +5,7 @@ import logging
 import sys
 from collections.abc import Awaitable, Callable
 from enum import Enum, unique
-from typing import Literal, TypeVar, cast, overload
+from typing import TypeVar, cast, overload
 from warnings import warn
 
 from satel_integra.callbacks import (
@@ -98,6 +98,12 @@ def _bitmask_length(msg: SatelReadMessage) -> int:
     32 bytes and fails for that frame only.
     """
     return len(msg.msg_data) if len(msg.msg_data) in (16, 32) else 32
+
+
+def _validate_user_code(code: str) -> None:
+    """Validate the supported user-code length."""
+    if not 4 <= len(code) <= 16:
+        raise ValueError("code must contain between 4 and 16 characters")
 
 
 class AsyncSatel:
@@ -584,28 +590,56 @@ class AsyncSatel:
     # endregion
 
     # region Write actions
-    async def arm(self, code, partition_list, mode=0):
-        """Send arming command to the alarm. Modes allowed: from 0 till 3."""
+    async def arm(
+        self,
+        code: str,
+        partition_list: list[int],
+        mode: int = 0,
+        *,
+        wait_for_result: bool = False,
+    ) -> SatelCommandResult | None:
+        """Arm partitions, optionally returning the panel's 0xEF result. Modes 0 through 3 are supported."""
+        _validate_user_code(code)
+
+        if not 0 <= mode <= 3:
+            raise ValueError("mode must be between 0 and 3")
+
         _LOGGER.debug("Sending arm command, mode: %s!", mode)
 
         mode_command = SatelWriteCommand(SatelWriteCommand.PARTITIONS_ARM_MODE_0 + mode)
 
         msg = SatelWriteMessage(mode_command, code=code, partitions=partition_list)
 
-        await self._send_data(msg)
+        return await self._send_control_message(msg, wait_for_result)
 
-    async def disarm(self, code, partition_list):
-        """Send command to disarm."""
+    async def disarm(
+        self,
+        code: str,
+        partition_list: list[int],
+        *,
+        wait_for_result: bool = False,
+    ) -> SatelCommandResult | None:
+        """Disarm partitions, optionally returning the panel's 0xEF result."""
+        _validate_user_code(code)
+
         _LOGGER.info("Sending disarm command.")
 
         msg = SatelWriteMessage(
             SatelWriteCommand.PARTITIONS_DISARM, code=code, partitions=partition_list
         )
 
-        await self._send_data(msg)
+        return await self._send_control_message(msg, wait_for_result)
 
-    async def clear_alarm(self, code, partition_list):
-        """Send command to clear the alarm."""
+    async def clear_alarm(
+        self,
+        code: str,
+        partition_list: list[int],
+        *,
+        wait_for_result: bool = False,
+    ) -> SatelCommandResult | None:
+        """Clear partition alarms, optionally returning the panel's 0xEF result."""
+        _validate_user_code(code)
+
         _LOGGER.info("Sending clear the alarm command.")
 
         msg = SatelWriteMessage(
@@ -614,51 +648,26 @@ class AsyncSatel:
             partitions=partition_list,
         )
 
-        await self._send_data(msg)
-
-    @overload
-    async def set_output(
-        self, code, output_id, state, *, wait_for_result: Literal[False] = False
-    ) -> None: ...
-
-    @overload
-    async def set_output(
-        self, code, output_id, state, *, wait_for_result: Literal[True]
-    ) -> SatelCommandResult: ...
+        return await self._send_control_message(msg, wait_for_result)
 
     async def set_output(
-        self, code, output_id, state, *, wait_for_result: bool = False
+        self,
+        code: str,
+        output_id: int,
+        state: bool,
+        *,
+        wait_for_result: bool = False,
     ) -> SatelCommandResult | None:
-        """Send output turn on command to the alarm.
+        """Set an output state, optionally returning the panel's 0xEF result."""
+        _validate_user_code(code)
 
-        With wait_for_result=True, wait for the panel's result (0xEF) and
-        return it. Raises SatelCommandRejectedError when the panel rejects the
-        command (e.g. 0x01 unknown user code, 0x02 no rights; the code is in
-        `.result`), SatelNoResponseError when it does not answer, and
-        SatelCommandExpiredError when the command was dropped instead of sent
-        late. An accepted command only means the panel took it: the output
-        state itself is reported by monitoring (0x17), which the caller can
-        watch.
-        """
-        """0x88   outputs on
-                  + 8 bytes - user code
-                  + 16/32 bytes - output list
-                  If function is accepted, function result can be
-                  checked by observe the system state """
         _LOGGER.debug("Set output %s to %s", output_id, state)
 
         mode_command = (
             SatelWriteCommand.OUTPUTS_ON if state else SatelWriteCommand.OUTPUTS_OFF
         )
         msg = SatelWriteMessage(mode_command, code=code, zones_or_outputs=[output_id])
-        if not wait_for_result:
-            await self._send_data(msg)
-            return None
-
-        result = await self._send_data_and_wait(msg, SatelCommandResult)
-        if result is None:
-            raise SatelNoResponseError(f"No result from the panel for {msg.cmd}")
-        return result
+        return await self._send_control_message(msg, wait_for_result)
 
     async def read_temperature(self, zone_id: int) -> float | None:
         """Read the temperature for a single zone sensor."""
@@ -796,6 +805,19 @@ class AsyncSatel:
     async def _send_data(self, msg: SatelWriteMessage) -> None:
         """Add a message to the queue without waiting for its response."""
         await self._queue.add_message(msg, False)
+
+    async def _send_control_message(
+        self, msg: SatelWriteMessage, wait_for_result: bool
+    ) -> SatelCommandResult | None:
+        """Send a control message, optionally waiting for its result."""
+        if not wait_for_result:
+            await self._send_data(msg)
+            return None
+
+        result = await self._send_data_and_wait(msg, SatelCommandResult)
+        if result is None:
+            raise SatelNoResponseError(f"No result from the panel for {msg.cmd}")
+        return result
 
     @overload
     async def _send_data_and_wait(

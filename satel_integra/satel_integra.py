@@ -100,6 +100,12 @@ def _bitmask_length(msg: SatelReadMessage) -> int:
     return len(msg.msg_data) if len(msg.msg_data) in (16, 32) else 32
 
 
+def _validate_user_code(code: str) -> None:
+    """Validate the supported user-code length."""
+    if not 4 <= len(code) <= 8:
+        raise ValueError("code must contain between 4 and 8 characters")
+
+
 class AsyncSatel:
     """Asynchronous interface to talk to Satel Integra alarm system."""
 
@@ -585,9 +591,19 @@ class AsyncSatel:
 
     # region Write actions
     async def arm(
-        self, code, partition_list, mode=0, *, wait_for_result: bool = False
+        self,
+        code: str,
+        partition_list: list[int],
+        mode: int = 0,
+        *,
+        wait_for_result: bool = False,
     ) -> SatelCommandResult | None:
         """Arm partitions, optionally returning the panel's 0xEF result. Modes 0 through 3 are supported."""
+        _validate_user_code(code)
+
+        if not 0 <= mode <= 3:
+            raise ValueError("mode must be between 0 and 3")
+
         _LOGGER.debug("Sending arm command, mode: %s!", mode)
 
         mode_command = SatelWriteCommand(SatelWriteCommand.PARTITIONS_ARM_MODE_0 + mode)
@@ -597,9 +613,15 @@ class AsyncSatel:
         return await self._send_control_message(msg, wait_for_result)
 
     async def disarm(
-        self, code, partition_list, *, wait_for_result: bool = False
+        self,
+        code: str,
+        partition_list: list[int],
+        *,
+        wait_for_result: bool = False,
     ) -> SatelCommandResult | None:
         """Disarm partitions, optionally returning the panel's 0xEF result."""
+        _validate_user_code(code)
+
         _LOGGER.info("Sending disarm command.")
 
         msg = SatelWriteMessage(
@@ -609,9 +631,15 @@ class AsyncSatel:
         return await self._send_control_message(msg, wait_for_result)
 
     async def clear_alarm(
-        self, code, partition_list, *, wait_for_result: bool = False
+        self,
+        code: str,
+        partition_list: list[int],
+        *,
+        wait_for_result: bool = False,
     ) -> SatelCommandResult | None:
         """Clear partition alarms, optionally returning the panel's 0xEF result."""
+        _validate_user_code(code)
+
         _LOGGER.info("Sending clear the alarm command.")
 
         msg = SatelWriteMessage(
@@ -623,9 +651,16 @@ class AsyncSatel:
         return await self._send_control_message(msg, wait_for_result)
 
     async def set_output(
-        self, code, output_id, state, *, wait_for_result: bool = False
+        self,
+        code: str,
+        output_id: int,
+        state: bool,
+        *,
+        wait_for_result: bool = False,
     ) -> SatelCommandResult | None:
         """Set an output state, optionally returning the panel's 0xEF result."""
+        _validate_user_code(code)
+
         _LOGGER.debug("Set output %s to %s", output_id, state)
 
         mode_command = (

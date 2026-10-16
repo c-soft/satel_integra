@@ -1,11 +1,12 @@
 """Output confirmation - the 0xEF result and the 0x17 report after controlling an output.
 
-Patched library only (stock 1.5.0 has no `set_output_confirmed`, so these tests are skipped there):
+Patched library only (stock 1.5.0 has no `set_output(..., wait_for_result=True)`, so these tests are skipped there):
     SATEL_LIB=/path/to/patched/library python -m pytest tests -q
 """
 
 import asyncio
 import importlib
+import inspect
 import os
 
 import pytest
@@ -14,7 +15,8 @@ from test_reconnection import EthmSimulator, _connected_client, _wait_for
 PACKAGE = importlib.import_module(os.environ.get("SATEL_PACKAGE", "satel_integra"))
 pytestmark = [
     pytest.mark.skipif(
-        not hasattr(PACKAGE.AsyncSatel, "set_output_confirmed"),
+        "wait_for_result"
+        not in inspect.signature(PACKAGE.AsyncSatel.set_output).parameters,
         reason="the library does not confirm outputs yet",
     ),
     pytest.mark.timeout(120),
@@ -41,7 +43,7 @@ def _scenario(prepare, action):
 
 def test_accepted_and_reported():
     async def d(sim, k):
-        result = await k.set_output_confirmed(CODE, 7, True)
+        result = await k.set_output(CODE, 7, True, wait_for_result=True)
         reported = await _wait_for(lambda: 7 in k.violated_outputs, 3)
         return result, reported, sim.state.outputs
 
@@ -52,7 +54,7 @@ def test_accepted_and_reported():
 def test_panel_rejection_is_error_with_code():
     async def d(sim, k):
         with pytest.raises(PACKAGE.SatelCommandRejectedError) as e:
-            await k.set_output_confirmed(CODE, 7, True)
+            await k.set_output(CODE, 7, True, wait_for_result=True)
         return int(e.value.result.code), sim.state.outputs
 
     code, outputs = _scenario(lambda s: setattr(s.faults, "reject_code", 0x02), d)
@@ -65,7 +67,7 @@ def test_no_answer_is_error():
 
     async def d(sim, k):
         with pytest.raises(PACKAGE.SatelNoResponseError):
-            await k.set_output_confirmed(CODE, 7, True)
+            await k.set_output(CODE, 7, True, wait_for_result=True)
         return True
 
     assert _scenario(p, d)
@@ -76,7 +78,7 @@ def test_deaf_output_accepted_but_not_reported():
     entity - a warning in the log, state from the panel), but it does not pretend the output is on either."""
 
     async def d(sim, k):
-        result = await k.set_output_confirmed(CODE, 7, True)
+        result = await k.set_output(CODE, 7, True, wait_for_result=True)
         reported = await _wait_for(lambda: 7 in k.violated_outputs, 3)
         return result, reported
 
@@ -86,7 +88,7 @@ def test_deaf_output_accepted_but_not_reported():
 
 def test_delayed_report_arrives():
     async def d(sim, k):
-        await k.set_output_confirmed(CODE, 7, True)
+        await k.set_output(CODE, 7, True, wait_for_result=True)
         immediately = 7 in k.violated_outputs
         reported = await _wait_for(lambda: 7 in k.violated_outputs, 3)
         return immediately, reported

@@ -85,16 +85,16 @@ The library is selected with environment variables: `SATEL_LIB` (directory conta
 unset the installed package is used) and `SATEL_PACKAGE` (package name, default `satel_integra`).
 Each run takes about a minute.
 
-On `master` before these fixes (1.5.0), 7 tests fail; each is fixed by one PR:
+On 1.5.0, 7 tests fail; each is fixed by one PR (all merged):
 
 | Tests | Fixed by |
 |---|---|
-| `test_monitoring_returns_after_disconnect_and_unanswered_0x7F`, `test_reconnect_while_enabling_monitoring`, `test_lost_monitoring_recovered_by_refresh` | #81 |
-| `test_control_without_connection_fails_immediately`, `test_stale_control_not_sent_after_link_returns` | #82 |
+| `test_monitoring_returns_after_disconnect_and_unanswered_0x7F`, `test_reconnect_while_enabling_monitoring`, `test_lost_monitoring_recovered_by_refresh` | #81 (merged) |
+| `test_control_without_connection_fails_immediately`, `test_stale_control_not_sent_after_link_returns` | #82 (merged) |
 | `test_16_byte_masks`, `test_malformed_frame_does_not_stop_receiving` | #83 (merged) |
 
-The baseline test and the two REGRESSION tests pass everywhere. `test_output_confirmation.py` is skipped
-until the library has `set_output_confirmed` (item 5 of #79, to be done together with Home Assistant).
+The baseline test and the two REGRESSION tests pass everywhere. `test_output_confirmation.py` exercises
+`set_output(..., wait_for_result=True)` (item 5 of #79) and is skipped on versions that do not have it.
 
 From the repository root (the tests set their own 120 s timeout; the suite takes about a minute):
 

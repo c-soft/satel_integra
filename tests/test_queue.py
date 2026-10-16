@@ -6,7 +6,7 @@ import pytest
 
 from satel_integra.commands import SatelReadCommand, SatelWriteCommand
 from satel_integra.const import CONTROL_COMMAND_TTL
-from satel_integra.exceptions import SatelNotConnectedError
+from satel_integra.exceptions import SatelCommandExpiredError, SatelNotConnectedError
 from satel_integra.messages import (
     SatelReadMessage,
     SatelTypedReadMessage,
@@ -741,7 +741,32 @@ async def test_control_command_from_previous_connection_is_not_sent(bound_queue,
     await bound_queue._send_and_wait_response(queued)
 
     bound_queue._send_func.assert_not_awaited()
+    with pytest.raises(SatelCommandExpiredError):
+        queued.processed_future.result()
+
+
+@pytest.mark.asyncio
+async def test_dropped_fire_and_forget_command_resolves_to_none(bound_queue, link):
+    queued = QueuedMessage(_output_on(), False, generation=1)
+    link["generation"] = 2
+
+    await bound_queue._send_and_wait_response(queued)
+
+    bound_queue._send_func.assert_not_awaited()
     assert queued.processed_future.result() is None
+
+
+@pytest.mark.asyncio
+async def test_waiting_caller_learns_command_was_dropped(bound_queue, monkeypatch):
+    monkeypatch.setattr("satel_integra.queue.CONTROL_COMMAND_TTL", -1)
+    await bound_queue.start()
+    try:
+        with pytest.raises(SatelCommandExpiredError):
+            await bound_queue.add_message(_output_on(), True)
+    finally:
+        await bound_queue.stop()
+
+    bound_queue._send_func.assert_not_awaited()
 
 
 @pytest.mark.asyncio

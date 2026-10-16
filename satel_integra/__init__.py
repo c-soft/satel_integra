@@ -1,6 +1,7 @@
 """Top-level package for Satel Integra."""
 
 from .exceptions import (
+    SatelCommandExpiredError,
     SatelCommandRejectedError,
     SatelConnectFailedError,
     SatelConnectionError,
@@ -9,6 +10,7 @@ from .exceptions import (
     SatelConnectionStoppedError,
     SatelIntegraError,
     SatelMonitoringStartError,
+    SatelNoResponseError,
     SatelNotConnectedError,
     SatelPanelBusyError,
     SatelUnexpectedResponseError,
@@ -35,6 +37,7 @@ from .satel_integra import AlarmState, AsyncSatel
 __all__ = [
     "AlarmState",
     "AsyncSatel",
+    "SatelCommandExpiredError",
     "SatelCommandRejectedError",
     "SatelCommandResult",
     "SatelCommunicationModuleInfo",
@@ -48,6 +51,7 @@ __all__ = [
     "SatelFirmwareVersion",
     "SatelIntegraError",
     "SatelMonitoringStartError",
+    "SatelNoResponseError",
     "SatelNotConnectedError",
     "SatelOutputInfo",
     "SatelPanelBusyError",

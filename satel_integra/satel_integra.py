@@ -608,8 +608,10 @@ class AsyncSatel:
 
         return await self._send_control_message(msg, wait_for_result)
 
-    async def clear_alarm(self, code, partition_list):
-        """Send command to clear the alarm."""
+    async def clear_alarm(
+        self, code, partition_list, *, wait_for_result: bool = False
+    ) -> SatelCommandResult | None:
+        """Clear partition alarms, optionally returning the panel's 0xEF result."""
         _LOGGER.info("Sending clear the alarm command.")
 
         msg = SatelWriteMessage(
@@ -618,7 +620,7 @@ class AsyncSatel:
             partitions=partition_list,
         )
 
-        await self._send_data(msg)
+        return await self._send_control_message(msg, wait_for_result)
 
     @overload
     async def set_output(

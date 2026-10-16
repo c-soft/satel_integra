@@ -797,6 +797,19 @@ class AsyncSatel:
         """Add a message to the queue without waiting for its response."""
         await self._queue.add_message(msg, False)
 
+    async def _send_control_message(
+        self, msg: SatelWriteMessage, wait_for_result: bool
+    ) -> SatelCommandResult | None:
+        """Send a control message, optionally waiting for its result."""
+        if not wait_for_result:
+            await self._send_data(msg)
+            return None
+
+        result = await self._send_data_and_wait(msg, SatelCommandResult)
+        if result is None:
+            raise SatelNoResponseError(f"No result from the panel for {msg.cmd}")
+        return result
+
     @overload
     async def _send_data_and_wait(
         self,

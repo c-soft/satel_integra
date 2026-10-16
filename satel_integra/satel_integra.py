@@ -144,11 +144,14 @@ class AsyncSatel:
         self.system_troubles: SatelSystemTroubles | None = None
 
         self._alarm_status_callback: Callable[[], None] | None = None
+        self._alarm_status_callbacks = CallbackRegistry()
         self._system_status_callbacks = CallbackRegistry()
         # Connection generation on which monitoring was acknowledged (-1 = none).
         self._monitoring_generation = -1
         self._zone_changed_callback: Callable[[dict[int, int]], None] | None = None
+        self._zone_changed_callbacks = CallbackRegistry()
         self._output_changed_callback: Callable[[dict[int, int]], None] | None = None
+        self._output_changed_callbacks = CallbackRegistry()
 
         self._message_handlers: dict[
             SatelReadCommand, Callable[[SatelReadMessage], None]
@@ -251,6 +254,7 @@ class AsyncSatel:
 
         if self._zone_changed_callback:
             self._zone_changed_callback(status)
+        self._zone_changed_callbacks.notify()
 
     def _outputs_changed(self, msg: SatelReadMessage):
         """0x17   outputs state 0x17   + 16/32 bytes"""
@@ -271,6 +275,7 @@ class AsyncSatel:
 
         if self._output_changed_callback:
             self._output_changed_callback(status)
+        self._output_changed_callbacks.notify()
 
     def _command_result(self, msg: SatelReadMessage) -> None:
         """Log unsolicited command results using the structured result model."""
@@ -325,6 +330,7 @@ class AsyncSatel:
 
         if self._alarm_status_callback:
             self._alarm_status_callback()
+        self._alarm_status_callbacks.notify()
 
     # region Core logic
     async def start(self, enable_monitoring=True):
@@ -546,6 +552,10 @@ class AsyncSatel:
                 _LOGGER.info("Monitoring enabled")
                 return
 
+    @deprecated(
+        "register_callbacks is deprecated; use add_alarm_status_callback, "
+        "add_zone_changed_callback, and add_output_changed_callback instead"
+    )
     def register_callbacks(
         self,
         alarm_status_callback: Callable[[], None] | None = None,
@@ -559,6 +569,24 @@ class AsyncSatel:
             self._zone_changed_callback = zone_changed_callback
         if output_changed_callback:
             self._output_changed_callback = output_changed_callback
+
+    def add_alarm_status_callback(
+        self, callback: StateChangeCallback
+    ) -> UnsubscribeCallback:
+        """Subscribe to alarm status changes and return a function to unsubscribe."""
+        return self._alarm_status_callbacks.add(callback)
+
+    def add_zone_changed_callback(
+        self, callback: StateChangeCallback
+    ) -> UnsubscribeCallback:
+        """Subscribe to zone changes; read violated_zones for the current state."""
+        return self._zone_changed_callbacks.add(callback)
+
+    def add_output_changed_callback(
+        self, callback: StateChangeCallback
+    ) -> UnsubscribeCallback:
+        """Subscribe to output changes; read violated_outputs for the current state."""
+        return self._output_changed_callbacks.add(callback)
 
     def add_system_status_callback(
         self, callback: StateChangeCallback
@@ -898,6 +926,7 @@ class AsyncSatel:
         finally:
             if self._alarm_status_callback:
                 self._alarm_status_callback()
+            self._alarm_status_callbacks.notify()
 
     # endregion
 

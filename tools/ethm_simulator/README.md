@@ -94,7 +94,7 @@ On 1.5.0, 7 tests fail; each is fixed by one PR (all merged):
 | `test_16_byte_masks`, `test_malformed_frame_does_not_stop_receiving` | #83 (merged) |
 
 The baseline test and the two REGRESSION tests pass everywhere. `test_output_confirmation.py` exercises
-`set_output_confirmed` (item 5 of #79) and is skipped on versions that do not have it.
+`set_output(..., wait_for_result=True)` (item 5 of #79) and is skipped on versions that do not have it.
 
 From the repository root (the tests set their own 120 s timeout; the suite takes about a minute):
 

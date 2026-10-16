@@ -462,12 +462,12 @@ async def test_send_methods_do_not_log_user_code(
     "state, command",
     [(True, SatelWriteCommand.OUTPUTS_ON), (False, SatelWriteCommand.OUTPUTS_OFF)],
 )
-async def test_set_output_confirmed_waits_for_result(satel, mock_queue, state, command):
+async def test_set_output_waits_for_result(satel, mock_queue, state, command):
     mock_queue.add_message.return_value = _make_result_message(
         SatelResultCode.COMMAND_ACCEPTED
     )
 
-    result = await satel.set_output_confirmed("1234", 3, state)
+    result = await satel.set_output("1234", 3, state, wait_for_result=True)
 
     assert isinstance(result, SatelCommandResult)
     assert result.is_success
@@ -477,33 +477,35 @@ async def test_set_output_confirmed_waits_for_result(satel, mock_queue, state, c
 
 
 @pytest.mark.asyncio
-async def test_set_output_confirmed_rejected(satel, mock_queue):
+async def test_set_output_wait_for_result_rejected(satel, mock_queue):
     mock_queue.add_message.return_value = _make_result_message(
         SatelResultCode.NO_ACCESS
     )
 
     with pytest.raises(SatelCommandRejectedError) as err:
-        await satel.set_output_confirmed("1234", 3, True)
+        await satel.set_output("1234", 3, True, wait_for_result=True)
 
     assert err.value.result.code == SatelResultCode.NO_ACCESS
 
 
 @pytest.mark.asyncio
-async def test_set_output_confirmed_no_response(satel, mock_queue):
+async def test_set_output_wait_for_result_no_response(satel, mock_queue):
     mock_queue.add_message.return_value = None
 
     with pytest.raises(SatelNoResponseError):
-        await satel.set_output_confirmed("1234", 3, True)
+        await satel.set_output("1234", 3, True, wait_for_result=True)
 
 
 @pytest.mark.asyncio
-async def test_set_output_confirmed_does_not_log_user_code(satel, mock_queue, caplog):
+async def test_set_output_wait_for_result_does_not_log_user_code(
+    satel, mock_queue, caplog
+):
     mock_queue.add_message.return_value = _make_result_message(
         SatelResultCode.COMMAND_ACCEPTED
     )
 
     with caplog.at_level(logging.DEBUG):
-        await satel.set_output_confirmed("9876", 3, True)
+        await satel.set_output("9876", 3, True, wait_for_result=True)
 
     assert "9876" not in caplog.text
 

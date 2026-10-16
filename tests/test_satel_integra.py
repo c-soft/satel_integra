@@ -595,7 +595,7 @@ def test_system_troubles_callback(satel):
 
     assert satel.state.system_troubles is None
 
-    satel._system_troubles_changed(msg)
+    satel._message_handler_registry.dispatch(msg)
 
     assert called == [msg.data]
     assert satel.state.system_troubles == msg.data
@@ -606,12 +606,12 @@ def test_system_troubles_changes_notify(satel):
     payload = bytearray(47)
     payload[40] = 0x80
     active = _typed_message(SatelReadCommand.TROUBLES_PART_1, payload)
-    satel.state.system_troubles = clear.data
+    satel._message_handler_registry.dispatch(clear)
     called = []
     satel.add_system_status_callback(lambda: called.append(satel.state.system_troubles))
 
-    satel._system_troubles_changed(active)
-    satel._system_troubles_changed(clear)
+    satel._message_handler_registry.dispatch(active)
+    satel._message_handler_registry.dispatch(clear)
 
     assert called == [active.data, clear.data]
     assert satel.state.system_troubles == clear.data
@@ -622,8 +622,8 @@ def test_repeated_system_troubles_reports_notify(satel):
     callback = MagicMock()
     satel.add_system_status_callback(callback)
 
-    satel._system_troubles_changed(msg)
-    satel._system_troubles_changed(msg)
+    satel._message_handler_registry.dispatch(msg)
+    satel._message_handler_registry.dispatch(msg)
 
     assert callback.call_count == 2
 

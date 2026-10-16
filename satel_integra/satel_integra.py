@@ -47,7 +47,6 @@ from satel_integra.models import (
     SatelPanelInfo,
     SatelPartitionInfo,
     SatelRtcAndStatus,
-    SatelSystemTroubles,
     SatelZoneInfo,
     SatelZoneTemperature,
 )
@@ -126,7 +125,6 @@ class AsyncSatel:
 
         self._alarm_status_callback: Callable[[], None] | None = None
         self._alarm_status_callbacks = CallbackRegistry()
-        self._system_status_callbacks = CallbackRegistry()
         # Connection generation on which monitoring was acknowledged (-1 = none).
         self._monitoring_generation = -1
         self._zone_changed_callback: Callable[[dict[int, int]], None] | None = None
@@ -175,7 +173,6 @@ class AsyncSatel:
                 self._partitions_armed_state(AlarmState.ARMED_MODE1, msg)
             ),
             SatelReadCommand.RESULT: self._command_result,
-            SatelReadCommand.TROUBLES_PART_1: self._system_troubles_changed,
         }
 
     async def start_monitoring(self) -> None:
@@ -287,21 +284,6 @@ class AsyncSatel:
 
         result = cast(SatelCommandResult, msg.data)
         _LOGGER.debug("Received command result: %s", result.code)
-
-    def _system_troubles_changed(self, msg: SatelReadMessage) -> None:
-        """Store system troubles and notify consumers for every report."""
-        if (
-            not isinstance(msg, SatelTypedReadMessage)
-            or msg.data_type is not SatelSystemTroubles
-        ):
-            _LOGGER.warning("Received unexpected system troubles response: %s", msg)
-            return
-
-        troubles = cast(SatelSystemTroubles, msg.data)
-        self._state.system_troubles = troubles
-
-        _LOGGER.debug("System troubles reported: %s", troubles)
-        self._system_status_callbacks.notify()
 
     def _partitions_armed_state(self, mode: AlarmState, msg: SatelReadMessage):
         partitions = msg.get_active_bits(4)

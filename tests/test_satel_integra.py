@@ -73,7 +73,7 @@ def mock_queue():
 
 
 @pytest.fixture
-def satel(monkeypatch, mock_connection, mock_queue):
+def satel(monkeypatch, mock_connection, mock_queue) -> AsyncSatel:
     monkeypatch.setattr(
         "satel_integra.satel_integra.SatelConnection", lambda *a, **kw: mock_connection
     )
@@ -580,6 +580,43 @@ async def test_partition_control_wait_for_result_no_response(
 
     with pytest.raises(SatelNoResponseError):
         await getattr(satel, method)(*args, wait_for_result=True)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "method,args",
+    [
+        ("arm", ([1], 0)),
+        ("disarm", ([1],)),
+        ("clear_alarm", ([1],)),
+        ("set_output", (1, True)),
+    ],
+)
+@pytest.mark.parametrize(
+    "code",
+    [
+        "123",
+        "123456789",
+    ],
+)
+async def test_control_actions_reject_invalid_user_code_without_sending(
+    satel: AsyncSatel, mock_queue, method, args, code
+):
+    with pytest.raises(ValueError, match="between 4 and 8 characters"):
+        await getattr(satel, method)(code, *args)
+
+    mock_queue.add_message.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", [-1, 4])
+async def test_arm_rejects_invalid_mode_without_sending(
+    satel: AsyncSatel, mock_queue, mode
+):
+    with pytest.raises(ValueError, match="mode must be between 0 and 3"):
+        await satel.arm("1234", [1], mode)
+
+    mock_queue.add_message.assert_not_awaited()
 
 
 @pytest.mark.asyncio

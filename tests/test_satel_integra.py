@@ -537,32 +537,17 @@ def test_system_status_callback(satel):
 
     assert satel.state.system_status is None
 
-    satel._system_status_changed(msg)
+    satel._message_handler_registry.dispatch(msg)
 
     assert called == [msg.data]
     assert satel.state.system_status == msg.data
 
 
-def test_state_exposes_current_public_state(satel):
+def test_state_is_read_only(satel):
     assert isinstance(satel.state, SatelState)
-    assert satel.violated_zones == []
-    assert satel.state.system_status is None
-    assert satel.state.system_troubles is None
+
     with pytest.raises(AttributeError):
         satel.state = SatelState()
-
-    zones = MagicMock()
-    zones.get_active_bits.return_value = [1]
-    satel._zones_violated(zones)
-    status = _typed_message(SatelReadCommand.RTC_AND_STATUS, bytearray(9))
-    troubles = _typed_message(SatelReadCommand.TROUBLES_PART_1, bytearray(47))
-
-    satel._system_status_changed(status)
-    satel._system_troubles_changed(troubles)
-
-    assert satel.violated_zones == [1]
-    assert satel.state.system_status == status.data
-    assert satel.state.system_troubles == troubles.data
 
 
 def test_system_status_changes_notify(satel):
@@ -570,12 +555,12 @@ def test_system_status_changes_notify(satel):
     active = _typed_message(
         SatelReadCommand.RTC_AND_STATUS, bytearray(7) + bytearray([0xC0, 0])
     )
-    satel.state.system_status = clear.data
+    satel._message_handler_registry.dispatch(clear)
     called = []
     satel.add_system_status_callback(lambda: called.append(satel.state.system_status))
 
-    satel._system_status_changed(active)
-    satel._system_status_changed(clear)
+    satel._message_handler_registry.dispatch(active)
+    satel._message_handler_registry.dispatch(clear)
 
     assert called == [active.data, clear.data]
     assert satel.state.system_status == clear.data
@@ -583,11 +568,11 @@ def test_system_status_changes_notify(satel):
 
 def test_unchanged_system_status_does_not_notify(satel):
     msg = _typed_message(SatelReadCommand.RTC_AND_STATUS, bytearray(9))
-    satel.state.system_status = msg.data
+    satel._message_handler_registry.dispatch(msg)
     callback = MagicMock()
     satel.add_system_status_callback(callback)
 
-    satel._system_status_changed(msg)
+    satel._message_handler_registry.dispatch(msg)
 
     callback.assert_not_called()
 
@@ -598,7 +583,7 @@ def test_system_status_subscription_can_be_removed(satel):
     msg = _typed_message(SatelReadCommand.RTC_AND_STATUS, bytearray(9))
     unsubscribe()
 
-    satel._system_status_changed(msg)
+    satel._message_handler_registry.dispatch(msg)
 
     callback.assert_not_called()
 

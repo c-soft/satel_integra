@@ -10,9 +10,11 @@ from satel_integra.messages import (
     SatelReadMessageData,
     SatelTypedReadMessage,
 )
+from satel_integra.models import SatelRtcAndStatus
+from satel_integra.state import SatelState
 
-from .state import SatelState
 from .subscriptions import SatelSubscriptions
+from .system import handle_system_status
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -35,6 +37,11 @@ class MessageHandlerRegistry:
 
     def _register_handlers(self) -> None:
         """Register the built-in message handlers."""
+        self.register(
+            SatelReadCommand.RTC_AND_STATUS,
+            SatelRtcAndStatus,
+            handle_system_status,
+        )
 
     def register[TData: SatelReadMessageData](
         self,

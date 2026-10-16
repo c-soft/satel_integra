@@ -175,7 +175,6 @@ class AsyncSatel:
                 self._partitions_armed_state(AlarmState.ARMED_MODE1, msg)
             ),
             SatelReadCommand.RESULT: self._command_result,
-            SatelReadCommand.RTC_AND_STATUS: self._system_status_changed,
             SatelReadCommand.TROUBLES_PART_1: self._system_troubles_changed,
         }
 
@@ -288,23 +287,6 @@ class AsyncSatel:
 
         result = cast(SatelCommandResult, msg.data)
         _LOGGER.debug("Received command result: %s", result.code)
-
-    def _system_status_changed(self, msg: SatelReadMessage) -> None:
-        """Store panel status and notify consumers when decoded flags change."""
-        if (
-            not isinstance(msg, SatelTypedReadMessage)
-            or msg.data_type is not SatelRtcAndStatus
-        ):
-            _LOGGER.warning("Received unexpected system status response: %s", msg)
-            return
-
-        status = cast(SatelRtcAndStatus, msg.data)
-        if status == self._state.system_status:
-            return
-
-        self._state.system_status = status
-        _LOGGER.debug("System status changed: %s", status)
-        self._system_status_callbacks.notify()
 
     def _system_troubles_changed(self, msg: SatelReadMessage) -> None:
         """Store system troubles and notify consumers for every report."""
@@ -612,7 +594,7 @@ class AsyncSatel:
         self, callback: StateChangeCallback
     ) -> UnsubscribeCallback:
         """Subscribe to system status changes and return a function to unsubscribe."""
-        return self._system_status_callbacks.add(callback)
+        return self._subscriptions.system_status.add(callback)
 
     @property
     def state(self) -> SatelState:

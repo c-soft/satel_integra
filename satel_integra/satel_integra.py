@@ -48,7 +48,7 @@ from satel_integra.models import (
     SatelZoneTemperature,
 )
 from satel_integra.queue import SatelMessageQueue
-from satel_integra.state import AlarmState, SatelState
+from satel_integra.state import AlarmState, SatelState, SatelZoneState
 from satel_integra.utils import encode_bitmask_le, encode_device_number
 
 TReadData = TypeVar("TReadData", bound=SatelReadMessageData)
@@ -221,11 +221,15 @@ class AsyncSatel:
     def _zones_violated(self, msg: SatelReadMessage):
         status: dict[int, int] = {}
 
-        violated_zones = msg.get_active_bits(_bitmask_length(msg))
-        self._state.violated_zones = violated_zones
-        _LOGGER.debug("Violated zones: %s", violated_zones)
+        bitmask_length = _bitmask_length(msg)
+        violated_zones = set(msg.get_active_bits(bitmask_length))
+
+        for zone in range(1, bitmask_length * 8 + 1):
+            zone_state = self._state.zones.setdefault(zone, SatelZoneState())
+            zone_state.violated = zone in violated_zones
+        _LOGGER.debug("Violated zones: %s", sorted(violated_zones))
         for zone in self._monitored_zones:
-            status[zone] = 1 if zone in violated_zones else 0
+            status[zone] = int(zone in violated_zones)
 
         _LOGGER.debug("Returning status: %s", status)
 
@@ -577,10 +581,12 @@ class AsyncSatel:
         return self._state
 
     @property
-    @deprecated("Use state.violated_zones instead")
+    @deprecated("Use state.zones instead")
     def violated_zones(self) -> list[int]:
-        """Return violated zones (deprecated; use state.violated_zones)."""
-        return self._state.violated_zones
+        """Return violated zones (deprecated; use state.zones)."""
+        return sorted(
+            zone for zone, state in self._state.zones.items() if state.violated is True
+        )
 
     @property
     @deprecated("Use state.violated_outputs instead")

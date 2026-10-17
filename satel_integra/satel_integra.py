@@ -4,7 +4,6 @@ import asyncio
 import logging
 import sys
 from collections.abc import Awaitable, Callable
-from enum import Enum, unique
 from typing import TypeVar, cast, overload
 from warnings import warn
 
@@ -49,6 +48,7 @@ from satel_integra.models import (
     SatelZoneTemperature,
 )
 from satel_integra.queue import SatelMessageQueue
+from satel_integra.state import AlarmState, SatelState
 from satel_integra.utils import encode_bitmask_le, encode_device_number
 
 TReadData = TypeVar("TReadData", bound=SatelReadMessageData)
@@ -71,23 +71,6 @@ else:
 
 
 _LOGGER = logging.getLogger(__name__)
-
-
-@unique
-class AlarmState(Enum):
-    """Represents status of the alarm."""
-
-    ARMED_MODE0 = 0
-    ARMED_MODE1 = 1
-    ARMED_MODE2 = 2
-    ARMED_MODE3 = 3
-    ARMED_SUPPRESSED = 4
-    ENTRY_TIME = 5
-    EXIT_COUNTDOWN_OVER_10 = 6
-    EXIT_COUNTDOWN_UNDER_10 = 7
-    TRIGGERED = 8
-    TRIGGERED_FIRE = 9
-    DISARMED = 10
 
 
 def _bitmask_length(msg: SatelReadMessage) -> int:
@@ -131,24 +114,21 @@ class AsyncSatel:
         self._connection.add_connection_state_callback(self._connection_state_changed)
 
         self._monitored_zones: list[int] = monitored_zones
-        self.violated_zones: list[int] = []
+        self._state = SatelState()
 
         self._monitored_outputs: list[int] = monitored_outputs
-        self.violated_outputs: list[int] = []
 
-        self.partition_states: dict[AlarmState, list[int]] = {}
         self._partitions: list[int] = partitions
 
-        # None until the corresponding first response has been received.
-        self.system_status: SatelRtcAndStatus | None = None
-        self.system_troubles: SatelSystemTroubles | None = None
-
         self._alarm_status_callback: Callable[[], None] | None = None
+        self._alarm_status_callbacks = CallbackRegistry()
         self._system_status_callbacks = CallbackRegistry()
         # Connection generation on which monitoring was acknowledged (-1 = none).
         self._monitoring_generation = -1
         self._zone_changed_callback: Callable[[dict[int, int]], None] | None = None
+        self._zone_changed_callbacks = CallbackRegistry()
         self._output_changed_callback: Callable[[dict[int, int]], None] | None = None
+        self._output_changed_callbacks = CallbackRegistry()
 
         self._message_handlers: dict[
             SatelReadCommand, Callable[[SatelReadMessage], None]
@@ -242,7 +222,7 @@ class AsyncSatel:
         status: dict[int, int] = {}
 
         violated_zones = msg.get_active_bits(_bitmask_length(msg))
-        self.violated_zones = violated_zones
+        self._state.violated_zones = violated_zones
         _LOGGER.debug("Violated zones: %s", violated_zones)
         for zone in self._monitored_zones:
             status[zone] = 1 if zone in violated_zones else 0
@@ -251,6 +231,7 @@ class AsyncSatel:
 
         if self._zone_changed_callback:
             self._zone_changed_callback(status)
+        self._zone_changed_callbacks.notify()
 
     def _outputs_changed(self, msg: SatelReadMessage):
         """0x17   outputs state 0x17   + 16/32 bytes"""
@@ -258,7 +239,7 @@ class AsyncSatel:
         status: dict[int, int] = {}
 
         output_states = msg.get_active_bits(_bitmask_length(msg))
-        self.violated_outputs = output_states
+        self._state.violated_outputs = output_states
         _LOGGER.debug(
             "Output states: %s, monitored outputs: %s",
             output_states,
@@ -271,6 +252,7 @@ class AsyncSatel:
 
         if self._output_changed_callback:
             self._output_changed_callback(status)
+        self._output_changed_callbacks.notify()
 
     def _command_result(self, msg: SatelReadMessage) -> None:
         """Log unsolicited command results using the structured result model."""
@@ -294,10 +276,10 @@ class AsyncSatel:
             return
 
         status = cast(SatelRtcAndStatus, msg.data)
-        if status == self.system_status:
+        if status == self._state.system_status:
             return
 
-        self.system_status = status
+        self._state.system_status = status
         _LOGGER.debug("System status changed: %s", status)
         self._system_status_callbacks.notify()
 
@@ -311,7 +293,7 @@ class AsyncSatel:
             return
 
         troubles = cast(SatelSystemTroubles, msg.data)
-        self.system_troubles = troubles
+        self._state.system_troubles = troubles
 
         _LOGGER.debug("System troubles reported: %s", troubles)
         self._system_status_callbacks.notify()
@@ -321,10 +303,11 @@ class AsyncSatel:
 
         _LOGGER.debug("Update: list of partitions in mode %s: %s", mode, partitions)
 
-        self.partition_states[mode] = partitions
+        self._state.partition_states[mode] = partitions
 
         if self._alarm_status_callback:
             self._alarm_status_callback()
+        self._alarm_status_callbacks.notify()
 
     # region Core logic
     async def start(self, enable_monitoring=True):
@@ -546,6 +529,10 @@ class AsyncSatel:
                 _LOGGER.info("Monitoring enabled")
                 return
 
+    @deprecated(
+        "register_callbacks is deprecated; use add_alarm_status_callback, "
+        "add_zone_changed_callback, and add_output_changed_callback instead"
+    )
     def register_callbacks(
         self,
         alarm_status_callback: Callable[[], None] | None = None,
@@ -560,11 +547,52 @@ class AsyncSatel:
         if output_changed_callback:
             self._output_changed_callback = output_changed_callback
 
+    def add_alarm_status_callback(
+        self, callback: StateChangeCallback
+    ) -> UnsubscribeCallback:
+        """Subscribe to alarm status changes and return a function to unsubscribe."""
+        return self._alarm_status_callbacks.add(callback)
+
+    def add_zone_changed_callback(
+        self, callback: StateChangeCallback
+    ) -> UnsubscribeCallback:
+        """Subscribe to zone changes and return a function to unsubscribe."""
+        return self._zone_changed_callbacks.add(callback)
+
+    def add_output_changed_callback(
+        self, callback: StateChangeCallback
+    ) -> UnsubscribeCallback:
+        """Subscribe to output changes and return a function to unsubscribe."""
+        return self._output_changed_callbacks.add(callback)
+
     def add_system_status_callback(
         self, callback: StateChangeCallback
     ) -> UnsubscribeCallback:
         """Subscribe to system status changes and return a function to unsubscribe."""
         return self._system_status_callbacks.add(callback)
+
+    @property
+    def state(self) -> SatelState:
+        """Return the current panel state."""
+        return self._state
+
+    @property
+    @deprecated("Use state.violated_zones instead")
+    def violated_zones(self) -> list[int]:
+        """Return violated zones (deprecated; use state.violated_zones)."""
+        return self._state.violated_zones
+
+    @property
+    @deprecated("Use state.violated_outputs instead")
+    def violated_outputs(self) -> list[int]:
+        """Return violated outputs (deprecated; use state.violated_outputs)."""
+        return self._state.violated_outputs
+
+    @property
+    @deprecated("Use state.partition_states instead")
+    def partition_states(self) -> dict[AlarmState, list[int]]:
+        """Return partition states (deprecated; use state.partition_states)."""
+        return self._state.partition_states
 
     def _connection_state_changed(self) -> None:
         """Log user-facing connection availability changes once per outage."""

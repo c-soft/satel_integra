@@ -245,6 +245,11 @@ def test_zones_violated_callback(satel):
     assert satel.violated_zones == [1]
 
 
+def test_zone_states_are_initialized_unknown(satel):
+    assert list(satel.state.zones) == list(range(1, 257))
+    assert all(state.violated is None for state in satel.state.zones.values())
+
+
 @pytest.mark.parametrize("length", [16, 32])
 def test_zones_violated_accepts_16_and_32_byte_masks(satel, length):
     data = bytearray(length)
@@ -268,10 +273,12 @@ def test_zones_violated_updates_zone_states(satel, length):
 
     satel._zones_violated(msg)
 
-    assert len(satel.state.zones) == length * 8
+    assert len(satel.state.zones) == 256
     assert satel.state.zones[1].violated is False
     assert satel.state.zones[2].violated is True
     assert satel.state.zones[length * 8].violated is False
+    if length == 16:
+        assert satel.state.zones[129].violated is None
 
 
 def test_zones_violated_updates_existing_zone_state(satel):

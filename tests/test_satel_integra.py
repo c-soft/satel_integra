@@ -29,7 +29,7 @@ from satel_integra.models import (
     SatelZoneInfo,
 )
 from satel_integra.satel_integra import AlarmState, AsyncSatel
-from satel_integra.state import SatelState, SatelZoneState
+from satel_integra.state import SatelOutputState, SatelState, SatelZoneState
 
 
 def _typed_message(
@@ -250,6 +250,11 @@ def test_zone_states_are_initialized_unknown(satel):
     assert all(state.violated is None for state in satel.state.zones.values())
 
 
+def test_output_states_are_initialized_unknown(satel):
+    assert list(satel.state.outputs) == list(range(1, 257))
+    assert all(state.active is None for state in satel.state.outputs.values())
+
+
 @pytest.mark.parametrize("length", [16, 32])
 def test_zones_violated_accepts_16_and_32_byte_masks(satel, length):
     data = bytearray(length)
@@ -301,7 +306,35 @@ def test_outputs_changed_accepts_16_and_32_byte_masks(satel, length):
 
     satel._outputs_changed(msg)
 
-    assert satel.state.violated_outputs == [4]
+    assert satel.violated_outputs == [4]
+
+
+@pytest.mark.parametrize("length", [16, 32])
+def test_outputs_changed_updates_output_states(satel, length):
+    data = bytearray(length)
+    data[0] = 0b00001000  # output 4
+    msg = SatelReadMessage(SatelReadCommand.OUTPUTS_STATE, data)
+
+    satel._outputs_changed(msg)
+
+    assert len(satel.state.outputs) == 256
+    assert satel.state.outputs[1].active is False
+    assert satel.state.outputs[4].active is True
+    assert satel.state.outputs[length * 8].active is False
+    if length == 16:
+        assert satel.state.outputs[129].active is None
+
+
+def test_outputs_changed_updates_existing_output_state(satel):
+    output_state = SatelOutputState()
+    satel.state.outputs[1] = output_state
+    msg = MagicMock()
+    msg.get_active_bits.return_value = [1]
+
+    satel._outputs_changed(msg)
+
+    assert satel.state.outputs[1] is output_state
+    assert output_state.active is True
 
 
 def test_outputs_changed_callback(satel):
@@ -316,7 +349,7 @@ def test_outputs_changed_callback(satel):
     satel._outputs_changed(msg)
 
     assert called == {3: 0, 4: 1}
-    assert satel.state.violated_outputs == [4]
+    assert satel.violated_outputs == [4]
 
 
 def test_partitions_armed_state_callback(satel):
@@ -376,7 +409,7 @@ def test_add_output_changed_callback_notifies_after_state_update(satel):
     msg.get_active_bits.return_value = [4]
     observed_outputs = []
     callback = MagicMock(
-        side_effect=lambda: observed_outputs.extend(satel.state.violated_outputs)
+        side_effect=lambda: observed_outputs.extend(satel.violated_outputs)
     )
     satel.add_output_changed_callback(callback)
 
@@ -384,6 +417,26 @@ def test_add_output_changed_callback_notifies_after_state_update(satel):
 
     callback.assert_called_once_with()
     assert observed_outputs == [4]
+
+
+def test_add_output_changed_callback_can_read_output_states(satel):
+    msg = MagicMock()
+    msg.get_active_bits.return_value = [4]
+    observed_states = []
+    callback = MagicMock(
+        side_effect=lambda: observed_states.append(
+            (
+                satel.state.outputs[3].active,
+                satel.state.outputs[4].active,
+            )
+        )
+    )
+    satel.add_output_changed_callback(callback)
+
+    satel._outputs_changed(msg)
+
+    callback.assert_called_once_with()
+    assert observed_states == [(False, True)]
 
 
 def test_add_alarm_status_callback(satel):

@@ -241,15 +241,18 @@ class AsyncSatel:
 
         status: dict[int, int] = {}
 
-        output_states = msg.get_active_bits(_bitmask_length(msg))
-        self._state.violated_outputs = output_states
+        bitmask_length = _bitmask_length(msg)
+        active_outputs = set(msg.get_active_bits(bitmask_length))
+
+        for output in range(1, bitmask_length * 8 + 1):
+            self._state.outputs[output].active = output in active_outputs
         _LOGGER.debug(
             "Output states: %s, monitored outputs: %s",
-            output_states,
+            active_outputs,
             self._monitored_outputs,
         )
         for output in self._monitored_outputs:
-            status[output] = 1 if output in output_states else 0
+            status[output] = int(output in active_outputs)
 
         _LOGGER.debug("Returning status: %s", status)
 
@@ -588,10 +591,14 @@ class AsyncSatel:
         ]
 
     @property
-    @deprecated("Use state.violated_outputs instead")
+    @deprecated("Use state.outputs instead")
     def violated_outputs(self) -> list[int]:
-        """Return violated outputs (deprecated; use state.violated_outputs)."""
-        return self._state.violated_outputs
+        """Return violated outputs (deprecated; use state.outputs)."""
+        return [
+            output
+            for output, state in self._state.outputs.items()
+            if state.active is True
+        ]
 
     @property
     @deprecated("Use state.partition_states instead")

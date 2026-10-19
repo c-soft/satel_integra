@@ -23,6 +23,7 @@ from satel_integra.messages import (
 from satel_integra.models import (
     SatelCommandResult,
     SatelOutputInfo,
+    SatelPanelInfo,
     SatelPartitionInfo,
     SatelResultCode,
     SatelRtcAndStatus,
@@ -43,6 +44,15 @@ def _typed_message(
 
 def _make_result_message(raw_code: int) -> SatelTypedReadMessage:
     return _typed_message(SatelReadCommand.RESULT, bytearray([raw_code]))
+
+
+def _panel_info(type_code: int) -> SatelPanelInfo:
+    message = _typed_message(
+        SatelReadCommand.INTEGRA_VERSION,
+        bytearray([type_code]) + bytearray(b"12120230221") + bytearray([0x00, 0xFF]),
+    )
+    assert isinstance(message.data, SatelPanelInfo)
+    return message.data
 
 
 class FakeLoop:
@@ -286,6 +296,20 @@ def test_zones_violated_updates_zone_states(satel, length):
         assert satel.state.zones[129].violated is None
 
 
+def test_zones_violated_respects_panel_capacity(satel):
+    satel.state.configure_for_panel(_panel_info(0))
+    data = bytearray(16)
+    data[0] = 0b00000010  # zone 2
+    data[3] = 0b00000001  # unsupported zone 25
+    msg = SatelReadMessage(SatelReadCommand.ZONES_VIOLATED, data)
+
+    satel._zones_violated(msg)
+
+    assert len(satel.state.zones) == 24
+    assert satel.state.zones[2].violated is True
+    assert 25 not in satel.state.zones
+
+
 def test_zones_violated_updates_existing_zone_state(satel):
     zone_state = SatelZoneState()
     satel.state.zones[1] = zone_state
@@ -323,6 +347,20 @@ def test_outputs_changed_updates_output_states(satel, length):
     assert satel.state.outputs[length * 8].active is False
     if length == 16:
         assert satel.state.outputs[129].active is None
+
+
+def test_outputs_changed_respects_panel_capacity(satel):
+    satel.state.configure_for_panel(_panel_info(0))
+    data = bytearray(16)
+    data[0] = 0b00001000  # output 4
+    data[2] = 0b00010000  # unsupported output 21
+    msg = SatelReadMessage(SatelReadCommand.OUTPUTS_STATE, data)
+
+    satel._outputs_changed(msg)
+
+    assert len(satel.state.outputs) == 20
+    assert satel.state.outputs[4].active is True
+    assert 21 not in satel.state.outputs
 
 
 def test_outputs_changed_updates_existing_output_state(satel):
@@ -1014,6 +1052,7 @@ async def test_read_panel_info_returns_unknown_model_for_unknown_type(
     assert result.model is None
     assert result.settings_stored_in_flash is False
     assert "Unknown INTEGRA panel type code: 99" in caplog.text
+    assert "https://github.com/c-soft/satel_integra/issues/new" in caplog.text
 
 
 @pytest.mark.asyncio
@@ -1277,16 +1316,58 @@ async def test_start_starts_background_tasks(satel):
 
 
 @pytest.mark.asyncio
+async def test_start_initializes_panel_state_before_monitoring(satel):
+    panel_info = _panel_info(0)
+    satel._start_task = MagicMock(side_effect=lambda coro: coro.close())
+    satel.read_panel_info = AsyncMock(return_value=panel_info)
+
+    async def assert_initialized():
+        assert satel.state.panel_info is panel_info
+        assert len(satel.state.zones) == 24
+        assert len(satel.state.outputs) == 20
+
+    satel.start_monitoring = AsyncMock(side_effect=assert_initialized)
+
+    await satel.start(enable_monitoring=True)
+
+    satel.read_panel_info.assert_awaited_once()
+    satel.start_monitoring.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_start_monitoring_continues_when_panel_discovery_fails(satel):
+    satel._start_task = MagicMock(side_effect=lambda coro: coro.close())
+    satel.read_panel_info = AsyncMock(
+        side_effect=SatelUnexpectedResponseError("Malformed panel information")
+    )
+    satel.start_monitoring = AsyncMock()
+
+    await satel.start(enable_monitoring=True)
+
+    satel.start_monitoring.assert_awaited_once()
+
+    satel._zones_violated(
+        SatelReadMessage(SatelReadCommand.ZONES_VIOLATED, bytearray(16))
+    )
+    assert len(satel.state.zones) == 256
+    assert satel.state.zones[129].violated is None
+
+
+@pytest.mark.asyncio
 async def test_start_skips_monitoring(satel):
     satel._watch_connection_stopped = AsyncMock()
     satel._reading_loop = AsyncMock()
     satel._keepalive_loop = AsyncMock()
     satel._start_task = MagicMock(side_effect=lambda coro: asyncio.create_task(coro))
+    satel.read_panel_info = AsyncMock(return_value=_panel_info(0))
     satel.start_monitoring = AsyncMock()
 
     await satel.start(enable_monitoring=False)
 
     assert satel._start_task.call_count == 3
+    satel.read_panel_info.assert_awaited_once()
+    assert len(satel.state.zones) == 24
+    assert len(satel.state.outputs) == 20
     satel.start_monitoring.assert_not_awaited()
 
 

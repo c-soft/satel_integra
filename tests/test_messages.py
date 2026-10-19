@@ -79,7 +79,12 @@ def _invalid_payload_for_lengths(
             SatelPanelInfo,
             SatelPanelInfo(
                 type_code=72,
-                model=SatelPanelModel("INTEGRA 256 Plus"),
+                model=SatelPanelModel(
+                    name="INTEGRA 256 Plus",
+                    max_zones=256,
+                    max_outputs=256,
+                    max_partitions=32,
+                ),
                 firmware=SatelFirmwareVersion("1.23", "2012-05-27"),
                 language_code=0,
                 settings_stored_in_flash=True,

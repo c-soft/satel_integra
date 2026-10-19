@@ -222,9 +222,12 @@ class AsyncSatel:
         status: dict[int, int] = {}
 
         bitmask_length = _bitmask_length(msg)
-        violated_zones = set(msg.get_active_bits(bitmask_length))
+        active_zones = msg.get_active_bits(bitmask_length)
+        represented_zones = bitmask_length * 8
+        zone_limit = min(represented_zones, len(self._state.zones))
+        violated_zones = {zone for zone in active_zones if zone <= zone_limit}
 
-        for zone in range(1, bitmask_length * 8 + 1):
+        for zone in range(1, zone_limit + 1):
             self._state.zones[zone].violated = zone in violated_zones
         _LOGGER.debug("Violated zones: %s", violated_zones)
         for zone in self._monitored_zones:
@@ -242,9 +245,14 @@ class AsyncSatel:
         status: dict[int, int] = {}
 
         bitmask_length = _bitmask_length(msg)
-        active_outputs = set(msg.get_active_bits(bitmask_length))
+        active_output_numbers = msg.get_active_bits(bitmask_length)
+        represented_outputs = bitmask_length * 8
+        output_limit = min(represented_outputs, len(self._state.outputs))
+        active_outputs = {
+            output for output in active_output_numbers if output <= output_limit
+        }
 
-        for output in range(1, bitmask_length * 8 + 1):
+        for output in range(1, output_limit + 1):
             self._state.outputs[output].active = output in active_outputs
         _LOGGER.debug(
             "Output states: %s, monitored outputs: %s",

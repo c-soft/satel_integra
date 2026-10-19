@@ -15,6 +15,7 @@ class SatelPanelModel:
     name: str
     max_zones: int
     max_outputs: int
+    max_partitions: int
 
 
 PANEL_MODEL_BY_TYPE_CODE: dict[int, SatelPanelModel] = {
@@ -22,46 +23,55 @@ PANEL_MODEL_BY_TYPE_CODE: dict[int, SatelPanelModel] = {
         name="INTEGRA 24",
         max_zones=24,
         max_outputs=20,
+        max_partitions=4,
     ),
     1: SatelPanelModel(
         name="INTEGRA 32",
         max_zones=32,
         max_outputs=32,
+        max_partitions=16,
     ),
     2: SatelPanelModel(
         name="INTEGRA 64",
         max_zones=64,
         max_outputs=64,
+        max_partitions=32,
     ),
     3: SatelPanelModel(
         name="INTEGRA 128",
         max_zones=128,
         max_outputs=128,
+        max_partitions=32,
     ),
     4: SatelPanelModel(
         name="INTEGRA 128-WRL SIM300",
         max_zones=128,
         max_outputs=128,
+        max_partitions=32,
     ),
     66: SatelPanelModel(
         name="INTEGRA 64 Plus",
         max_zones=64,
         max_outputs=64,
+        max_partitions=32,
     ),
     67: SatelPanelModel(
         name="INTEGRA 128 Plus",
         max_zones=128,
         max_outputs=128,
+        max_partitions=32,
     ),
     72: SatelPanelModel(
         name="INTEGRA 256 Plus",
         max_zones=256,
         max_outputs=256,
+        max_partitions=32,
     ),
     132: SatelPanelModel(
         name="INTEGRA 128-WRL LEON",
         max_zones=128,
         max_outputs=128,
+        max_partitions=32,
     ),
 }
 

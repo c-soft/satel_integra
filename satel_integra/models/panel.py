@@ -13,18 +13,46 @@ class SatelPanelModel:
     """Known INTEGRA panel model."""
 
     name: str
+    max_zones: int
 
 
 PANEL_MODEL_BY_TYPE_CODE: dict[int, SatelPanelModel] = {
-    0: SatelPanelModel("INTEGRA 24"),
-    1: SatelPanelModel("INTEGRA 32"),
-    2: SatelPanelModel("INTEGRA 64"),
-    3: SatelPanelModel("INTEGRA 128"),
-    4: SatelPanelModel("INTEGRA 128-WRL SIM300"),
-    66: SatelPanelModel("INTEGRA 64 Plus"),
-    67: SatelPanelModel("INTEGRA 128 Plus"),
-    72: SatelPanelModel("INTEGRA 256 Plus"),
-    132: SatelPanelModel("INTEGRA 128-WRL LEON"),
+    0: SatelPanelModel(
+        name="INTEGRA 24",
+        max_zones=24,
+    ),
+    1: SatelPanelModel(
+        name="INTEGRA 32",
+        max_zones=32,
+    ),
+    2: SatelPanelModel(
+        name="INTEGRA 64",
+        max_zones=64,
+    ),
+    3: SatelPanelModel(
+        name="INTEGRA 128",
+        max_zones=128,
+    ),
+    4: SatelPanelModel(
+        name="INTEGRA 128-WRL SIM300",
+        max_zones=128,
+    ),
+    66: SatelPanelModel(
+        name="INTEGRA 64 Plus",
+        max_zones=64,
+    ),
+    67: SatelPanelModel(
+        name="INTEGRA 128 Plus",
+        max_zones=128,
+    ),
+    72: SatelPanelModel(
+        name="INTEGRA 256 Plus",
+        max_zones=256,
+    ),
+    132: SatelPanelModel(
+        name="INTEGRA 128-WRL LEON",
+        max_zones=128,
+    ),
 }
 
 

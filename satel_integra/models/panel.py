@@ -92,7 +92,11 @@ class SatelPanelInfo:
         type_code = payload[0]
         model = PANEL_MODEL_BY_TYPE_CODE.get(type_code)
         if model is None:
-            _LOGGER.warning("Unknown INTEGRA panel type code: %s", type_code)
+            _LOGGER.warning(
+                "Unknown INTEGRA panel type code: %s. Please report this panel model "
+                "at https://github.com/c-soft/satel_integra/issues/new",
+                type_code,
+            )
 
         return cls(
             type_code=type_code,

@@ -29,7 +29,7 @@ from satel_integra.models import (
     SatelZoneInfo,
 )
 from satel_integra.satel_integra import AlarmState, AsyncSatel
-from satel_integra.state import SatelState
+from satel_integra.state import SatelState, SatelZoneState
 
 
 def _typed_message(
@@ -242,7 +242,12 @@ def test_zones_violated_callback(satel):
     satel._zones_violated(msg)
 
     assert called == {1: 1, 2: 0}
-    assert satel.state.violated_zones == [1]
+    assert satel.violated_zones == [1]
+
+
+def test_zone_states_are_initialized_unknown(satel):
+    assert list(satel.state.zones) == list(range(1, 257))
+    assert all(state.violated is None for state in satel.state.zones.values())
 
 
 @pytest.mark.parametrize("length", [16, 32])
@@ -257,7 +262,35 @@ def test_zones_violated_accepts_16_and_32_byte_masks(satel, length):
     satel._zones_violated(msg)
 
     assert called == {1: 0, 2: 1}
-    assert satel.state.violated_zones == [2]
+    assert satel.violated_zones == [2]
+
+
+@pytest.mark.parametrize("length", [16, 32])
+def test_zones_violated_updates_zone_states(satel, length):
+    data = bytearray(length)
+    data[0] = 0b00000010  # zone 2
+    msg = SatelReadMessage(SatelReadCommand.ZONES_VIOLATED, data)
+
+    satel._zones_violated(msg)
+
+    assert len(satel.state.zones) == 256
+    assert satel.state.zones[1].violated is False
+    assert satel.state.zones[2].violated is True
+    assert satel.state.zones[length * 8].violated is False
+    if length == 16:
+        assert satel.state.zones[129].violated is None
+
+
+def test_zones_violated_updates_existing_zone_state(satel):
+    zone_state = SatelZoneState()
+    satel.state.zones[1] = zone_state
+    msg = MagicMock()
+    msg.get_active_bits.return_value = [1]
+
+    satel._zones_violated(msg)
+
+    assert satel.state.zones[1] is zone_state
+    assert zone_state.violated is True
 
 
 @pytest.mark.parametrize("length", [16, 32])
@@ -308,7 +341,7 @@ def test_add_zone_changed_callback_notifies_after_state_update(satel):
     msg.get_active_bits.return_value = [1]
     observed_zones = []
     callback = MagicMock(
-        side_effect=lambda: observed_zones.extend(satel.state.violated_zones)
+        side_effect=lambda: observed_zones.extend(satel.violated_zones)
     )
     satel.add_zone_changed_callback(callback)
 
@@ -316,6 +349,26 @@ def test_add_zone_changed_callback_notifies_after_state_update(satel):
 
     callback.assert_called_once_with()
     assert observed_zones == [1]
+
+
+def test_add_zone_changed_callback_can_read_zone_states(satel):
+    msg = MagicMock()
+    msg.get_active_bits.return_value = [1]
+    observed_states = []
+    callback = MagicMock(
+        side_effect=lambda: observed_states.append(
+            (
+                satel.state.zones[1].violated,
+                satel.state.zones[2].violated,
+            )
+        )
+    )
+    satel.add_zone_changed_callback(callback)
+
+    satel._zones_violated(msg)
+
+    callback.assert_called_once_with()
+    assert observed_states == [(True, False)]
 
 
 def test_add_output_changed_callback_notifies_after_state_update(satel):
@@ -401,7 +454,7 @@ def test_system_status_callback(satel):
 
 def test_state_exposes_current_public_state(satel):
     assert isinstance(satel.state, SatelState)
-    assert satel.state.violated_zones == []
+    assert satel.violated_zones == []
     assert satel.state.system_status is None
     assert satel.state.system_troubles is None
     with pytest.raises(AttributeError):
@@ -416,7 +469,7 @@ def test_state_exposes_current_public_state(satel):
     satel._system_status_changed(status)
     satel._system_troubles_changed(troubles)
 
-    assert satel.state.violated_zones == [1]
+    assert satel.violated_zones == [1]
     assert satel.state.system_status == status.data
     assert satel.state.system_troubles == troubles.data
 

@@ -5,6 +5,12 @@ from enum import Enum, unique
 
 from satel_integra.models import SatelRtcAndStatus, SatelSystemTroubles
 
+_MAX_ZONES = 256
+
+
+def _default_zone_states() -> dict[int, "SatelZoneState"]:
+    return {zone: SatelZoneState() for zone in range(1, _MAX_ZONES + 1)}
+
 
 @unique
 class AlarmState(Enum):
@@ -24,10 +30,19 @@ class AlarmState(Enum):
 
 
 @dataclass
+class SatelZoneState:
+    """State of a zone derived from incoming panel messages."""
+
+    violated: bool | None = None
+
+
+@dataclass
 class SatelState:
     """State derived from incoming panel messages."""
 
-    violated_zones: list[int] = field(default_factory=list)
+    zones: dict[int, SatelZoneState] = field(
+        default_factory=_default_zone_states
+    )  # Initializes the state of each zone (1 to 256) with a default SatelZoneState object.
     violated_outputs: list[int] = field(default_factory=list)
     partition_states: dict[AlarmState, list[int]] = field(default_factory=dict)
     system_status: SatelRtcAndStatus | None = None

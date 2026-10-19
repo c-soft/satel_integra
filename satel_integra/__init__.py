@@ -33,7 +33,7 @@ from .models import (
     SatelZoneInfo,
 )
 from .satel_integra import AsyncSatel
-from .state import AlarmState, SatelState
+from .state import AlarmState, SatelState, SatelZoneState
 
 __all__ = [
     "AlarmState",
@@ -67,4 +67,5 @@ __all__ = [
     "SatelTroubleType",
     "SatelUnexpectedResponseError",
     "SatelZoneInfo",
+    "SatelZoneState",
 ]

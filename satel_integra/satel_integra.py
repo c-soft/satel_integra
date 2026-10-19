@@ -330,15 +330,32 @@ class AsyncSatel:
 
         self._start_task(self._keepalive_loop())
 
-        if enable_monitoring:
-            try:
+        try:
+            await self._initialize_panel_state()
+            if enable_monitoring:
                 await self.start_monitoring()
-            except (Exception, asyncio.CancelledError):
-                await self.close()
-                raise
+        except (Exception, asyncio.CancelledError):
+            await self.close()
+            raise
+
+        if enable_monitoring:
             # Started after the first acknowledgement, so the loop does not
             # send a second monitoring request on the same connection.
             self._start_task(self._monitor_reconnection_loop())
+
+    async def _initialize_panel_state(self) -> None:
+        """Discover panel capabilities without preventing monitoring startup."""
+        try:
+            panel_info = await self.read_panel_info()
+        except (SatelCommandRejectedError, SatelUnexpectedResponseError) as err:
+            _LOGGER.warning("Panel information discovery failed: %s", err)
+            return
+
+        if panel_info is None:
+            _LOGGER.warning("Panel information discovery returned no response")
+            return
+
+        self._state.configure_for_panel(panel_info)
 
     def _start_task(self, coro: Awaitable[object]) -> asyncio.Task[object]:
         """Create and track a background task."""

@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.6.0](https://github.com/c-soft/satel_integra/compare/1.5.0...1.6.0) - 2026-10-19
+
+### What’s Changed
+
+- #93 - Make outputs represent full states (@Tommatheussen)
+- #92 - Make zones represent full states (@Tommatheussen)
+- #91 - Add dedicated callback registration methods (@Tommatheussen)
+- #90 - Add result reporting and validation to other control commands (@Tommatheussen)
+- #86 - Add wait_for_result to set_output: report the panel's result for output commands (@arturotolinski)
+- #89 - Add some specific trouble entries (@Tommatheussen)
+- #88 - Allow awaited messages to be grouped (@Tommatheussen)
+- #87 - Add initial system status functionality (@Tommatheussen)
+- #85 - Add an ETHM-1 Plus simulator with reproduction tests (@arturotolinski)
+- #82 - Never send control commands late after a link outage (@arturotolinski)
+- #81 - Keep monitoring enabled on every connection (@arturotolinski)
+- #84 - Bound the TCP connect time and stop logging the user code (@arturotolinski)
+- #83 - Accept 16-byte zone/output masks and keep reading after a bad frame (@arturotolinski)
+- #80 - Group write commands into a single frame (@xMikooo)
+- #78 - Track connection state after validating connection (@Tommatheussen)
+
 ## [1.5.0](https://github.com/c-soft/satel_integra/compare/1.4.0...1.5.0) - 2026-09-06
 
 ### What’s Changed
@@ -119,6 +139,7 @@ self.controller.monitor_status(
     zones_update_callback,
     outputs_update_callback,
 )
+
 ```
 ##### After
 
@@ -133,6 +154,7 @@ self.controller.register_callbacks(
 )
 
 await self.controller.start(enable_monitoring=True)
+
 ```
 #### Callback Signature Changes
 

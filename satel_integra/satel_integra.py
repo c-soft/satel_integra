@@ -128,11 +128,11 @@ class AsyncSatel:
         # Connection generation on which monitoring was acknowledged (-1 = none).
         self._monitoring_generation = -1
         self._zone_changed_callback: Callable[[dict[int, int]], None] | None = None
-        self._zone_changed_callbacks = CallbackRegistry()
         self._output_changed_callback: Callable[[dict[int, int]], None] | None = None
         self._output_changed_callbacks = CallbackRegistry()
 
         self._subscriptions = SatelSubscriptions()
+        self._subscriptions.zones.add(self._notify_zone_changed)
         self._message_handler_registry = MessageHandlerRegistry(
             self._state,
             self._subscriptions,
@@ -140,7 +140,6 @@ class AsyncSatel:
         self._message_handlers: dict[
             SatelReadCommand, Callable[[SatelReadMessage], None]
         ] = {
-            SatelReadCommand.ZONES_VIOLATED: self._zones_violated,
             SatelReadCommand.PARTITIONS_ARMED_SUPPRESSED: lambda msg: (
                 self._partitions_armed_state(AlarmState.ARMED_SUPPRESSED, msg)
             ),
@@ -223,26 +222,17 @@ class AsyncSatel:
 
         _LOGGER.debug("Monitoring started")
 
-    def _zones_violated(self, msg: SatelReadMessage):
+    def _notify_zone_changed(self) -> None:
+        """Notify the legacy zone callback from current state."""
         status: dict[int, int] = {}
-
-        bitmask_length = _bitmask_length(msg)
-        active_zones = msg.get_active_bits(bitmask_length)
-        represented_zones = bitmask_length * 8
-        zone_limit = min(represented_zones, len(self._state.zones))
-        violated_zones = {zone for zone in active_zones if zone <= zone_limit}
-
-        for zone in range(1, zone_limit + 1):
-            self._state.zones[zone].violated = zone in violated_zones
-        _LOGGER.debug("Violated zones: %s", violated_zones)
         for zone in self._monitored_zones:
-            status[zone] = int(zone in violated_zones)
+            zone_state = self._state.zones.get(zone)
+            status[zone] = int(zone_state is not None and zone_state.violated is True)
 
         _LOGGER.debug("Returning status: %s", status)
 
         if self._zone_changed_callback:
             self._zone_changed_callback(status)
-        self._zone_changed_callbacks.notify()
 
     def _outputs_changed(self, msg: SatelReadMessage):
         """0x17   outputs state 0x17   + 16/32 bytes"""
@@ -564,7 +554,7 @@ class AsyncSatel:
         self, callback: StateChangeCallback
     ) -> UnsubscribeCallback:
         """Subscribe to zone changes and return a function to unsubscribe."""
-        return self._zone_changed_callbacks.add(callback)
+        return self._subscriptions.zones.add(callback)
 
     def add_output_changed_callback(
         self, callback: StateChangeCallback

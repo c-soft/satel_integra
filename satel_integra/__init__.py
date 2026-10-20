@@ -16,6 +16,7 @@ from .exceptions import (
     SatelUnexpectedResponseError,
 )
 from .models import (
+    SatelBitmaskData,
     SatelCommandResult,
     SatelCommunicationModuleInfo,
     SatelDeviceInfo,
@@ -38,6 +39,7 @@ from .state import AlarmState, SatelOutputState, SatelState, SatelZoneState
 __all__ = [
     "AlarmState",
     "AsyncSatel",
+    "SatelBitmaskData",
     "SatelCommandExpiredError",
     "SatelCommandRejectedError",
     "SatelCommandResult",

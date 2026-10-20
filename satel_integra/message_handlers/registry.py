@@ -10,11 +10,16 @@ from satel_integra.messages import (
     SatelReadMessageData,
     SatelTypedReadMessage,
 )
-from satel_integra.models import SatelRtcAndStatus, SatelSystemTroubles
+from satel_integra.models import (
+    SatelBitmaskData,
+    SatelRtcAndStatus,
+    SatelSystemTroubles,
+)
 from satel_integra.state import SatelState
 
 from .subscriptions import SatelSubscriptions
 from .system import handle_system_status, handle_system_troubles
+from .zone import handle_zone_violations
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -37,6 +42,11 @@ class MessageHandlerRegistry:
 
     def _register_handlers(self) -> None:
         """Register the built-in message handlers."""
+        self.register(
+            SatelReadCommand.ZONES_VIOLATED,
+            SatelBitmaskData,
+            handle_zone_violations,
+        )
         self.register(
             SatelReadCommand.RTC_AND_STATUS,
             SatelRtcAndStatus,

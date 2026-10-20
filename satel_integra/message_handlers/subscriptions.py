@@ -10,3 +10,4 @@ class SatelSubscriptions:
     """Subscriptions notified when message-derived state changes."""
 
     system_status: CallbackRegistry = field(default_factory=CallbackRegistry)
+    zones: CallbackRegistry = field(default_factory=CallbackRegistry)

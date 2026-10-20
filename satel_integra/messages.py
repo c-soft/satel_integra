@@ -24,6 +24,7 @@ from satel_integra.const import (
 )
 from satel_integra.exceptions import SatelUnexpectedResponseError
 from satel_integra.models import (
+    SatelBitmaskData,
     SatelCommandResult,
     SatelCommunicationModuleInfo,
     SatelOutputInfo,
@@ -347,6 +348,11 @@ READ_DEVICE_NAME_SPECS: dict[SatelDeviceSelector, ReadCommandSpec] = {
 
 
 READ_COMMAND_SPECS: dict[SatelReadCommand, ReadCommandSpec] = {
+    SatelReadCommand.ZONES_VIOLATED: ReadCommandSpec(
+        command=SatelReadCommand.ZONES_VIOLATED,
+        data_type=SatelBitmaskData,
+        expected_data_lengths=(16, 32),
+    ),
     SatelReadCommand.TROUBLES_PART_1: ReadCommandSpec(
         command=SatelReadCommand.TROUBLES_PART_1,
         data_type=SatelSystemTroubles,

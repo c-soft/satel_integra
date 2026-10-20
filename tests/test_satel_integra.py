@@ -243,13 +243,14 @@ async def test_start_monitoring_unexpected_response(satel, mock_queue):
 
 
 def test_zones_violated_callback(satel):
-    msg = MagicMock()
-    msg.get_active_bits.return_value = [1]
+    msg = _typed_message(
+        SatelReadCommand.ZONES_VIOLATED, bytearray([0b00000001]) + bytearray(31)
+    )
 
     called = {}
     satel.register_callbacks(zone_changed_callback=lambda status: called.update(status))
 
-    satel._zones_violated(msg)
+    satel._message_handler_registry.dispatch(msg)
 
     assert called == {1: 1, 2: 0}
     assert satel.violated_zones == [1]
@@ -269,12 +270,12 @@ def test_output_states_are_initialized_unknown(satel):
 def test_zones_violated_accepts_16_and_32_byte_masks(satel, length):
     data = bytearray(length)
     data[0] = 0b00000010  # zone 2
-    msg = SatelReadMessage(SatelReadCommand.ZONES_VIOLATED, data)
+    msg = _typed_message(SatelReadCommand.ZONES_VIOLATED, data)
 
     called = {}
     satel.register_callbacks(zone_changed_callback=lambda status: called.update(status))
 
-    satel._zones_violated(msg)
+    satel._message_handler_registry.dispatch(msg)
 
     assert called == {1: 0, 2: 1}
     assert satel.violated_zones == [2]
@@ -284,9 +285,9 @@ def test_zones_violated_accepts_16_and_32_byte_masks(satel, length):
 def test_zones_violated_updates_zone_states(satel, length):
     data = bytearray(length)
     data[0] = 0b00000010  # zone 2
-    msg = SatelReadMessage(SatelReadCommand.ZONES_VIOLATED, data)
+    msg = _typed_message(SatelReadCommand.ZONES_VIOLATED, data)
 
-    satel._zones_violated(msg)
+    satel._message_handler_registry.dispatch(msg)
 
     assert len(satel.state.zones) == 256
     assert satel.state.zones[1].violated is False
@@ -301,9 +302,9 @@ def test_zones_violated_respects_panel_capacity(satel):
     data = bytearray(16)
     data[0] = 0b00000010  # zone 2
     data[3] = 0b00000001  # unsupported zone 25
-    msg = SatelReadMessage(SatelReadCommand.ZONES_VIOLATED, data)
+    msg = _typed_message(SatelReadCommand.ZONES_VIOLATED, data)
 
-    satel._zones_violated(msg)
+    satel._message_handler_registry.dispatch(msg)
 
     assert len(satel.state.zones) == 24
     assert satel.state.zones[2].violated is True
@@ -313,10 +314,11 @@ def test_zones_violated_respects_panel_capacity(satel):
 def test_zones_violated_updates_existing_zone_state(satel):
     zone_state = SatelZoneState()
     satel.state.zones[1] = zone_state
-    msg = MagicMock()
-    msg.get_active_bits.return_value = [1]
+    msg = _typed_message(
+        SatelReadCommand.ZONES_VIOLATED, bytearray([0b00000001]) + bytearray(15)
+    )
 
-    satel._zones_violated(msg)
+    satel._message_handler_registry.dispatch(msg)
 
     assert satel.state.zones[1] is zone_state
     assert zone_state.violated is True
@@ -408,23 +410,25 @@ def test_partitions_armed_state_callback(satel):
 
 
 def test_add_zone_changed_callback_notifies_after_state_update(satel):
-    msg = MagicMock()
-    msg.get_active_bits.return_value = [1]
+    msg = _typed_message(
+        SatelReadCommand.ZONES_VIOLATED, bytearray([0b00000001]) + bytearray(15)
+    )
     observed_zones = []
     callback = MagicMock(
         side_effect=lambda: observed_zones.extend(satel.violated_zones)
     )
     satel.add_zone_changed_callback(callback)
 
-    satel._zones_violated(msg)
+    satel._message_handler_registry.dispatch(msg)
 
     callback.assert_called_once_with()
     assert observed_zones == [1]
 
 
 def test_add_zone_changed_callback_can_read_zone_states(satel):
-    msg = MagicMock()
-    msg.get_active_bits.return_value = [1]
+    msg = _typed_message(
+        SatelReadCommand.ZONES_VIOLATED, bytearray([0b00000001]) + bytearray(15)
+    )
     observed_states = []
     callback = MagicMock(
         side_effect=lambda: observed_states.append(
@@ -436,7 +440,7 @@ def test_add_zone_changed_callback_can_read_zone_states(satel):
     )
     satel.add_zone_changed_callback(callback)
 
-    satel._zones_violated(msg)
+    satel._message_handler_registry.dispatch(msg)
 
     callback.assert_called_once_with()
     assert observed_states == [(True, False)]
@@ -503,7 +507,9 @@ def test_callback_subscriptions_can_be_removed(satel):
     msg = MagicMock()
     msg.get_active_bits.return_value = []
     satel._partitions_armed_state(AlarmState.ARMED_MODE0, msg)
-    satel._zones_violated(msg)
+    satel._message_handler_registry.dispatch(
+        _typed_message(SatelReadCommand.ZONES_VIOLATED, bytearray(16))
+    )
     satel._outputs_changed(msg)
 
     alarm_callback.assert_not_called()
@@ -524,7 +530,9 @@ def test_register_callbacks_is_deprecated(satel):
     msg = MagicMock()
     msg.get_active_bits.return_value = []
     satel._partitions_armed_state(AlarmState.ARMED_MODE0, msg)
-    satel._zones_violated(msg)
+    satel._message_handler_registry.dispatch(
+        _typed_message(SatelReadCommand.ZONES_VIOLATED, bytearray(16))
+    )
 
     alarm_callback.assert_called_once_with()
     zone_callback.assert_called_once_with({1: 0, 2: 0})
@@ -1331,8 +1339,8 @@ async def test_start_monitoring_continues_when_panel_discovery_fails(satel):
 
     satel.start_monitoring.assert_awaited_once()
 
-    satel._zones_violated(
-        SatelReadMessage(SatelReadCommand.ZONES_VIOLATED, bytearray(16))
+    satel._message_handler_registry.dispatch(
+        _typed_message(SatelReadCommand.ZONES_VIOLATED, bytearray(16))
     )
     assert len(satel.state.zones) == 256
     assert satel.state.zones[129].violated is None

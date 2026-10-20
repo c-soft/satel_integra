@@ -1,6 +1,7 @@
 import pytest
 
 from satel_integra.models import (
+    SatelBitmaskData,
     SatelDeviceType,
     SatelFirmwareVersion,
     SatelOutputInfo,
@@ -11,6 +12,12 @@ from satel_integra.models import (
     SatelTroubleType,
     SatelZoneInfo,
 )
+
+
+def test_bitmask_data_from_payload() -> None:
+    result = SatelBitmaskData._from_payload(bytes([0b10000001, 0b00000001]))
+
+    assert result.active == frozenset({1, 8, 9})
 
 
 @pytest.mark.parametrize(

@@ -353,14 +353,14 @@ def test_outputs_changed_respects_panel_capacity(satel):
     satel.state.configure_for_panel(_panel_info(0))
     data = bytearray(16)
     data[0] = 0b00001000  # output 4
-    data[2] = 0b00010000  # unsupported output 21
+    data[3] = 0b00000001  # unsupported output 25
     msg = SatelReadMessage(SatelReadCommand.OUTPUTS_STATE, data)
 
     satel._outputs_changed(msg)
 
-    assert len(satel.state.outputs) == 20
+    assert len(satel.state.outputs) == 24
     assert satel.state.outputs[4].active is True
-    assert 21 not in satel.state.outputs
+    assert 25 not in satel.state.outputs
 
 
 def test_outputs_changed_updates_existing_output_state(satel):
@@ -1324,7 +1324,7 @@ async def test_start_initializes_panel_state_before_monitoring(satel):
     async def assert_initialized():
         assert satel.state.panel_info is panel_info
         assert len(satel.state.zones) == 24
-        assert len(satel.state.outputs) == 20
+        assert len(satel.state.outputs) == 24
 
     satel.start_monitoring = AsyncMock(side_effect=assert_initialized)
 
@@ -1367,7 +1367,7 @@ async def test_start_skips_monitoring(satel):
     assert satel._start_task.call_count == 3
     satel.read_panel_info.assert_awaited_once()
     assert len(satel.state.zones) == 24
-    assert len(satel.state.outputs) == 20
+    assert len(satel.state.outputs) == 24
     satel.start_monitoring.assert_not_awaited()
 
 

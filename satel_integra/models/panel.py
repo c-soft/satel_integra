@@ -22,7 +22,7 @@ PANEL_MODEL_BY_TYPE_CODE: dict[int, SatelPanelModel] = {
     0: SatelPanelModel(
         name="INTEGRA 24",
         max_zones=24,
-        max_outputs=20,
+        max_outputs=24,
         max_partitions=4,
     ),
     1: SatelPanelModel(

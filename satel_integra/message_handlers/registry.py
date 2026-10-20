@@ -12,12 +12,14 @@ from satel_integra.messages import (
 )
 from satel_integra.models import (
     SatelBitmaskData,
+    SatelCommandResult,
     SatelRtcAndStatus,
     SatelSystemTroubles,
 )
 from satel_integra.state import SatelState
 
 from .output import handle_output_states
+from .result import handle_command_result
 from .subscriptions import SatelSubscriptions
 from .system import handle_system_status, handle_system_troubles
 from .zone import handle_zone_violations
@@ -52,6 +54,11 @@ class MessageHandlerRegistry:
             SatelReadCommand.OUTPUTS_STATE,
             SatelBitmaskData,
             handle_output_states,
+        )
+        self.register(
+            SatelReadCommand.RESULT,
+            SatelCommandResult,
+            handle_command_result,
         )
         self.register(
             SatelReadCommand.RTC_AND_STATUS,

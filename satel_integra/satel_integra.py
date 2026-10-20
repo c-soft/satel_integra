@@ -160,7 +160,6 @@ class AsyncSatel:
             SatelReadCommand.PARTITIONS_ARMED_MODE1: lambda msg: (
                 self._partitions_armed_state(AlarmState.ARMED_MODE1, msg)
             ),
-            SatelReadCommand.RESULT: self._command_result,
         }
 
     async def start_monitoring(self) -> None:
@@ -236,18 +235,6 @@ class AsyncSatel:
 
         if self._output_changed_callback:
             self._output_changed_callback(status)
-
-    def _command_result(self, msg: SatelReadMessage) -> None:
-        """Log unsolicited command results using the structured result model."""
-        if (
-            not isinstance(msg, SatelTypedReadMessage)
-            or msg.data_type is not SatelCommandResult
-        ):
-            _LOGGER.warning("Received untyped command result: %s", msg)
-            return
-
-        result = cast(SatelCommandResult, msg.data)
-        _LOGGER.debug("Received command result: %s", result.code)
 
     def _partitions_armed_state(self, mode: AlarmState, msg: SatelReadMessage):
         partitions = msg.get_active_bits(4)

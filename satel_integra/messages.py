@@ -348,6 +348,56 @@ READ_DEVICE_NAME_SPECS: dict[SatelDeviceSelector, ReadCommandSpec] = {
 
 
 READ_COMMAND_SPECS: dict[SatelReadCommand, ReadCommandSpec] = {
+    SatelReadCommand.PARTITIONS_ARMED_SUPPRESSED: ReadCommandSpec(
+        command=SatelReadCommand.PARTITIONS_ARMED_SUPPRESSED,
+        data_type=SatelBitmaskData,
+        expected_data_lengths=(4,),
+    ),
+    SatelReadCommand.PARTITIONS_ARMED_MODE0: ReadCommandSpec(
+        command=SatelReadCommand.PARTITIONS_ARMED_MODE0,
+        data_type=SatelBitmaskData,
+        expected_data_lengths=(4,),
+    ),
+    SatelReadCommand.PARTITIONS_ARMED_MODE1: ReadCommandSpec(
+        command=SatelReadCommand.PARTITIONS_ARMED_MODE1,
+        data_type=SatelBitmaskData,
+        expected_data_lengths=(4,),
+    ),
+    SatelReadCommand.PARTITIONS_ARMED_MODE2: ReadCommandSpec(
+        command=SatelReadCommand.PARTITIONS_ARMED_MODE2,
+        data_type=SatelBitmaskData,
+        expected_data_lengths=(4,),
+    ),
+    SatelReadCommand.PARTITIONS_ARMED_MODE3: ReadCommandSpec(
+        command=SatelReadCommand.PARTITIONS_ARMED_MODE3,
+        data_type=SatelBitmaskData,
+        expected_data_lengths=(4,),
+    ),
+    SatelReadCommand.PARTITIONS_ENTRY_TIME: ReadCommandSpec(
+        command=SatelReadCommand.PARTITIONS_ENTRY_TIME,
+        data_type=SatelBitmaskData,
+        expected_data_lengths=(4,),
+    ),
+    SatelReadCommand.PARTITIONS_EXIT_COUNTDOWN_OVER_10: ReadCommandSpec(
+        command=SatelReadCommand.PARTITIONS_EXIT_COUNTDOWN_OVER_10,
+        data_type=SatelBitmaskData,
+        expected_data_lengths=(4,),
+    ),
+    SatelReadCommand.PARTITIONS_EXIT_COUNTDOWN_UNDER_10: ReadCommandSpec(
+        command=SatelReadCommand.PARTITIONS_EXIT_COUNTDOWN_UNDER_10,
+        data_type=SatelBitmaskData,
+        expected_data_lengths=(4,),
+    ),
+    SatelReadCommand.PARTITIONS_ALARM: ReadCommandSpec(
+        command=SatelReadCommand.PARTITIONS_ALARM,
+        data_type=SatelBitmaskData,
+        expected_data_lengths=(4,),
+    ),
+    SatelReadCommand.PARTITIONS_FIRE_ALARM: ReadCommandSpec(
+        command=SatelReadCommand.PARTITIONS_FIRE_ALARM,
+        data_type=SatelBitmaskData,
+        expected_data_lengths=(4,),
+    ),
     SatelReadCommand.ZONES_VIOLATED: ReadCommandSpec(
         command=SatelReadCommand.ZONES_VIOLATED,
         data_type=SatelBitmaskData,

@@ -9,7 +9,6 @@ from warnings import warn
 
 from satel_integra.callbacks import (
     AsyncStateChangeCallback,
-    CallbackRegistry,
     StateChangeCallback,
     UnsubscribeCallback,
 )
@@ -114,13 +113,13 @@ class AsyncSatel:
         self._partitions: list[int] = partitions
 
         self._alarm_status_callback: Callable[[], None] | None = None
-        self._alarm_status_callbacks = CallbackRegistry()
         # Connection generation on which monitoring was acknowledged (-1 = none).
         self._monitoring_generation = -1
         self._zone_changed_callback: Callable[[dict[int, int]], None] | None = None
         self._output_changed_callback: Callable[[dict[int, int]], None] | None = None
 
         self._subscriptions = SatelSubscriptions()
+        self._subscriptions.partitions.add(self._notify_alarm_status_changed)
         self._subscriptions.zones.add(self._notify_zone_changed)
         self._subscriptions.outputs.add(self._notify_output_changed)
         self._message_handler_registry = MessageHandlerRegistry(
@@ -129,38 +128,7 @@ class AsyncSatel:
         )
         self._message_handlers: dict[
             SatelReadCommand, Callable[[SatelReadMessage], None]
-        ] = {
-            SatelReadCommand.PARTITIONS_ARMED_SUPPRESSED: lambda msg: (
-                self._partitions_armed_state(AlarmState.ARMED_SUPPRESSED, msg)
-            ),
-            SatelReadCommand.PARTITIONS_ARMED_MODE0: lambda msg: (
-                self._partitions_armed_state(AlarmState.ARMED_MODE0, msg)
-            ),
-            SatelReadCommand.PARTITIONS_ARMED_MODE2: lambda msg: (
-                self._partitions_armed_state(AlarmState.ARMED_MODE2, msg)
-            ),
-            SatelReadCommand.PARTITIONS_ARMED_MODE3: lambda msg: (
-                self._partitions_armed_state(AlarmState.ARMED_MODE3, msg)
-            ),
-            SatelReadCommand.PARTITIONS_ENTRY_TIME: lambda msg: (
-                self._partitions_armed_state(AlarmState.ENTRY_TIME, msg)
-            ),
-            SatelReadCommand.PARTITIONS_EXIT_COUNTDOWN_OVER_10: lambda msg: (
-                self._partitions_armed_state(AlarmState.EXIT_COUNTDOWN_OVER_10, msg)
-            ),
-            SatelReadCommand.PARTITIONS_EXIT_COUNTDOWN_UNDER_10: lambda msg: (
-                self._partitions_armed_state(AlarmState.EXIT_COUNTDOWN_UNDER_10, msg)
-            ),
-            SatelReadCommand.PARTITIONS_ALARM: lambda msg: self._partitions_armed_state(
-                AlarmState.TRIGGERED, msg
-            ),
-            SatelReadCommand.PARTITIONS_FIRE_ALARM: lambda msg: (
-                self._partitions_armed_state(AlarmState.TRIGGERED_FIRE, msg)
-            ),
-            SatelReadCommand.PARTITIONS_ARMED_MODE1: lambda msg: (
-                self._partitions_armed_state(AlarmState.ARMED_MODE1, msg)
-            ),
-        }
+        ] = {}
 
     async def start_monitoring(self) -> None:
         """Start monitoring, raising if no successful acknowledgement is received."""
@@ -236,16 +204,10 @@ class AsyncSatel:
         if self._output_changed_callback:
             self._output_changed_callback(status)
 
-    def _partitions_armed_state(self, mode: AlarmState, msg: SatelReadMessage):
-        partitions = msg.get_active_bits(4)
-
-        _LOGGER.debug("Update: list of partitions in mode %s: %s", mode, partitions)
-
-        self._state.partition_states[mode] = partitions
-
+    def _notify_alarm_status_changed(self) -> None:
+        """Notify the legacy alarm status callback."""
         if self._alarm_status_callback:
             self._alarm_status_callback()
-        self._alarm_status_callbacks.notify()
 
     # region Core logic
     async def start(self, enable_monitoring=True):
@@ -509,7 +471,7 @@ class AsyncSatel:
         self, callback: StateChangeCallback
     ) -> UnsubscribeCallback:
         """Subscribe to alarm status changes and return a function to unsubscribe."""
-        return self._alarm_status_callbacks.add(callback)
+        return self._subscriptions.partitions.add(callback)
 
     def add_zone_changed_callback(
         self, callback: StateChangeCallback

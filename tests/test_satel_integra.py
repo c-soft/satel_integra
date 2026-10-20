@@ -308,9 +308,11 @@ def test_legacy_output_callback(satel):
     assert satel.violated_outputs == [4]
 
 
-def test_partitions_armed_state_callback(satel):
-    msg = MagicMock()
-    msg.get_active_bits.return_value = [1]
+def test_legacy_alarm_status_callback(satel):
+    msg = _typed_message(
+        SatelReadCommand.PARTITIONS_ARMED_MODE0,
+        bytearray([0b00000001]) + bytearray(3),
+    )
     called = False
     satel.register_callbacks(alarm_status_callback=lambda: nonlocal_set(True))
 
@@ -319,7 +321,7 @@ def test_partitions_armed_state_callback(satel):
         nonlocal called
         called = val
 
-    satel._partitions_armed_state(AlarmState.ARMED_MODE0, msg)
+    satel._message_handler_registry.dispatch(msg)
 
     assert satel.state.partition_states[AlarmState.ARMED_MODE0] == [1]
     assert called
@@ -400,12 +402,14 @@ def test_add_output_changed_callback_can_read_output_states(satel):
 
 
 def test_add_alarm_status_callback(satel):
-    msg = MagicMock()
-    msg.get_active_bits.return_value = [1]
+    msg = _typed_message(
+        SatelReadCommand.PARTITIONS_ARMED_MODE0,
+        bytearray([0b00000001]) + bytearray(3),
+    )
     callback = MagicMock()
     satel.add_alarm_status_callback(callback)
 
-    satel._partitions_armed_state(AlarmState.ARMED_MODE0, msg)
+    satel._message_handler_registry.dispatch(msg)
 
     callback.assert_called_once_with()
 
@@ -422,9 +426,9 @@ def test_callback_subscriptions_can_be_removed(satel):
     unsubscribe_zone()
     unsubscribe_output()
 
-    msg = MagicMock()
-    msg.get_active_bits.return_value = []
-    satel._partitions_armed_state(AlarmState.ARMED_MODE0, msg)
+    satel._message_handler_registry.dispatch(
+        _typed_message(SatelReadCommand.PARTITIONS_ARMED_MODE0, bytearray(4))
+    )
     satel._message_handler_registry.dispatch(
         _typed_message(SatelReadCommand.ZONES_VIOLATED, bytearray(16))
     )
@@ -447,9 +451,9 @@ def test_register_callbacks_is_deprecated(satel):
             zone_changed_callback=zone_callback,
         )
 
-    msg = MagicMock()
-    msg.get_active_bits.return_value = []
-    satel._partitions_armed_state(AlarmState.ARMED_MODE0, msg)
+    satel._message_handler_registry.dispatch(
+        _typed_message(SatelReadCommand.PARTITIONS_ARMED_MODE0, bytearray(4))
+    )
     satel._message_handler_registry.dispatch(
         _typed_message(SatelReadCommand.ZONES_VIOLATED, bytearray(16))
     )

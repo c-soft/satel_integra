@@ -19,6 +19,7 @@ from satel_integra.models import (
 from satel_integra.state import SatelState
 
 from .output import handle_output_states
+from .partition import PARTITION_STATE_BY_COMMAND, handle_partition_state
 from .result import handle_command_result
 from .subscriptions import SatelSubscriptions
 from .system import handle_system_status, handle_system_troubles
@@ -45,6 +46,13 @@ class MessageHandlerRegistry:
 
     def _register_handlers(self) -> None:
         """Register the built-in message handlers."""
+        for command in PARTITION_STATE_BY_COMMAND:
+            self.register(
+                command,
+                SatelBitmaskData,
+                handle_partition_state,
+            )
+
         self.register(
             SatelReadCommand.ZONES_VIOLATED,
             SatelBitmaskData,

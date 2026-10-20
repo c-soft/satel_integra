@@ -11,7 +11,7 @@ from satel_integra.messages import (
     SatelTypedReadMessage,
 )
 from satel_integra.models import SatelPanelInfo, SatelResultCode
-from satel_integra.state import SatelOutputState, SatelState, SatelZoneState
+from satel_integra.state import AlarmState, SatelOutputState, SatelState, SatelZoneState
 
 
 def _typed_message(
@@ -48,6 +48,62 @@ def registry(
     subscriptions: SatelSubscriptions,
 ) -> MessageHandlerRegistry:
     return MessageHandlerRegistry(state, subscriptions)
+
+
+@pytest.mark.parametrize(
+    ("command", "alarm_state"),
+    [
+        (
+            SatelReadCommand.PARTITIONS_ARMED_SUPPRESSED,
+            AlarmState.ARMED_SUPPRESSED,
+        ),
+        (SatelReadCommand.PARTITIONS_ARMED_MODE0, AlarmState.ARMED_MODE0),
+        (SatelReadCommand.PARTITIONS_ARMED_MODE1, AlarmState.ARMED_MODE1),
+        (SatelReadCommand.PARTITIONS_ARMED_MODE2, AlarmState.ARMED_MODE2),
+        (SatelReadCommand.PARTITIONS_ARMED_MODE3, AlarmState.ARMED_MODE3),
+        (SatelReadCommand.PARTITIONS_ENTRY_TIME, AlarmState.ENTRY_TIME),
+        (
+            SatelReadCommand.PARTITIONS_EXIT_COUNTDOWN_OVER_10,
+            AlarmState.EXIT_COUNTDOWN_OVER_10,
+        ),
+        (
+            SatelReadCommand.PARTITIONS_EXIT_COUNTDOWN_UNDER_10,
+            AlarmState.EXIT_COUNTDOWN_UNDER_10,
+        ),
+        (SatelReadCommand.PARTITIONS_ALARM, AlarmState.TRIGGERED),
+        (SatelReadCommand.PARTITIONS_FIRE_ALARM, AlarmState.TRIGGERED_FIRE),
+    ],
+)
+def test_partition_state_updates_and_notifies(
+    registry: MessageHandlerRegistry,
+    state: SatelState,
+    subscriptions: SatelSubscriptions,
+    command: SatelReadCommand,
+    alarm_state: AlarmState,
+) -> None:
+    payload = bytearray(4)
+    payload[0] = 0b00000001  # partition 1
+    payload[3] = 0b10000000  # partition 32
+    callback = MagicMock()
+    subscriptions.partitions.add(callback)
+
+    registry.dispatch(_typed_message(command, payload))
+
+    assert state.partition_states[alarm_state] == [1, 32]
+    callback.assert_called_once_with()
+
+
+def test_partition_state_keeps_fixed_protocol_width(
+    registry: MessageHandlerRegistry,
+    state: SatelState,
+) -> None:
+    state.configure_for_panel(_panel_info(0))
+    payload = bytearray(4)
+    payload[3] = 0b10000000  # partition 32
+
+    registry.dispatch(_typed_message(SatelReadCommand.PARTITIONS_ARMED_MODE0, payload))
+
+    assert state.partition_states[AlarmState.ARMED_MODE0] == [32]
 
 
 @pytest.mark.parametrize("length", [16, 32])

@@ -29,6 +29,10 @@ from satel_integra.exceptions import (
     SatelPanelBusyError,
     SatelUnexpectedResponseError,
 )
+from satel_integra.message_handlers import (
+    MessageHandlerRegistry,
+    SatelSubscriptions,
+)
 from satel_integra.messages import (
     SatelDeviceSelector,
     SatelReadMessage,
@@ -130,6 +134,11 @@ class AsyncSatel:
         self._output_changed_callback: Callable[[dict[int, int]], None] | None = None
         self._output_changed_callbacks = CallbackRegistry()
 
+        self._subscriptions = SatelSubscriptions()
+        self._message_handler_registry = MessageHandlerRegistry(
+            self._state,
+            self._subscriptions,
+        )
         self._message_handlers: dict[
             SatelReadCommand, Callable[[SatelReadMessage], None]
         ] = {
@@ -471,18 +480,21 @@ class AsyncSatel:
 
                 self._queue.on_message_received(msg)
 
-                if msg.cmd in self._message_handlers:
-                    _LOGGER.debug("Calling handler for command: %s", msg.cmd)
-                    # One frame that cannot be handled must not end the reading
-                    # loop: the loop would exit with TCP still open, so there
-                    # would be no reconnection and no more data.
-                    try:
-                        self._message_handlers[msg.cmd](msg)
-                    except Exception as ex:
-                        _LOGGER.warning(
-                            "Dropping frame %s, handler failed: %s", msg.cmd, ex
-                        )
-                else:
+                # One frame that cannot be handled must not end the reading
+                # loop: the loop would exit with TCP still open, so there
+                # would be no reconnection and no more data.
+                try:
+                    handled = self._message_handler_registry.dispatch(msg)
+                    if not handled and (handler := self._message_handlers.get(msg.cmd)):
+                        handler(msg)
+                        handled = True
+                except Exception as ex:
+                    _LOGGER.warning(
+                        "Dropping frame %s, handler failed: %s", msg.cmd, ex
+                    )
+                    continue
+
+                if not handled:
                     _LOGGER.debug("No handler for command: %s", msg.cmd)
 
         except SatelConnectionStoppedError:

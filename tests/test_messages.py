@@ -268,6 +268,18 @@ def test_decode_frame_rejects_missing_device_type() -> None:
 )
 def test_decode_frame_uses_read_command_specs(spec) -> None:
     payloads = {
+        SatelReadCommand.PARTITIONS_ARMED_SUPPRESSED: bytearray(4),
+        SatelReadCommand.PARTITIONS_ARMED_MODE0: bytearray(4),
+        SatelReadCommand.PARTITIONS_ARMED_MODE1: bytearray(4),
+        SatelReadCommand.PARTITIONS_ARMED_MODE2: bytearray(4),
+        SatelReadCommand.PARTITIONS_ARMED_MODE3: bytearray(4),
+        SatelReadCommand.PARTITIONS_ENTRY_TIME: bytearray(4),
+        SatelReadCommand.PARTITIONS_EXIT_COUNTDOWN_OVER_10: bytearray(4),
+        SatelReadCommand.PARTITIONS_EXIT_COUNTDOWN_UNDER_10: bytearray(4),
+        SatelReadCommand.PARTITIONS_ALARM: bytearray(4),
+        SatelReadCommand.PARTITIONS_FIRE_ALARM: bytearray(4),
+        SatelReadCommand.ZONES_VIOLATED: bytearray(16),
+        SatelReadCommand.OUTPUTS_STATE: bytearray(16),
         SatelReadCommand.RESULT: bytearray([0x00]),
         SatelReadCommand.TROUBLES_PART_1: bytearray(47),
         SatelReadCommand.MODULE_VERSION: bytearray(b"12320120527")

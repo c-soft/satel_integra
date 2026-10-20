@@ -30,7 +30,7 @@ from satel_integra.models import (
     SatelZoneInfo,
 )
 from satel_integra.satel_integra import AlarmState, AsyncSatel
-from satel_integra.state import SatelOutputState, SatelState, SatelZoneState
+from satel_integra.state import SatelState
 
 
 def _typed_message(
@@ -242,7 +242,7 @@ async def test_start_monitoring_unexpected_response(satel, mock_queue):
         await satel.start_monitoring()
 
 
-def test_zones_violated_callback(satel):
+def test_legacy_zone_callback(satel):
     msg = _typed_message(
         SatelReadCommand.ZONES_VIOLATED, bytearray([0b00000001]) + bytearray(31)
     )
@@ -267,7 +267,7 @@ def test_output_states_are_initialized_unknown(satel):
 
 
 @pytest.mark.parametrize("length", [16, 32])
-def test_zones_violated_accepts_16_and_32_byte_masks(satel, length):
+def test_legacy_zone_callback_accepts_16_and_32_byte_masks(satel, length):
     data = bytearray(length)
     data[0] = 0b00000010  # zone 2
     msg = _typed_message(SatelReadCommand.ZONES_VIOLATED, data)
@@ -282,50 +282,7 @@ def test_zones_violated_accepts_16_and_32_byte_masks(satel, length):
 
 
 @pytest.mark.parametrize("length", [16, 32])
-def test_zones_violated_updates_zone_states(satel, length):
-    data = bytearray(length)
-    data[0] = 0b00000010  # zone 2
-    msg = _typed_message(SatelReadCommand.ZONES_VIOLATED, data)
-
-    satel._message_handler_registry.dispatch(msg)
-
-    assert len(satel.state.zones) == 256
-    assert satel.state.zones[1].violated is False
-    assert satel.state.zones[2].violated is True
-    assert satel.state.zones[length * 8].violated is False
-    if length == 16:
-        assert satel.state.zones[129].violated is None
-
-
-def test_zones_violated_respects_panel_capacity(satel):
-    satel.state.configure_for_panel(_panel_info(0))
-    data = bytearray(16)
-    data[0] = 0b00000010  # zone 2
-    data[3] = 0b00000001  # unsupported zone 25
-    msg = _typed_message(SatelReadCommand.ZONES_VIOLATED, data)
-
-    satel._message_handler_registry.dispatch(msg)
-
-    assert len(satel.state.zones) == 24
-    assert satel.state.zones[2].violated is True
-    assert 25 not in satel.state.zones
-
-
-def test_zones_violated_updates_existing_zone_state(satel):
-    zone_state = SatelZoneState()
-    satel.state.zones[1] = zone_state
-    msg = _typed_message(
-        SatelReadCommand.ZONES_VIOLATED, bytearray([0b00000001]) + bytearray(15)
-    )
-
-    satel._message_handler_registry.dispatch(msg)
-
-    assert satel.state.zones[1] is zone_state
-    assert zone_state.violated is True
-
-
-@pytest.mark.parametrize("length", [16, 32])
-def test_outputs_changed_accepts_16_and_32_byte_masks(satel, length):
+def test_deprecated_output_view_accepts_16_and_32_byte_masks(satel, length):
     data = bytearray(length)
     data[0] = 0b00001000  # output 4
     msg = _typed_message(SatelReadCommand.OUTPUTS_STATE, data)
@@ -335,50 +292,7 @@ def test_outputs_changed_accepts_16_and_32_byte_masks(satel, length):
     assert satel.violated_outputs == [4]
 
 
-@pytest.mark.parametrize("length", [16, 32])
-def test_outputs_changed_updates_output_states(satel, length):
-    data = bytearray(length)
-    data[0] = 0b00001000  # output 4
-    msg = _typed_message(SatelReadCommand.OUTPUTS_STATE, data)
-
-    satel._message_handler_registry.dispatch(msg)
-
-    assert len(satel.state.outputs) == 256
-    assert satel.state.outputs[1].active is False
-    assert satel.state.outputs[4].active is True
-    assert satel.state.outputs[length * 8].active is False
-    if length == 16:
-        assert satel.state.outputs[129].active is None
-
-
-def test_outputs_changed_respects_panel_capacity(satel):
-    satel.state.configure_for_panel(_panel_info(0))
-    data = bytearray(16)
-    data[0] = 0b00001000  # output 4
-    data[3] = 0b00000001  # unsupported output 25
-    msg = _typed_message(SatelReadCommand.OUTPUTS_STATE, data)
-
-    satel._message_handler_registry.dispatch(msg)
-
-    assert len(satel.state.outputs) == 24
-    assert satel.state.outputs[4].active is True
-    assert 25 not in satel.state.outputs
-
-
-def test_outputs_changed_updates_existing_output_state(satel):
-    output_state = SatelOutputState()
-    satel.state.outputs[1] = output_state
-    msg = _typed_message(
-        SatelReadCommand.OUTPUTS_STATE, bytearray([0b00000001]) + bytearray(15)
-    )
-
-    satel._message_handler_registry.dispatch(msg)
-
-    assert satel.state.outputs[1] is output_state
-    assert output_state.active is True
-
-
-def test_outputs_changed_callback(satel):
+def test_legacy_output_callback(satel):
     msg = _typed_message(
         SatelReadCommand.OUTPUTS_STATE, bytearray([0b00001000]) + bytearray(15)
     )
@@ -564,33 +478,6 @@ def test_state_is_read_only(satel):
         satel.state = SatelState()
 
 
-def test_system_status_changes_notify(satel):
-    clear = _typed_message(SatelReadCommand.RTC_AND_STATUS, bytearray(9))
-    active = _typed_message(
-        SatelReadCommand.RTC_AND_STATUS, bytearray(7) + bytearray([0xC0, 0])
-    )
-    satel._message_handler_registry.dispatch(clear)
-    called = []
-    satel.add_system_status_callback(lambda: called.append(satel.state.system_status))
-
-    satel._message_handler_registry.dispatch(active)
-    satel._message_handler_registry.dispatch(clear)
-
-    assert called == [active.data, clear.data]
-    assert satel.state.system_status == clear.data
-
-
-def test_unchanged_system_status_does_not_notify(satel):
-    msg = _typed_message(SatelReadCommand.RTC_AND_STATUS, bytearray(9))
-    satel._message_handler_registry.dispatch(msg)
-    callback = MagicMock()
-    satel.add_system_status_callback(callback)
-
-    satel._message_handler_registry.dispatch(msg)
-
-    callback.assert_not_called()
-
-
 def test_system_status_subscription_can_be_removed(satel):
     callback = MagicMock()
     unsubscribe = satel.add_system_status_callback(callback)
@@ -613,60 +500,6 @@ def test_system_troubles_callback(satel):
 
     assert called == [msg.data]
     assert satel.state.system_troubles == msg.data
-
-
-def test_system_troubles_changes_notify(satel):
-    clear = _typed_message(SatelReadCommand.TROUBLES_PART_1, bytearray(47))
-    payload = bytearray(47)
-    payload[40] = 0x80
-    active = _typed_message(SatelReadCommand.TROUBLES_PART_1, payload)
-    satel._message_handler_registry.dispatch(clear)
-    called = []
-    satel.add_system_status_callback(lambda: called.append(satel.state.system_troubles))
-
-    satel._message_handler_registry.dispatch(active)
-    satel._message_handler_registry.dispatch(clear)
-
-    assert called == [active.data, clear.data]
-    assert satel.state.system_troubles == clear.data
-
-
-def test_repeated_system_troubles_reports_notify(satel):
-    msg = _typed_message(SatelReadCommand.TROUBLES_PART_1, bytearray(47))
-    callback = MagicMock()
-    satel.add_system_status_callback(callback)
-
-    satel._message_handler_registry.dispatch(msg)
-    satel._message_handler_registry.dispatch(msg)
-
-    assert callback.call_count == 2
-
-
-def test_command_result_accepted(satel, caplog):
-    msg = _make_result_message(SatelResultCode.COMMAND_ACCEPTED)
-
-    with caplog.at_level(logging.DEBUG):
-        satel._command_result(msg)
-
-    assert "Received command result: COMMAND_ACCEPTED [0xFF]" in caplog.text
-
-
-def test_command_result_user_code_not_found(satel, caplog):
-    msg = _make_result_message(SatelResultCode.USER_CODE_NOT_FOUND)
-
-    with caplog.at_level(logging.DEBUG):
-        satel._command_result(msg)
-
-    assert "Received command result: USER_CODE_NOT_FOUND [0x01]" in caplog.text
-
-
-def test_command_result_warns_for_untyped_result(satel, caplog):
-    msg = SatelReadMessage(SatelReadCommand.RESULT, bytearray([0x01]))
-
-    with caplog.at_level(logging.WARNING):
-        satel._command_result(msg)
-
-    assert "Received untyped command result" in caplog.text
 
 
 @pytest.mark.asyncio

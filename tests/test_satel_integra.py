@@ -1388,14 +1388,11 @@ async def test_reading_loop_processes_message(satel, mock_connection):
         side_effect=[None, SatelConnectionStoppedError]
     )
     satel._read_data = AsyncMock(return_value=msg)
-
-    cmd_handler = MagicMock()
-
-    satel._message_handlers = {1: cmd_handler}
+    satel._message_handler_registry.dispatch = MagicMock(return_value=True)
 
     await satel._reading_loop()
 
-    cmd_handler.assert_called_once()
+    satel._message_handler_registry.dispatch.assert_called_once_with(msg)
 
 
 @pytest.mark.asyncio
@@ -1410,12 +1407,13 @@ async def test_reading_loop_continues_after_handler_error(satel, mock_connection
     )
     satel._read_data = AsyncMock(side_effect=[first, second])
 
-    cmd_handler = MagicMock(side_effect=[ValueError("bad frame"), None])
-    satel._message_handlers = {1: cmd_handler}
+    satel._message_handler_registry.dispatch = MagicMock(
+        side_effect=[ValueError("bad frame"), True]
+    )
 
     await satel._reading_loop()
 
-    assert cmd_handler.call_count == 2
+    assert satel._message_handler_registry.dispatch.call_count == 2
 
 
 @pytest.mark.asyncio

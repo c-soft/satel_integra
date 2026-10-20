@@ -126,9 +126,6 @@ class AsyncSatel:
             self._state,
             self._subscriptions,
         )
-        self._message_handlers: dict[
-            SatelReadCommand, Callable[[SatelReadMessage], None]
-        ] = {}
 
     async def start_monitoring(self) -> None:
         """Start monitoring, raising if no successful acknowledgement is received."""
@@ -362,9 +359,6 @@ class AsyncSatel:
                 # would be no reconnection and no more data.
                 try:
                     handled = self._message_handler_registry.dispatch(msg)
-                    if not handled and (handler := self._message_handlers.get(msg.cmd)):
-                        handler(msg)
-                        handled = True
                 except Exception as ex:
                     _LOGGER.warning(
                         "Dropping frame %s, handler failed: %s", msg.cmd, ex

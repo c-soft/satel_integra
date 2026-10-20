@@ -222,9 +222,12 @@ class AsyncSatel:
         status: dict[int, int] = {}
 
         bitmask_length = _bitmask_length(msg)
-        violated_zones = set(msg.get_active_bits(bitmask_length))
+        active_zones = msg.get_active_bits(bitmask_length)
+        represented_zones = bitmask_length * 8
+        zone_limit = min(represented_zones, len(self._state.zones))
+        violated_zones = {zone for zone in active_zones if zone <= zone_limit}
 
-        for zone in range(1, bitmask_length * 8 + 1):
+        for zone in range(1, zone_limit + 1):
             self._state.zones[zone].violated = zone in violated_zones
         _LOGGER.debug("Violated zones: %s", violated_zones)
         for zone in self._monitored_zones:
@@ -242,9 +245,14 @@ class AsyncSatel:
         status: dict[int, int] = {}
 
         bitmask_length = _bitmask_length(msg)
-        active_outputs = set(msg.get_active_bits(bitmask_length))
+        active_output_numbers = msg.get_active_bits(bitmask_length)
+        represented_outputs = bitmask_length * 8
+        output_limit = min(represented_outputs, len(self._state.outputs))
+        active_outputs = {
+            output for output in active_output_numbers if output <= output_limit
+        }
 
-        for output in range(1, bitmask_length * 8 + 1):
+        for output in range(1, output_limit + 1):
             self._state.outputs[output].active = output in active_outputs
         _LOGGER.debug(
             "Output states: %s, monitored outputs: %s",
@@ -330,15 +338,32 @@ class AsyncSatel:
 
         self._start_task(self._keepalive_loop())
 
-        if enable_monitoring:
-            try:
+        try:
+            await self._initialize_panel_state()
+            if enable_monitoring:
                 await self.start_monitoring()
-            except (Exception, asyncio.CancelledError):
-                await self.close()
-                raise
+        except (Exception, asyncio.CancelledError):
+            await self.close()
+            raise
+
+        if enable_monitoring:
             # Started after the first acknowledgement, so the loop does not
             # send a second monitoring request on the same connection.
             self._start_task(self._monitor_reconnection_loop())
+
+    async def _initialize_panel_state(self) -> None:
+        """Discover panel capabilities without preventing monitoring startup."""
+        try:
+            panel_info = await self.read_panel_info()
+        except (SatelCommandRejectedError, SatelUnexpectedResponseError) as err:
+            _LOGGER.warning("Panel information discovery failed: %s", err)
+            return
+
+        if panel_info is None:
+            _LOGGER.warning("Panel information discovery returned no response")
+            return
+
+        self._state.configure_for_panel(panel_info)
 
     def _start_task(self, coro: Awaitable[object]) -> asyncio.Task[object]:
         """Create and track a background task."""

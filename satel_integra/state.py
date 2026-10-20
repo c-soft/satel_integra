@@ -3,7 +3,7 @@
 from dataclasses import dataclass, field
 from enum import Enum, unique
 
-from satel_integra.models import SatelRtcAndStatus, SatelSystemTroubles
+from satel_integra.models import SatelPanelInfo, SatelRtcAndStatus, SatelSystemTroubles
 
 _MAX_ZONES = 256
 _MAX_OUTPUTS = 256
@@ -57,3 +57,27 @@ class SatelState:
     partition_states: dict[AlarmState, list[int]] = field(default_factory=dict)
     system_status: SatelRtcAndStatus | None = None
     system_troubles: SatelSystemTroubles | None = None
+    panel_info: SatelPanelInfo | None = None
+
+    def configure_for_panel(self, panel_info: SatelPanelInfo) -> None:
+        """Store panel information and size device state for a known model."""
+        self.panel_info = panel_info
+        if panel_info.model is None:
+            return
+
+        self._resize_zones(panel_info.model.max_zones)
+        self._resize_outputs(panel_info.model.max_outputs)
+
+    def _resize_zones(self, capacity: int) -> None:
+        """Resize zone state while preserving existing entries."""
+        self.zones = {
+            zone: self.zones.get(zone, SatelZoneState())
+            for zone in range(1, capacity + 1)
+        }
+
+    def _resize_outputs(self, capacity: int) -> None:
+        """Resize output state while preserving existing entries."""
+        self.outputs = {
+            output: self.outputs.get(output, SatelOutputState())
+            for output in range(1, capacity + 1)
+        }

@@ -353,6 +353,11 @@ READ_COMMAND_SPECS: dict[SatelReadCommand, ReadCommandSpec] = {
         data_type=SatelBitmaskData,
         expected_data_lengths=(16, 32),
     ),
+    SatelReadCommand.OUTPUTS_STATE: ReadCommandSpec(
+        command=SatelReadCommand.OUTPUTS_STATE,
+        data_type=SatelBitmaskData,
+        expected_data_lengths=(16, 32),
+    ),
     SatelReadCommand.TROUBLES_PART_1: ReadCommandSpec(
         command=SatelReadCommand.TROUBLES_PART_1,
         data_type=SatelSystemTroubles,

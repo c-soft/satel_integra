@@ -11,3 +11,4 @@ class SatelSubscriptions:
 
     system_status: CallbackRegistry = field(default_factory=CallbackRegistry)
     zones: CallbackRegistry = field(default_factory=CallbackRegistry)
+    outputs: CallbackRegistry = field(default_factory=CallbackRegistry)

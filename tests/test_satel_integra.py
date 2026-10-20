@@ -328,9 +328,9 @@ def test_zones_violated_updates_existing_zone_state(satel):
 def test_outputs_changed_accepts_16_and_32_byte_masks(satel, length):
     data = bytearray(length)
     data[0] = 0b00001000  # output 4
-    msg = SatelReadMessage(SatelReadCommand.OUTPUTS_STATE, data)
+    msg = _typed_message(SatelReadCommand.OUTPUTS_STATE, data)
 
-    satel._outputs_changed(msg)
+    satel._message_handler_registry.dispatch(msg)
 
     assert satel.violated_outputs == [4]
 
@@ -339,9 +339,9 @@ def test_outputs_changed_accepts_16_and_32_byte_masks(satel, length):
 def test_outputs_changed_updates_output_states(satel, length):
     data = bytearray(length)
     data[0] = 0b00001000  # output 4
-    msg = SatelReadMessage(SatelReadCommand.OUTPUTS_STATE, data)
+    msg = _typed_message(SatelReadCommand.OUTPUTS_STATE, data)
 
-    satel._outputs_changed(msg)
+    satel._message_handler_registry.dispatch(msg)
 
     assert len(satel.state.outputs) == 256
     assert satel.state.outputs[1].active is False
@@ -356,9 +356,9 @@ def test_outputs_changed_respects_panel_capacity(satel):
     data = bytearray(16)
     data[0] = 0b00001000  # output 4
     data[3] = 0b00000001  # unsupported output 25
-    msg = SatelReadMessage(SatelReadCommand.OUTPUTS_STATE, data)
+    msg = _typed_message(SatelReadCommand.OUTPUTS_STATE, data)
 
-    satel._outputs_changed(msg)
+    satel._message_handler_registry.dispatch(msg)
 
     assert len(satel.state.outputs) == 24
     assert satel.state.outputs[4].active is True
@@ -368,25 +368,27 @@ def test_outputs_changed_respects_panel_capacity(satel):
 def test_outputs_changed_updates_existing_output_state(satel):
     output_state = SatelOutputState()
     satel.state.outputs[1] = output_state
-    msg = MagicMock()
-    msg.get_active_bits.return_value = [1]
+    msg = _typed_message(
+        SatelReadCommand.OUTPUTS_STATE, bytearray([0b00000001]) + bytearray(15)
+    )
 
-    satel._outputs_changed(msg)
+    satel._message_handler_registry.dispatch(msg)
 
     assert satel.state.outputs[1] is output_state
     assert output_state.active is True
 
 
 def test_outputs_changed_callback(satel):
-    msg = MagicMock()
-    msg.get_active_bits.return_value = [4]
+    msg = _typed_message(
+        SatelReadCommand.OUTPUTS_STATE, bytearray([0b00001000]) + bytearray(15)
+    )
 
     called = {}
     satel.register_callbacks(
         output_changed_callback=lambda status: called.update(status)
     )
 
-    satel._outputs_changed(msg)
+    satel._message_handler_registry.dispatch(msg)
 
     assert called == {3: 0, 4: 1}
     assert satel.violated_outputs == [4]
@@ -447,23 +449,25 @@ def test_add_zone_changed_callback_can_read_zone_states(satel):
 
 
 def test_add_output_changed_callback_notifies_after_state_update(satel):
-    msg = MagicMock()
-    msg.get_active_bits.return_value = [4]
+    msg = _typed_message(
+        SatelReadCommand.OUTPUTS_STATE, bytearray([0b00001000]) + bytearray(15)
+    )
     observed_outputs = []
     callback = MagicMock(
         side_effect=lambda: observed_outputs.extend(satel.violated_outputs)
     )
     satel.add_output_changed_callback(callback)
 
-    satel._outputs_changed(msg)
+    satel._message_handler_registry.dispatch(msg)
 
     callback.assert_called_once_with()
     assert observed_outputs == [4]
 
 
 def test_add_output_changed_callback_can_read_output_states(satel):
-    msg = MagicMock()
-    msg.get_active_bits.return_value = [4]
+    msg = _typed_message(
+        SatelReadCommand.OUTPUTS_STATE, bytearray([0b00001000]) + bytearray(15)
+    )
     observed_states = []
     callback = MagicMock(
         side_effect=lambda: observed_states.append(
@@ -475,7 +479,7 @@ def test_add_output_changed_callback_can_read_output_states(satel):
     )
     satel.add_output_changed_callback(callback)
 
-    satel._outputs_changed(msg)
+    satel._message_handler_registry.dispatch(msg)
 
     callback.assert_called_once_with()
     assert observed_states == [(False, True)]
@@ -510,7 +514,9 @@ def test_callback_subscriptions_can_be_removed(satel):
     satel._message_handler_registry.dispatch(
         _typed_message(SatelReadCommand.ZONES_VIOLATED, bytearray(16))
     )
-    satel._outputs_changed(msg)
+    satel._message_handler_registry.dispatch(
+        _typed_message(SatelReadCommand.OUTPUTS_STATE, bytearray(16))
+    )
 
     alarm_callback.assert_not_called()
     zone_callback.assert_not_called()

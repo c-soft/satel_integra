@@ -17,6 +17,7 @@ from satel_integra.models import (
 )
 from satel_integra.state import SatelState
 
+from .output import handle_output_states
 from .subscriptions import SatelSubscriptions
 from .system import handle_system_status, handle_system_troubles
 from .zone import handle_zone_violations
@@ -46,6 +47,11 @@ class MessageHandlerRegistry:
             SatelReadCommand.ZONES_VIOLATED,
             SatelBitmaskData,
             handle_zone_violations,
+        )
+        self.register(
+            SatelReadCommand.OUTPUTS_STATE,
+            SatelBitmaskData,
+            handle_output_states,
         )
         self.register(
             SatelReadCommand.RTC_AND_STATUS,

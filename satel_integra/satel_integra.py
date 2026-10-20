@@ -76,16 +76,6 @@ else:
 _LOGGER = logging.getLogger(__name__)
 
 
-def _bitmask_length(msg: SatelReadMessage) -> int:
-    """Return the bitmask length of a 0x00 / 0x17 answer.
-
-    The protocol allows both 16 and 32 bytes ("0x00 + 16/32 bytes"); the module
-    answers with 16 unless 32-byte mode is used. Any other length is decoded as
-    32 bytes and fails for that frame only.
-    """
-    return len(msg.msg_data) if len(msg.msg_data) in (16, 32) else 32
-
-
 def _validate_user_code(code: str) -> None:
     """Validate the supported user-code length."""
     if not 4 <= len(code) <= 16:
@@ -129,10 +119,10 @@ class AsyncSatel:
         self._monitoring_generation = -1
         self._zone_changed_callback: Callable[[dict[int, int]], None] | None = None
         self._output_changed_callback: Callable[[dict[int, int]], None] | None = None
-        self._output_changed_callbacks = CallbackRegistry()
 
         self._subscriptions = SatelSubscriptions()
         self._subscriptions.zones.add(self._notify_zone_changed)
+        self._subscriptions.outputs.add(self._notify_output_changed)
         self._message_handler_registry = MessageHandlerRegistry(
             self._state,
             self._subscriptions,
@@ -167,7 +157,6 @@ class AsyncSatel:
             SatelReadCommand.PARTITIONS_FIRE_ALARM: lambda msg: (
                 self._partitions_armed_state(AlarmState.TRIGGERED_FIRE, msg)
             ),
-            SatelReadCommand.OUTPUTS_STATE: self._outputs_changed,
             SatelReadCommand.PARTITIONS_ARMED_MODE1: lambda msg: (
                 self._partitions_armed_state(AlarmState.ARMED_MODE1, msg)
             ),
@@ -234,34 +223,19 @@ class AsyncSatel:
         if self._zone_changed_callback:
             self._zone_changed_callback(status)
 
-    def _outputs_changed(self, msg: SatelReadMessage):
-        """0x17   outputs state 0x17   + 16/32 bytes"""
-
+    def _notify_output_changed(self) -> None:
+        """Notify the legacy output callback from current state."""
         status: dict[int, int] = {}
-
-        bitmask_length = _bitmask_length(msg)
-        active_output_numbers = msg.get_active_bits(bitmask_length)
-        represented_outputs = bitmask_length * 8
-        output_limit = min(represented_outputs, len(self._state.outputs))
-        active_outputs = {
-            output for output in active_output_numbers if output <= output_limit
-        }
-
-        for output in range(1, output_limit + 1):
-            self._state.outputs[output].active = output in active_outputs
-        _LOGGER.debug(
-            "Output states: %s, monitored outputs: %s",
-            active_outputs,
-            self._monitored_outputs,
-        )
         for output in self._monitored_outputs:
-            status[output] = int(output in active_outputs)
+            output_state = self._state.outputs.get(output)
+            status[output] = int(
+                output_state is not None and output_state.active is True
+            )
 
         _LOGGER.debug("Returning status: %s", status)
 
         if self._output_changed_callback:
             self._output_changed_callback(status)
-        self._output_changed_callbacks.notify()
 
     def _command_result(self, msg: SatelReadMessage) -> None:
         """Log unsolicited command results using the structured result model."""
@@ -560,7 +534,7 @@ class AsyncSatel:
         self, callback: StateChangeCallback
     ) -> UnsubscribeCallback:
         """Subscribe to output changes and return a function to unsubscribe."""
-        return self._output_changed_callbacks.add(callback)
+        return self._subscriptions.outputs.add(callback)
 
     def add_system_status_callback(
         self, callback: StateChangeCallback

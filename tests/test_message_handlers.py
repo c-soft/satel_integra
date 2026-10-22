@@ -5,6 +5,7 @@ import pytest
 
 from satel_integra.commands import SatelReadCommand
 from satel_integra.message_handlers import MessageHandlerRegistry, SatelSubscriptions
+from satel_integra.message_handlers.zone import ZONE_STATE_ATTRIBUTE_BY_COMMAND
 from satel_integra.messages import (
     READ_COMMAND_SPECS,
     SatelReadMessage,
@@ -106,74 +107,80 @@ def test_partition_state_keeps_fixed_protocol_width(
     assert state.partition_states[AlarmState.ARMED_MODE0] == [32]
 
 
+@pytest.mark.parametrize(
+    ("command", "attribute"),
+    ZONE_STATE_ATTRIBUTE_BY_COMMAND.items(),
+)
 @pytest.mark.parametrize("length", [16, 32])
-def test_zone_violations_update_represented_zone_states(
+def test_zone_states_update_represented_zones(
     registry: MessageHandlerRegistry,
     state: SatelState,
+    command: SatelReadCommand,
+    attribute: str,
     length: int,
 ) -> None:
     data = bytearray(length)
     data[0] = 0b00000010  # zone 2
 
-    registry.dispatch(_typed_message(SatelReadCommand.ZONES_VIOLATED, data))
+    registry.dispatch(_typed_message(command, data))
 
     assert len(state.zones) == 256
-    assert state.zones[1].violated is False
-    assert state.zones[2].violated is True
-    assert state.zones[length * 8].violated is False
+    assert getattr(state.zones[1], attribute) is False
+    assert getattr(state.zones[2], attribute) is True
+    assert getattr(state.zones[length * 8], attribute) is False
     if length == 16:
-        assert state.zones[129].violated is None
+        assert getattr(state.zones[129], attribute) is None
 
 
-def test_zone_violations_respect_panel_capacity(
+@pytest.mark.parametrize(
+    ("command", "attribute"),
+    ZONE_STATE_ATTRIBUTE_BY_COMMAND.items(),
+)
+def test_zone_states_respect_panel_capacity(
     registry: MessageHandlerRegistry,
     state: SatelState,
+    command: SatelReadCommand,
+    attribute: str,
 ) -> None:
     state.configure_for_panel(_panel_info(0))
     data = bytearray(16)
     data[0] = 0b00000010  # zone 2
     data[3] = 0b00000001  # unsupported zone 25
 
-    registry.dispatch(_typed_message(SatelReadCommand.ZONES_VIOLATED, data))
+    registry.dispatch(_typed_message(command, data))
 
     assert len(state.zones) == 24
-    assert state.zones[2].violated is True
+    assert getattr(state.zones[2], attribute) is True
     assert 25 not in state.zones
 
 
-def test_zone_violations_update_existing_zone_state(
+@pytest.mark.parametrize(
+    ("command", "attribute"),
+    ZONE_STATE_ATTRIBUTE_BY_COMMAND.items(),
+)
+def test_zone_states_update_only_the_mapped_field_on_existing_state(
     registry: MessageHandlerRegistry,
     state: SatelState,
+    command: SatelReadCommand,
+    attribute: str,
 ) -> None:
     zone_state = SatelZoneState()
+    unchanged_fields = {
+        name: value for name, value in vars(zone_state).items() if name != attribute
+    }
     state.zones[1] = zone_state
     message = _typed_message(
-        SatelReadCommand.ZONES_VIOLATED,
+        command,
         bytearray([0b00000001]) + bytearray(15),
     )
 
     registry.dispatch(message)
 
     assert state.zones[1] is zone_state
-    assert zone_state.violated is True
-
-
-@pytest.mark.parametrize("length", [16, 32])
-def test_zone_tamper_updates_represented_zone_states(
-    registry: MessageHandlerRegistry,
-    state: SatelState,
-    length: int,
-) -> None:
-    data = bytearray(length)
-    data[0] = 0b00000100  # zone 3
-
-    registry.dispatch(_typed_message(SatelReadCommand.ZONES_TAMPER, data))
-
-    assert state.zones[1].tampered is False
-    assert state.zones[3].tampered is True
-    assert state.zones[length * 8].tampered is False
-    if length == 16:
-        assert state.zones[129].tampered is None
+    assert getattr(zone_state, attribute) is True
+    assert all(
+        getattr(zone_state, name) == value for name, value in unchanged_fields.items()
+    )
 
 
 @pytest.mark.parametrize("length", [16, 32])

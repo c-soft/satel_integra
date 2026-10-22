@@ -159,6 +159,24 @@ def test_zone_violations_update_existing_zone_state(
 
 
 @pytest.mark.parametrize("length", [16, 32])
+def test_zone_tamper_updates_represented_zone_states(
+    registry: MessageHandlerRegistry,
+    state: SatelState,
+    length: int,
+) -> None:
+    data = bytearray(length)
+    data[0] = 0b00000100  # zone 3
+
+    registry.dispatch(_typed_message(SatelReadCommand.ZONES_TAMPER, data))
+
+    assert state.zones[1].tampered is False
+    assert state.zones[3].tampered is True
+    assert state.zones[length * 8].tampered is False
+    if length == 16:
+        assert state.zones[129].tampered is None
+
+
+@pytest.mark.parametrize("length", [16, 32])
 def test_output_states_update_represented_outputs(
     registry: MessageHandlerRegistry,
     state: SatelState,

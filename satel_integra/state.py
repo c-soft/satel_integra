@@ -40,6 +40,7 @@ class SatelZoneState:
 
     violated: bool | None = None
     tampered: bool | None = None
+    bypassed: bool | None = None
 
 
 @dataclass

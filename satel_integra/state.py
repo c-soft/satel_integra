@@ -39,6 +39,7 @@ class SatelZoneState:
     """State of a zone derived from incoming panel messages."""
 
     violated: bool | None = None
+    tampered: bool | None = None
 
 
 @dataclass

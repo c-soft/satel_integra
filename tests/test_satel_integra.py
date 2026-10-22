@@ -258,7 +258,10 @@ def test_legacy_zone_callback(satel):
 
 def test_zone_states_are_initialized_unknown(satel):
     assert list(satel.state.zones) == list(range(1, 257))
-    assert all(state.violated is None for state in satel.state.zones.values())
+    assert all(
+        state.violated is None and state.tampered is None
+        for state in satel.state.zones.values()
+    )
 
 
 def test_output_states_are_initialized_unknown(satel):

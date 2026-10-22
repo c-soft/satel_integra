@@ -23,7 +23,7 @@ from .partition import PARTITION_STATE_BY_COMMAND, handle_partition_state
 from .result import handle_command_result
 from .subscriptions import SatelSubscriptions
 from .system import handle_system_status, handle_system_troubles
-from .zone import handle_zone_violations
+from .zone import ZONE_STATE_ATTRIBUTE_BY_COMMAND, handle_zone_state
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -53,11 +53,12 @@ class MessageHandlerRegistry:
                 handle_partition_state,
             )
 
-        self.register(
-            SatelReadCommand.ZONES_VIOLATED,
-            SatelBitmaskData,
-            handle_zone_violations,
-        )
+        for command in ZONE_STATE_ATTRIBUTE_BY_COMMAND:
+            self.register(
+                command,
+                SatelBitmaskData,
+                handle_zone_state,
+            )
         self.register(
             SatelReadCommand.OUTPUTS_STATE,
             SatelBitmaskData,

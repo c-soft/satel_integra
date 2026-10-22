@@ -133,6 +133,7 @@ class AsyncSatel:
         monitored_commands = [
             SatelReadCommand.ZONES_VIOLATED,
             SatelReadCommand.ZONES_TAMPER,
+            SatelReadCommand.ZONES_BYPASS,
             SatelReadCommand.PARTITIONS_ARMED_MODE0,
             SatelReadCommand.PARTITIONS_ARMED_MODE1,
             SatelReadCommand.PARTITIONS_ARMED_MODE2,

@@ -21,6 +21,7 @@ class SatelReadCommand(SatelBaseCommand):
     """Read/query commands supported by Satel Integra protocol."""
 
     ZONES_VIOLATED = 0x00
+    ZONES_TAMPER = 0x01
     PARTITIONS_ARMED_SUPPRESSED = 0x09
     PARTITIONS_ARMED_MODE0 = 0x0A
     PARTITIONS_ARMED_MODE2 = 0x0B

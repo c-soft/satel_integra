@@ -26,3 +26,20 @@ def handle_zone_violations(
 
     _LOGGER.debug("Violated zones: %s", violated_zones)
     subscriptions.zones.notify()
+
+
+def handle_zone_tamper(
+    state: SatelState,
+    subscriptions: SatelSubscriptions,
+    message: SatelTypedReadMessage[SatelBitmaskData],
+) -> None:
+    """Handle a zone tamper message."""
+    represented_zones = len(message.msg_data) * 8
+    zone_limit = min(represented_zones, len(state.zones))
+    tampered_zones = {zone for zone in message.data.active if zone <= zone_limit}
+
+    for zone in range(1, zone_limit + 1):
+        state.zones[zone].tampered = zone in tampered_zones
+
+    _LOGGER.debug("Tampered zones: %s", tampered_zones)
+    subscriptions.zones.notify()

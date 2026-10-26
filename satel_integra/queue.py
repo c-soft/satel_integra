@@ -325,14 +325,16 @@ class SatelMessageQueue:
             )
             return
 
-        if self._current_message.expected_result_command != result.cmd:
+        if (
+            result.cmd is not SatelReadCommand.RESULT
+            and self._current_message.expected_result_command != result.cmd
+        ):
             _LOGGER.warning(
                 "Received result (%s) for message (%s) but expects different result (%s)",
                 result,
                 self._current_message.message,
                 self._current_message.expected_result_command,
             )
-            if result.cmd is not SatelReadCommand.RESULT:
-                return
+            return
 
         self._current_message.processed_future.set_result(result)

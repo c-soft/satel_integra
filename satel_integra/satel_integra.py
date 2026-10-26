@@ -87,6 +87,7 @@ async def _scan_devices[TDeviceInfo](
     device_type: str,
     read_device: Callable[[int], Awaitable[TDeviceInfo | None]],
     capacity: int,
+    on_device_scanned: Callable[[], None] | None = None,
 ) -> dict[int, TDeviceInfo]:
     """Read every address, omitting addresses rejected as unconfigured."""
     devices: dict[int, TDeviceInfo] = {}
@@ -98,6 +99,8 @@ async def _scan_devices[TDeviceInfo](
             # use the generic 0x08 result for unused 0xEE device addresses.
             if err.result.code != SatelResultCode.OTHER_ERROR:
                 raise
+            if on_device_scanned is not None:
+                on_device_scanned()
             continue
 
         if device_info is None:
@@ -105,6 +108,8 @@ async def _scan_devices[TDeviceInfo](
                 f"No response while scanning {device_type} {device_number}"
             )
         devices[device_number] = device_info
+        if on_device_scanned is not None:
+            on_device_scanned()
 
     return devices
 
@@ -777,8 +782,15 @@ class AsyncSatel:
             SatelCommunicationModuleInfo,
         )
 
-    async def scan_panel(self) -> SatelPanelScan:
+    async def scan_panel(
+        self,
+        *,
+        on_progress: Callable[[int, int], None] | None = None,
+    ) -> SatelPanelScan:
         """Scan configurable devices using panel information cached at startup.
+
+        ``on_progress`` is called after each completed device read with the
+        number of completed reads and the total number of reads.
 
         Addresses rejected with the protocol's generic 0x08 result are omitted;
         panels use that result for unused 0xEE device addresses.
@@ -793,12 +805,26 @@ class AsyncSatel:
                 f"Cannot scan unknown panel type code {panel_info.type_code}"
             )
 
+        total = model.max_partitions + model.max_zones + model.max_outputs
+        completed = 0
+
+        def report_progress() -> None:
+            nonlocal completed
+            completed += 1
+            if on_progress is not None:
+                on_progress(completed, total)
+
         partitions = await _scan_devices(
-            "partition", self.read_partition_info, model.max_partitions
+            "partition",
+            self.read_partition_info,
+            model.max_partitions,
+            report_progress,
         )
-        zones = await _scan_devices("zone", self.read_zone_info, model.max_zones)
+        zones = await _scan_devices(
+            "zone", self.read_zone_info, model.max_zones, report_progress
+        )
         outputs = await _scan_devices(
-            "output", self.read_output_info, model.max_outputs
+            "output", self.read_output_info, model.max_outputs, report_progress
         )
 
         return SatelPanelScan(

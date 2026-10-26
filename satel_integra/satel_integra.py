@@ -44,7 +44,9 @@ from satel_integra.models import (
     SatelCommunicationModuleInfo,
     SatelOutputInfo,
     SatelPanelInfo,
+    SatelPanelScan,
     SatelPartitionInfo,
+    SatelResultCode,
     SatelRtcAndStatus,
     SatelZoneInfo,
     SatelZoneTemperature,
@@ -79,6 +81,32 @@ def _validate_user_code(code: str) -> None:
     """Validate the supported user-code length."""
     if not 4 <= len(code) <= 16:
         raise ValueError("code must contain between 4 and 16 characters")
+
+
+async def _scan_devices[TDeviceInfo](
+    device_type: str,
+    read_device: Callable[[int], Awaitable[TDeviceInfo | None]],
+    capacity: int,
+) -> dict[int, TDeviceInfo]:
+    """Read every address, omitting addresses rejected as unconfigured."""
+    devices: dict[int, TDeviceInfo] = {}
+    for device_number in range(1, capacity + 1):
+        try:
+            device_info = await read_device(device_number)
+        except SatelCommandRejectedError as err:
+            # The protocol has no dedicated "unconfigured device" result. Panels
+            # use the generic 0x08 result for unused 0xEE device addresses.
+            if err.result.code != SatelResultCode.OTHER_ERROR:
+                raise
+            continue
+
+        if device_info is None:
+            raise SatelNoResponseError(
+                f"No response while scanning {device_type} {device_number}"
+            )
+        devices[device_number] = device_info
+
+    return devices
 
 
 class AsyncSatel:
@@ -747,6 +775,37 @@ class AsyncSatel:
         return await self._send_data_and_wait(
             msg,
             SatelCommunicationModuleInfo,
+        )
+
+    async def scan_panel(self) -> SatelPanelScan:
+        """Scan configurable devices using panel information cached at startup.
+
+        Addresses rejected with the protocol's generic 0x08 result are omitted;
+        panels use that result for unused 0xEE device addresses.
+        """
+        panel_info = self._state.panel_info
+        if panel_info is None:
+            raise SatelNoResponseError("Panel information is unavailable")
+
+        model = panel_info.model
+        if model is None:
+            raise SatelUnexpectedResponseError(
+                f"Cannot scan unknown panel type code {panel_info.type_code}"
+            )
+
+        partitions = await _scan_devices(
+            "partition", self.read_partition_info, model.max_partitions
+        )
+        zones = await _scan_devices("zone", self.read_zone_info, model.max_zones)
+        outputs = await _scan_devices(
+            "output", self.read_output_info, model.max_outputs
+        )
+
+        return SatelPanelScan(
+            panel_info=panel_info,
+            partitions=partitions,
+            zones=zones,
+            outputs=outputs,
         )
 
     # endregion

@@ -904,6 +904,156 @@ async def test_read_panel_info_returns_none_without_panel_response(satel, mock_q
 
 
 @pytest.mark.asyncio
+async def test_scan_panel_reads_all_supported_devices(satel):
+    panel_info = _panel_info(0)
+    satel.state.configure_for_panel(panel_info)
+    satel.read_panel_info = AsyncMock(side_effect=AssertionError("unexpected read"))
+    satel.read_partition_info = AsyncMock(
+        side_effect=lambda device_number: SatelPartitionInfo(
+            device_number=device_number,
+            name=f"Partition {device_number}",
+            type_code=0,
+            object_assignment=1,
+        )
+    )
+    satel.read_zone_info = AsyncMock(
+        side_effect=lambda device_number: SatelZoneInfo(
+            device_number=device_number,
+            name=f"Zone {device_number}",
+            type_code=0,
+            partition_assignment=1,
+        )
+    )
+    satel.read_output_info = AsyncMock(
+        side_effect=lambda device_number: SatelOutputInfo(
+            device_number=device_number,
+            name=f"Output {device_number}",
+            type_code=1,
+        )
+    )
+    progress: list[tuple[int, int]] = []
+
+    result = await satel.scan_panel(
+        on_progress=lambda completed, total: progress.append((completed, total))
+    )
+
+    satel.read_panel_info.assert_not_awaited()
+    assert result.panel_info is panel_info
+    assert list(result.partitions) == list(range(1, 5))
+    assert list(result.zones) == list(range(1, 25))
+    assert list(result.outputs) == list(range(1, 25))
+    assert result.partitions[4].name == "Partition 4"
+    assert result.zones[24].name == "Zone 24"
+    assert result.outputs[24].name == "Output 24"
+    assert progress == [(completed, 52) for completed in range(1, 53)]
+
+
+@pytest.mark.asyncio
+async def test_scan_panel_omits_unconfigured_zones_and_outputs(satel):
+    panel_info = _panel_info(0)
+    satel.state.configure_for_panel(panel_info)
+    satel.read_partition_info = AsyncMock(
+        side_effect=lambda device_number: SatelPartitionInfo(
+            device_number=device_number,
+            name=f"Partition {device_number}",
+            type_code=0,
+            object_assignment=1,
+        )
+    )
+    satel.read_zone_info = AsyncMock(
+        side_effect=lambda device_number: SatelZoneInfo(
+            device_number=device_number,
+            name="" if device_number == 1 else f"Zone {device_number}",
+            type_code=0,
+            partition_assignment=1,
+        )
+    )
+    satel.read_output_info = AsyncMock(
+        side_effect=lambda device_number: SatelOutputInfo(
+            device_number=device_number,
+            name="" if device_number == 1 else f"Output {device_number}",
+            type_code=1 if device_number == 1 else 0,
+        )
+    )
+
+    result = await satel.scan_panel()
+
+    assert list(result.outputs) == [1]
+
+
+@pytest.mark.asyncio
+async def test_scan_panel_skips_unconfigured_devices(satel):
+    panel_info = _panel_info(0)
+    satel.state.configure_for_panel(panel_info)
+    unavailable = SatelCommandRejectedError(
+        SatelReadCommand.READ_DEVICE_NAME,
+        SatelCommandResult(SatelResultCode.OTHER_ERROR),
+    )
+    satel.read_partition_info = AsyncMock(side_effect=unavailable)
+    satel.read_zone_info = AsyncMock(side_effect=unavailable)
+    satel.read_output_info = AsyncMock(side_effect=unavailable)
+    progress: list[tuple[int, int]] = []
+
+    result = await satel.scan_panel(
+        on_progress=lambda completed, total: progress.append((completed, total))
+    )
+
+    assert result.partitions == {}
+    assert result.zones == {}
+    assert result.outputs == {}
+    assert progress == [(completed, 52) for completed in range(1, 53)]
+
+
+@pytest.mark.asyncio
+async def test_scan_panel_rejects_unknown_panel_model(satel):
+    panel_info = _panel_info(99)
+    satel.state.configure_for_panel(panel_info)
+    satel.read_partition_info = AsyncMock()
+
+    with pytest.raises(
+        SatelUnexpectedResponseError,
+        match="Cannot scan unknown panel type code 99",
+    ):
+        await satel.scan_panel()
+
+    satel.read_partition_info.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_scan_panel_propagates_other_rejections(satel):
+    satel.state.configure_for_panel(_panel_info(0))
+    rejection = SatelCommandRejectedError(
+        SatelReadCommand.READ_DEVICE_NAME,
+        SatelCommandResult(SatelResultCode.NO_ACCESS),
+    )
+    satel.read_partition_info = AsyncMock(side_effect=rejection)
+    satel.read_zone_info = AsyncMock()
+
+    with pytest.raises(SatelCommandRejectedError) as exc_info:
+        await satel.scan_panel()
+
+    assert exc_info.value is rejection
+    satel.read_zone_info.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_scan_panel_fails_if_device_does_not_respond(satel):
+    satel.state.configure_for_panel(_panel_info(0))
+    satel.read_partition_info = AsyncMock(return_value=None)
+    progress: list[tuple[int, int]] = []
+
+    with pytest.raises(
+        SatelNoResponseError,
+        match="No response while scanning partition 1",
+    ):
+        await satel.scan_panel(
+            on_progress=lambda completed, total: progress.append((completed, total))
+        )
+
+    assert progress == []
+
+
+@pytest.mark.asyncio
 async def test_read_panel_info_rejects_unexpected_panel_response(satel, mock_queue):
     mock_queue.add_message.return_value = SatelReadMessage(
         SatelReadCommand.READ_DEVICE_NAME, bytearray()

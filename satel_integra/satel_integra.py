@@ -826,6 +826,12 @@ class AsyncSatel:
         outputs = await _scan_devices(
             "output", self.read_output_info, model.max_outputs, report_progress
         )
+        # Type code 0 is the default for unconfigured outputs, so omit them from the scan result.
+        outputs = {
+            device_number: output
+            for device_number, output in outputs.items()
+            if output.type_code != 0
+        }
 
         return SatelPanelScan(
             panel_info=panel_info,

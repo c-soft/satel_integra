@@ -222,7 +222,7 @@ async def test_on_message_received_completes_result_for_read_query(
     mock_queue._current_message = queued
     mock_queue.on_message_received(result_msg)
 
-    assert "expects different result" in caplog.text
+    assert "expects different result" not in caplog.text
     assert queued.processed_future.done()
     assert queued.processed_future.result() is result_msg
 

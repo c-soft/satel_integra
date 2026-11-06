@@ -44,7 +44,7 @@ from satel_integra.models import (
     SatelCommunicationModuleInfo,
     SatelOutputInfo,
     SatelPanelInfo,
-    SatelPanelScan,
+    SatelPanelModel,
     SatelPartitionInfo,
     SatelResultCode,
     SatelRtcAndStatus,
@@ -87,10 +87,10 @@ async def _scan_devices[TDeviceInfo](
     device_type: str,
     read_device: Callable[[int], Awaitable[TDeviceInfo | None]],
     capacity: int,
-    on_device_scanned: Callable[[], None] | None = None,
-) -> dict[int, TDeviceInfo]:
+    on_device_scanned: Callable[[int, int], None] | None = None,
+) -> list[TDeviceInfo]:
     """Read every address, omitting addresses rejected as unconfigured."""
-    devices: dict[int, TDeviceInfo] = {}
+    devices: list[TDeviceInfo] = []
     for device_number in range(1, capacity + 1):
         try:
             device_info = await read_device(device_number)
@@ -100,16 +100,16 @@ async def _scan_devices[TDeviceInfo](
             if err.result.code != SatelResultCode.OTHER_ERROR:
                 raise
             if on_device_scanned is not None:
-                on_device_scanned()
+                on_device_scanned(device_number, capacity)
             continue
 
         if device_info is None:
             raise SatelNoResponseError(
                 f"No response while scanning {device_type} {device_number}"
             )
-        devices[device_number] = device_info
+        devices.append(device_info)
         if on_device_scanned is not None:
-            on_device_scanned()
+            on_device_scanned(device_number, capacity)
 
     return devices
 
@@ -782,63 +782,72 @@ class AsyncSatel:
             SatelCommunicationModuleInfo,
         )
 
-    async def scan_panel(
-        self,
-        *,
-        on_progress: Callable[[int, int], None] | None = None,
-    ) -> SatelPanelScan:
-        """Scan configurable devices using panel information cached at startup.
-
-        ``on_progress`` is called after each completed device read with the
-        number of completed reads and the total number of reads.
-
-        Addresses rejected with the protocol's generic 0x08 result are omitted;
-        panels use that result for unused 0xEE device addresses.
-        """
+    def _get_scan_model(self) -> SatelPanelModel:
+        """Get supported scan capacities from cached panel information."""
         panel_info = self._state.panel_info
         if panel_info is None:
             raise SatelNoResponseError("Panel information is unavailable")
-
-        model = panel_info.model
-        if model is None:
+        if panel_info.model is None:
             raise SatelUnexpectedResponseError(
                 f"Cannot scan unknown panel type code {panel_info.type_code}"
             )
+        return panel_info.model
 
-        total = model.max_partitions + model.max_zones + model.max_outputs
-        completed = 0
+    async def scan_partitions(
+        self,
+        *,
+        on_progress: Callable[[int, int], None] | None = None,
+    ) -> list[SatelPartitionInfo]:
+        """Scan partitions using cached panel capacities.
 
-        def report_progress() -> None:
-            nonlocal completed
-            completed += 1
-            if on_progress is not None:
-                on_progress(completed, total)
-
-        partitions = await _scan_devices(
+        Progress reports completed address reads and the partition capacity.
+        Addresses rejected with the generic 0x08 result are omitted, matching
+        observed panel behavior for unused addresses. Other failures propagate.
+        """
+        return await _scan_devices(
             "partition",
             self.read_partition_info,
-            model.max_partitions,
-            report_progress,
+            self._get_scan_model().max_partitions,
+            on_progress,
         )
-        zones = await _scan_devices(
-            "zone", self.read_zone_info, model.max_zones, report_progress
-        )
-        outputs = await _scan_devices(
-            "output", self.read_output_info, model.max_outputs, report_progress
-        )
-        # Type code 0 is the default for unconfigured outputs, so omit them from the scan result.
-        outputs = {
-            device_number: output
-            for device_number, output in outputs.items()
-            if output.type_code != 0
-        }
 
-        return SatelPanelScan(
-            panel_info=panel_info,
-            partitions=partitions,
-            zones=zones,
-            outputs=outputs,
+    async def scan_zones(
+        self,
+        *,
+        on_progress: Callable[[int, int], None] | None = None,
+    ) -> list[SatelZoneInfo]:
+        """Scan zones using cached panel capacities.
+
+        Progress reports completed address reads and the zone capacity.
+        Addresses rejected with the generic 0x08 result are omitted, matching
+        observed panel behavior for unused addresses. Other failures propagate.
+        """
+        return await _scan_devices(
+            "zone",
+            self.read_zone_info,
+            self._get_scan_model().max_zones,
+            on_progress,
         )
+
+    async def scan_outputs(
+        self,
+        *,
+        on_progress: Callable[[int, int], None] | None = None,
+    ) -> list[SatelOutputInfo]:
+        """Scan outputs using cached panel capacities.
+
+        Progress reports completed address reads and the output capacity,
+        including outputs omitted because their type code is zero or their
+        address was rejected with the generic 0x08 result. Other failures propagate.
+        """
+        outputs = await _scan_devices(
+            "output",
+            self.read_output_info,
+            self._get_scan_model().max_outputs,
+            on_progress,
+        )
+        # Type code 0 is the default for unconfigured outputs.
+        return [output for output in outputs if output.type_code != 0]
 
     # endregion
 

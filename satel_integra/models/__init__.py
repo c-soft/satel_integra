@@ -9,7 +9,6 @@ from .panel import SatelPanelInfo, SatelPanelModel
 from .partition import SatelPartitionInfo
 from .result import SatelCommandResult, SatelResultCode
 from .rtc import SatelRtcAndStatus
-from .scan import SatelPanelScan
 from .temperature import SatelZoneTemperature
 from .trouble import SatelSystemTroubles, SatelTrouble, SatelTroubleType
 from .zone import SatelZoneInfo
@@ -24,7 +23,6 @@ __all__ = [
     "SatelOutputInfo",
     "SatelPanelInfo",
     "SatelPanelModel",
-    "SatelPanelScan",
     "SatelPartitionInfo",
     "SatelResultCode",
     "SatelRtcAndStatus",

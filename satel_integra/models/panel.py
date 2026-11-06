@@ -13,18 +13,66 @@ class SatelPanelModel:
     """Known INTEGRA panel model."""
 
     name: str
+    max_zones: int
+    max_outputs: int
+    max_partitions: int
 
 
 PANEL_MODEL_BY_TYPE_CODE: dict[int, SatelPanelModel] = {
-    0: SatelPanelModel("INTEGRA 24"),
-    1: SatelPanelModel("INTEGRA 32"),
-    2: SatelPanelModel("INTEGRA 64"),
-    3: SatelPanelModel("INTEGRA 128"),
-    4: SatelPanelModel("INTEGRA 128-WRL SIM300"),
-    66: SatelPanelModel("INTEGRA 64 Plus"),
-    67: SatelPanelModel("INTEGRA 128 Plus"),
-    72: SatelPanelModel("INTEGRA 256 Plus"),
-    132: SatelPanelModel("INTEGRA 128-WRL LEON"),
+    0: SatelPanelModel(
+        name="INTEGRA 24",
+        max_zones=24,
+        max_outputs=24,
+        max_partitions=4,
+    ),
+    1: SatelPanelModel(
+        name="INTEGRA 32",
+        max_zones=32,
+        max_outputs=32,
+        max_partitions=16,
+    ),
+    2: SatelPanelModel(
+        name="INTEGRA 64",
+        max_zones=64,
+        max_outputs=64,
+        max_partitions=32,
+    ),
+    3: SatelPanelModel(
+        name="INTEGRA 128",
+        max_zones=128,
+        max_outputs=128,
+        max_partitions=32,
+    ),
+    4: SatelPanelModel(
+        name="INTEGRA 128-WRL SIM300",
+        max_zones=128,
+        max_outputs=128,
+        max_partitions=32,
+    ),
+    66: SatelPanelModel(
+        name="INTEGRA 64 Plus",
+        max_zones=64,
+        max_outputs=64,
+        max_partitions=32,
+    ),
+    67: SatelPanelModel(
+        name="INTEGRA 128 Plus",
+        max_zones=128,
+        max_outputs=128,
+        max_partitions=32,
+    ),
+    72: SatelPanelModel(
+        name="INTEGRA 256 Plus",
+        max_zones=256,
+        max_outputs=256,
+        max_partitions=32,
+    ),
+    132: SatelPanelModel(
+        name="INTEGRA 128-WRL LEON",
+        max_zones=128,
+        max_outputs=128,
+        max_partitions=32,
+    ),
 }
 
 
@@ -44,7 +92,11 @@ class SatelPanelInfo:
         type_code = payload[0]
         model = PANEL_MODEL_BY_TYPE_CODE.get(type_code)
         if model is None:
-            _LOGGER.warning("Unknown INTEGRA panel type code: %s", type_code)
+            _LOGGER.warning(
+                "Unknown INTEGRA panel type code: %s. Please report this panel model "
+                "at https://github.com/c-soft/satel_integra/issues/new",
+                type_code,
+            )
 
         return cls(
             type_code=type_code,

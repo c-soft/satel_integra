@@ -1,5 +1,6 @@
 """Public data models for Satel Integra."""
 
+from .bitmask import SatelBitmaskData
 from .device import SatelDeviceInfo, SatelDeviceType
 from .firmware import SatelFirmwareVersion
 from .module import SatelCommunicationModuleInfo
@@ -13,6 +14,7 @@ from .trouble import SatelSystemTroubles, SatelTrouble, SatelTroubleType
 from .zone import SatelZoneInfo
 
 __all__ = [
+    "SatelBitmaskData",
     "SatelCommandResult",
     "SatelCommunicationModuleInfo",
     "SatelDeviceInfo",

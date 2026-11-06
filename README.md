@@ -27,6 +27,36 @@ from satel_integra import AsyncSatel
 
 For complete examples, look into the [examples](examples/) folder.
 
+### Scanning panel resources
+
+After connecting and starting the client, scan the resource types you need:
+
+```python
+zones = await satel.scan_zones()
+outputs = await satel.scan_outputs()
+partitions = await satel.scan_partitions()
+```
+
+Each individual scan returns a list of `SatelZoneInfo`, `SatelOutputInfo`, or
+`SatelPartitionInfo` objects respectively, ordered by ascending `device_number`.
+Omitted resources leave no placeholders; an empty result is `[]`. List positions
+are not resource numbers: use each object's `device_number` field.
+Scans use panel capacities cached at startup and raise an error if panel
+information is unavailable or the panel model is unknown.
+
+All scan methods accept an optional synchronous `on_progress(completed, total)`
+callback. Progress counts completed address reads, including addresses omitted
+from the result; it does not count discovered devices. Outputs with type code
+zero are omitted. The existing scan behavior also omits addresses rejected with
+the generic `0x08` result, which panels have been observed to return for unused
+addresses. Other read failures and cancellation propagate without returning a
+partial result.
+
+Scanning only retrieves metadata; it does not change which resources the client
+monitors. To read the full panel inventory, call all three methods sequentially,
+as shown above. Each method reports progress independently; callers decide how
+to combine results and whether to continue if one scan fails.
+
 ## Contributing
 
 Contributions are welcome! If you want to contribute, have a look at [the contribution file](CONTRIBUTING.md).

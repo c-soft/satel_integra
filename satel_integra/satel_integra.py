@@ -9,7 +9,6 @@ from warnings import warn
 
 from satel_integra.callbacks import (
     AsyncStateChangeCallback,
-    CallbackRegistry,
     StateChangeCallback,
     UnsubscribeCallback,
 )
@@ -29,6 +28,10 @@ from satel_integra.exceptions import (
     SatelPanelBusyError,
     SatelUnexpectedResponseError,
 )
+from satel_integra.message_handlers import (
+    MessageHandlerRegistry,
+    SatelSubscriptions,
+)
 from satel_integra.messages import (
     SatelDeviceSelector,
     SatelReadMessage,
@@ -41,9 +44,10 @@ from satel_integra.models import (
     SatelCommunicationModuleInfo,
     SatelOutputInfo,
     SatelPanelInfo,
+    SatelPanelModel,
     SatelPartitionInfo,
+    SatelResultCode,
     SatelRtcAndStatus,
-    SatelSystemTroubles,
     SatelZoneInfo,
     SatelZoneTemperature,
 )
@@ -73,20 +77,41 @@ else:
 _LOGGER = logging.getLogger(__name__)
 
 
-def _bitmask_length(msg: SatelReadMessage) -> int:
-    """Return the bitmask length of a 0x00 / 0x17 answer.
-
-    The protocol allows both 16 and 32 bytes ("0x00 + 16/32 bytes"); the module
-    answers with 16 unless 32-byte mode is used. Any other length is decoded as
-    32 bytes and fails for that frame only.
-    """
-    return len(msg.msg_data) if len(msg.msg_data) in (16, 32) else 32
-
-
 def _validate_user_code(code: str) -> None:
     """Validate the supported user-code length."""
     if not 4 <= len(code) <= 16:
         raise ValueError("code must contain between 4 and 16 characters")
+
+
+async def _scan_devices[TDeviceInfo](
+    device_type: str,
+    read_device: Callable[[int], Awaitable[TDeviceInfo | None]],
+    capacity: int,
+    on_device_scanned: Callable[[int, int], None] | None = None,
+) -> list[TDeviceInfo]:
+    """Read every address, omitting addresses rejected as unconfigured."""
+    devices: list[TDeviceInfo] = []
+    for device_number in range(1, capacity + 1):
+        try:
+            device_info = await read_device(device_number)
+        except SatelCommandRejectedError as err:
+            # The protocol has no dedicated "unconfigured device" result. Panels
+            # use the generic 0x08 result for unused 0xEE device addresses.
+            if err.result.code != SatelResultCode.OTHER_ERROR:
+                raise
+            if on_device_scanned is not None:
+                on_device_scanned(device_number, capacity)
+            continue
+
+        if device_info is None:
+            raise SatelNoResponseError(
+                f"No response while scanning {device_type} {device_number}"
+            )
+        devices.append(device_info)
+        if on_device_scanned is not None:
+            on_device_scanned(device_number, capacity)
+
+    return devices
 
 
 class AsyncSatel:
@@ -121,60 +146,27 @@ class AsyncSatel:
         self._partitions: list[int] = partitions
 
         self._alarm_status_callback: Callable[[], None] | None = None
-        self._alarm_status_callbacks = CallbackRegistry()
-        self._system_status_callbacks = CallbackRegistry()
         # Connection generation on which monitoring was acknowledged (-1 = none).
         self._monitoring_generation = -1
         self._zone_changed_callback: Callable[[dict[int, int]], None] | None = None
-        self._zone_changed_callbacks = CallbackRegistry()
         self._output_changed_callback: Callable[[dict[int, int]], None] | None = None
-        self._output_changed_callbacks = CallbackRegistry()
 
-        self._message_handlers: dict[
-            SatelReadCommand, Callable[[SatelReadMessage], None]
-        ] = {
-            SatelReadCommand.ZONES_VIOLATED: self._zones_violated,
-            SatelReadCommand.PARTITIONS_ARMED_SUPPRESSED: lambda msg: (
-                self._partitions_armed_state(AlarmState.ARMED_SUPPRESSED, msg)
-            ),
-            SatelReadCommand.PARTITIONS_ARMED_MODE0: lambda msg: (
-                self._partitions_armed_state(AlarmState.ARMED_MODE0, msg)
-            ),
-            SatelReadCommand.PARTITIONS_ARMED_MODE2: lambda msg: (
-                self._partitions_armed_state(AlarmState.ARMED_MODE2, msg)
-            ),
-            SatelReadCommand.PARTITIONS_ARMED_MODE3: lambda msg: (
-                self._partitions_armed_state(AlarmState.ARMED_MODE3, msg)
-            ),
-            SatelReadCommand.PARTITIONS_ENTRY_TIME: lambda msg: (
-                self._partitions_armed_state(AlarmState.ENTRY_TIME, msg)
-            ),
-            SatelReadCommand.PARTITIONS_EXIT_COUNTDOWN_OVER_10: lambda msg: (
-                self._partitions_armed_state(AlarmState.EXIT_COUNTDOWN_OVER_10, msg)
-            ),
-            SatelReadCommand.PARTITIONS_EXIT_COUNTDOWN_UNDER_10: lambda msg: (
-                self._partitions_armed_state(AlarmState.EXIT_COUNTDOWN_UNDER_10, msg)
-            ),
-            SatelReadCommand.PARTITIONS_ALARM: lambda msg: self._partitions_armed_state(
-                AlarmState.TRIGGERED, msg
-            ),
-            SatelReadCommand.PARTITIONS_FIRE_ALARM: lambda msg: (
-                self._partitions_armed_state(AlarmState.TRIGGERED_FIRE, msg)
-            ),
-            SatelReadCommand.OUTPUTS_STATE: self._outputs_changed,
-            SatelReadCommand.PARTITIONS_ARMED_MODE1: lambda msg: (
-                self._partitions_armed_state(AlarmState.ARMED_MODE1, msg)
-            ),
-            SatelReadCommand.RESULT: self._command_result,
-            SatelReadCommand.RTC_AND_STATUS: self._system_status_changed,
-            SatelReadCommand.TROUBLES_PART_1: self._system_troubles_changed,
-        }
+        self._subscriptions = SatelSubscriptions()
+        self._subscriptions.partitions.add(self._notify_alarm_status_changed)
+        self._subscriptions.zone_violations.add(self._notify_zone_changed)
+        self._subscriptions.outputs.add(self._notify_output_changed)
+        self._message_handler_registry = MessageHandlerRegistry(
+            self._state,
+            self._subscriptions,
+        )
 
     async def start_monitoring(self) -> None:
         """Start monitoring, raising if no successful acknowledgement is received."""
 
         monitored_commands = [
             SatelReadCommand.ZONES_VIOLATED,
+            SatelReadCommand.ZONES_TAMPER,
+            SatelReadCommand.ZONES_BYPASS,
             SatelReadCommand.PARTITIONS_ARMED_MODE0,
             SatelReadCommand.PARTITIONS_ARMED_MODE1,
             SatelReadCommand.PARTITIONS_ARMED_MODE2,
@@ -218,102 +210,36 @@ class AsyncSatel:
 
         _LOGGER.debug("Monitoring started")
 
-    def _zones_violated(self, msg: SatelReadMessage):
+    def _notify_zone_changed(self) -> None:
+        """Notify the legacy zone callback from current state."""
         status: dict[int, int] = {}
-
-        bitmask_length = _bitmask_length(msg)
-        violated_zones = set(msg.get_active_bits(bitmask_length))
-
-        for zone in range(1, bitmask_length * 8 + 1):
-            self._state.zones[zone].violated = zone in violated_zones
-        _LOGGER.debug("Violated zones: %s", violated_zones)
         for zone in self._monitored_zones:
-            status[zone] = int(zone in violated_zones)
+            zone_state = self._state.zones.get(zone)
+            status[zone] = int(zone_state is not None and zone_state.violated is True)
 
         _LOGGER.debug("Returning status: %s", status)
 
         if self._zone_changed_callback:
             self._zone_changed_callback(status)
-        self._zone_changed_callbacks.notify()
 
-    def _outputs_changed(self, msg: SatelReadMessage):
-        """0x17   outputs state 0x17   + 16/32 bytes"""
-
+    def _notify_output_changed(self) -> None:
+        """Notify the legacy output callback from current state."""
         status: dict[int, int] = {}
-
-        bitmask_length = _bitmask_length(msg)
-        active_outputs = set(msg.get_active_bits(bitmask_length))
-
-        for output in range(1, bitmask_length * 8 + 1):
-            self._state.outputs[output].active = output in active_outputs
-        _LOGGER.debug(
-            "Output states: %s, monitored outputs: %s",
-            active_outputs,
-            self._monitored_outputs,
-        )
         for output in self._monitored_outputs:
-            status[output] = int(output in active_outputs)
+            output_state = self._state.outputs.get(output)
+            status[output] = int(
+                output_state is not None and output_state.active is True
+            )
 
         _LOGGER.debug("Returning status: %s", status)
 
         if self._output_changed_callback:
             self._output_changed_callback(status)
-        self._output_changed_callbacks.notify()
 
-    def _command_result(self, msg: SatelReadMessage) -> None:
-        """Log unsolicited command results using the structured result model."""
-        if (
-            not isinstance(msg, SatelTypedReadMessage)
-            or msg.data_type is not SatelCommandResult
-        ):
-            _LOGGER.warning("Received untyped command result: %s", msg)
-            return
-
-        result = cast(SatelCommandResult, msg.data)
-        _LOGGER.debug("Received command result: %s", result.code)
-
-    def _system_status_changed(self, msg: SatelReadMessage) -> None:
-        """Store panel status and notify consumers when decoded flags change."""
-        if (
-            not isinstance(msg, SatelTypedReadMessage)
-            or msg.data_type is not SatelRtcAndStatus
-        ):
-            _LOGGER.warning("Received unexpected system status response: %s", msg)
-            return
-
-        status = cast(SatelRtcAndStatus, msg.data)
-        if status == self._state.system_status:
-            return
-
-        self._state.system_status = status
-        _LOGGER.debug("System status changed: %s", status)
-        self._system_status_callbacks.notify()
-
-    def _system_troubles_changed(self, msg: SatelReadMessage) -> None:
-        """Store system troubles and notify consumers for every report."""
-        if (
-            not isinstance(msg, SatelTypedReadMessage)
-            or msg.data_type is not SatelSystemTroubles
-        ):
-            _LOGGER.warning("Received unexpected system troubles response: %s", msg)
-            return
-
-        troubles = cast(SatelSystemTroubles, msg.data)
-        self._state.system_troubles = troubles
-
-        _LOGGER.debug("System troubles reported: %s", troubles)
-        self._system_status_callbacks.notify()
-
-    def _partitions_armed_state(self, mode: AlarmState, msg: SatelReadMessage):
-        partitions = msg.get_active_bits(4)
-
-        _LOGGER.debug("Update: list of partitions in mode %s: %s", mode, partitions)
-
-        self._state.partition_states[mode] = partitions
-
+    def _notify_alarm_status_changed(self) -> None:
+        """Notify the legacy alarm status callback."""
         if self._alarm_status_callback:
             self._alarm_status_callback()
-        self._alarm_status_callbacks.notify()
 
     # region Core logic
     async def start(self, enable_monitoring=True):
@@ -330,15 +256,32 @@ class AsyncSatel:
 
         self._start_task(self._keepalive_loop())
 
-        if enable_monitoring:
-            try:
+        try:
+            await self._initialize_panel_state()
+            if enable_monitoring:
                 await self.start_monitoring()
-            except (Exception, asyncio.CancelledError):
-                await self.close()
-                raise
+        except (Exception, asyncio.CancelledError):
+            await self.close()
+            raise
+
+        if enable_monitoring:
             # Started after the first acknowledgement, so the loop does not
             # send a second monitoring request on the same connection.
             self._start_task(self._monitor_reconnection_loop())
+
+    async def _initialize_panel_state(self) -> None:
+        """Discover panel capabilities without preventing monitoring startup."""
+        try:
+            panel_info = await self.read_panel_info()
+        except (SatelCommandRejectedError, SatelUnexpectedResponseError) as err:
+            _LOGGER.warning("Panel information discovery failed: %s", err)
+            return
+
+        if panel_info is None:
+            _LOGGER.warning("Panel information discovery returned no response")
+            return
+
+        self._state.configure_for_panel(panel_info)
 
     def _start_task(self, coro: Awaitable[object]) -> asyncio.Task[object]:
         """Create and track a background task."""
@@ -446,18 +389,18 @@ class AsyncSatel:
 
                 self._queue.on_message_received(msg)
 
-                if msg.cmd in self._message_handlers:
-                    _LOGGER.debug("Calling handler for command: %s", msg.cmd)
-                    # One frame that cannot be handled must not end the reading
-                    # loop: the loop would exit with TCP still open, so there
-                    # would be no reconnection and no more data.
-                    try:
-                        self._message_handlers[msg.cmd](msg)
-                    except Exception as ex:
-                        _LOGGER.warning(
-                            "Dropping frame %s, handler failed: %s", msg.cmd, ex
-                        )
-                else:
+                # One frame that cannot be handled must not end the reading
+                # loop: the loop would exit with TCP still open, so there
+                # would be no reconnection and no more data.
+                try:
+                    handled = self._message_handler_registry.dispatch(msg)
+                except Exception as ex:
+                    _LOGGER.warning(
+                        "Dropping frame %s, handler failed: %s", msg.cmd, ex
+                    )
+                    continue
+
+                if not handled:
                     _LOGGER.debug("No handler for command: %s", msg.cmd)
 
         except SatelConnectionStoppedError:
@@ -557,25 +500,25 @@ class AsyncSatel:
         self, callback: StateChangeCallback
     ) -> UnsubscribeCallback:
         """Subscribe to alarm status changes and return a function to unsubscribe."""
-        return self._alarm_status_callbacks.add(callback)
+        return self._subscriptions.partitions.add(callback)
 
     def add_zone_changed_callback(
         self, callback: StateChangeCallback
     ) -> UnsubscribeCallback:
         """Subscribe to zone changes and return a function to unsubscribe."""
-        return self._zone_changed_callbacks.add(callback)
+        return self._subscriptions.zones.add(callback)
 
     def add_output_changed_callback(
         self, callback: StateChangeCallback
     ) -> UnsubscribeCallback:
         """Subscribe to output changes and return a function to unsubscribe."""
-        return self._output_changed_callbacks.add(callback)
+        return self._subscriptions.outputs.add(callback)
 
     def add_system_status_callback(
         self, callback: StateChangeCallback
     ) -> UnsubscribeCallback:
         """Subscribe to system status changes and return a function to unsubscribe."""
-        return self._system_status_callbacks.add(callback)
+        return self._subscriptions.system_status.add(callback)
 
     @property
     def state(self) -> SatelState:
@@ -838,6 +781,73 @@ class AsyncSatel:
             msg,
             SatelCommunicationModuleInfo,
         )
+
+    def _get_scan_model(self) -> SatelPanelModel:
+        """Get supported scan capacities from cached panel information."""
+        panel_info = self._state.panel_info
+        if panel_info is None:
+            raise SatelNoResponseError("Panel information is unavailable")
+        if panel_info.model is None:
+            raise SatelUnexpectedResponseError(
+                f"Cannot scan unknown panel type code {panel_info.type_code}"
+            )
+        return panel_info.model
+
+    async def scan_partitions(
+        self,
+        *,
+        on_progress: Callable[[int, int], None] | None = None,
+    ) -> list[SatelPartitionInfo]:
+        """Scan partitions using cached panel capacities.
+
+        Progress reports completed address reads and the partition capacity.
+        Addresses rejected with the generic 0x08 result are omitted, matching
+        observed panel behavior for unused addresses. Other failures propagate.
+        """
+        return await _scan_devices(
+            "partition",
+            self.read_partition_info,
+            self._get_scan_model().max_partitions,
+            on_progress,
+        )
+
+    async def scan_zones(
+        self,
+        *,
+        on_progress: Callable[[int, int], None] | None = None,
+    ) -> list[SatelZoneInfo]:
+        """Scan zones using cached panel capacities.
+
+        Progress reports completed address reads and the zone capacity.
+        Addresses rejected with the generic 0x08 result are omitted, matching
+        observed panel behavior for unused addresses. Other failures propagate.
+        """
+        return await _scan_devices(
+            "zone",
+            self.read_zone_info,
+            self._get_scan_model().max_zones,
+            on_progress,
+        )
+
+    async def scan_outputs(
+        self,
+        *,
+        on_progress: Callable[[int, int], None] | None = None,
+    ) -> list[SatelOutputInfo]:
+        """Scan outputs using cached panel capacities.
+
+        Progress reports completed address reads and the output capacity,
+        including outputs omitted because their type code is zero or their
+        address was rejected with the generic 0x08 result. Other failures propagate.
+        """
+        outputs = await _scan_devices(
+            "output",
+            self.read_output_info,
+            self._get_scan_model().max_outputs,
+            on_progress,
+        )
+        # Type code 0 is the default for unconfigured outputs.
+        return [output for output in outputs if output.type_code != 0]
 
     # endregion
 

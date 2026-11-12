@@ -256,6 +256,67 @@ def test_legacy_zone_callback(satel):
     assert satel.violated_zones == [1]
 
 
+@pytest.mark.parametrize(
+    "command, attribute",
+    [
+        (SatelReadCommand.ZONES_TAMPER, "tampered"),
+        (SatelReadCommand.ZONES_BYPASS, "bypassed"),
+    ],
+)
+@pytest.mark.parametrize("violation_received", [False, True])
+def test_legacy_zone_callback_ignores_non_violation_reports(
+    satel, command, attribute, violation_received
+):
+    legacy_events = []
+    with pytest.warns(DeprecationWarning, match="register_callbacks"):
+        satel.register_callbacks(zone_changed_callback=legacy_events.append)
+
+    payload = bytearray([1]) + bytearray(15)
+    if violation_received:
+        satel._message_handler_registry.dispatch(
+            _typed_message(SatelReadCommand.ZONES_VIOLATED, payload)
+        )
+        assert legacy_events == [{1: 1, 2: 0}]
+        legacy_events.clear()
+
+    observed_states = []
+    satel.add_zone_changed_callback(
+        lambda: observed_states.append(
+            (satel.state.zones[1].violated, getattr(satel.state.zones[1], attribute))
+        )
+    )
+
+    satel._message_handler_registry.dispatch(_typed_message(command, payload))
+
+    assert legacy_events == []
+    assert observed_states == [(True if violation_received else None, True)]
+
+
+@pytest.mark.parametrize("legacy_raises", [False, True])
+def test_zone_violation_callbacks_preserve_order_and_isolate_errors(
+    satel, legacy_raises
+):
+    events = []
+
+    def legacy_callback(status):
+        events.append(("legacy", status, satel.state.zones[1].violated))
+        if legacy_raises:
+            raise RuntimeError("legacy callback failed")
+
+    with pytest.warns(DeprecationWarning, match="register_callbacks"):
+        satel.register_callbacks(zone_changed_callback=legacy_callback)
+    satel.add_zone_changed_callback(
+        lambda: events.append(("modern", satel.state.zones[1].violated))
+    )
+    msg = _typed_message(
+        SatelReadCommand.ZONES_VIOLATED, bytearray([1]) + bytearray(15)
+    )
+
+    satel._message_handler_registry.dispatch(msg)
+
+    assert events == [("legacy", {1: 1, 2: 0}, True), ("modern", True)]
+
+
 def test_zone_states_are_initialized_unknown(satel):
     assert list(satel.state.zones) == list(range(1, 257))
     assert all(

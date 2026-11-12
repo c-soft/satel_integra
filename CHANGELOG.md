@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.7.0](https://github.com/c-soft/satel_integra/compare/1.6.0...1.7.0) - 2026-11-12
+
+### What’s Changed
+
+- #100 - Don't trigger violation only callback on tamper or bypass state changes  (@Tommatheussen)
+- #98 - Add panel scanning (@Tommatheussen)
+- #97 - Add bypass state to zones (@Tommatheussen)
+- #96 - Add tamper state to zones (@Tommatheussen)
+- #95 - Refactor message handling into dedicated handler registry (@Tommatheussen)
+- #94 - Enhance panel info with max zones, outputs, and partitions (@Tommatheussen)
+
 ## [1.6.0](https://github.com/c-soft/satel_integra/compare/1.5.0...1.6.0) - 2026-10-19
 
 ### What’s Changed
@@ -140,6 +151,7 @@ self.controller.monitor_status(
     outputs_update_callback,
 )
 
+
 ```
 ##### After
 
@@ -154,6 +166,7 @@ self.controller.register_callbacks(
 )
 
 await self.controller.start(enable_monitoring=True)
+
 
 ```
 #### Callback Signature Changes

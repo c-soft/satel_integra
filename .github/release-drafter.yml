@@ -7,6 +7,9 @@ categories:
     collapse-after: 1
     labels:
       - "dependencies"
+  - type: 'pre-exclude'
+    when:
+      label: 'skip-changelog'
 template: |
   ## What’s Changed
 

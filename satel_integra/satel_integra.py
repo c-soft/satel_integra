@@ -153,7 +153,7 @@ class AsyncSatel:
 
         self._subscriptions = SatelSubscriptions()
         self._subscriptions.partitions.add(self._notify_alarm_status_changed)
-        self._subscriptions.zones.add(self._notify_zone_changed)
+        self._subscriptions.zone_violations.add(self._notify_zone_changed)
         self._subscriptions.outputs.add(self._notify_output_changed)
         self._message_handler_registry = MessageHandlerRegistry(
             self._state,

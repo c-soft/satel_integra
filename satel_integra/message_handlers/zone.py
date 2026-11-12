@@ -36,4 +36,6 @@ def handle_zone_state(
         setattr(state.zones[zone], state_attribute, zone in active_zones)
 
     _LOGGER.debug("%s zones: %s", state_attribute.capitalize(), active_zones)
+    if message.cmd is SatelReadCommand.ZONES_VIOLATED:
+        subscriptions.zone_violations.notify()
     subscriptions.zones.notify()

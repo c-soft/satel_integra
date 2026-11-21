@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.7.1](https://github.com/c-soft/satel_integra/compare/1.7.0...1.7.1) - 2026-11-21
+
+### What’s Changed
+
+- #101 - Add alarm and alarm memory states to zones (@c-soft)
+
 ## [1.7.0](https://github.com/c-soft/satel_integra/compare/1.6.0...1.7.0) - 2026-11-12
 
 ### What’s Changed
@@ -152,6 +158,7 @@ self.controller.monitor_status(
 )
 
 
+
 ```
 ##### After
 
@@ -166,6 +173,7 @@ self.controller.register_callbacks(
 )
 
 await self.controller.start(enable_monitoring=True)
+
 
 
 ```

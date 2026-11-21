@@ -145,6 +145,23 @@ async def test_start_monitoring_success(satel, mock_queue):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "command",
+    [SatelReadCommand.ZONES_ALARM, SatelReadCommand.ZONES_ALARM_MEMORY],
+)
+async def test_start_monitoring_includes_zone_alarms(satel, mock_queue, command):
+    mock_queue.add_message.return_value = _make_result_message(
+        SatelResultCode.COMMAND_ACCEPTED
+    )
+
+    await satel.start_monitoring()
+
+    monitoring_message = mock_queue.add_message.await_args.args[0]
+    monitored = monitoring_message.msg_data
+    assert monitored[command.value // 8] & (1 << (command.value % 8))
+
+
+@pytest.mark.asyncio
 async def test_start_monitoring_sets_monitoring_ready_and_notifies(
     satel, mock_queue, mock_connection
 ):
@@ -261,6 +278,8 @@ def test_legacy_zone_callback(satel):
     [
         (SatelReadCommand.ZONES_TAMPER, "tampered"),
         (SatelReadCommand.ZONES_BYPASS, "bypassed"),
+        (SatelReadCommand.ZONES_ALARM, "alarm"),
+        (SatelReadCommand.ZONES_ALARM_MEMORY, "alarm_memory"),
     ],
 )
 @pytest.mark.parametrize("violation_received", [False, True])
@@ -320,7 +339,11 @@ def test_zone_violation_callbacks_preserve_order_and_isolate_errors(
 def test_zone_states_are_initialized_unknown(satel):
     assert list(satel.state.zones) == list(range(1, 257))
     assert all(
-        state.violated is None and state.tampered is None and state.bypassed is None
+        state.violated is None
+        and state.tampered is None
+        and state.bypassed is None
+        and state.alarm is None
+        and state.alarm_memory is None
         for state in satel.state.zones.values()
     )
 

@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from satel_integra.commands import SatelReadCommand, SatelWriteCommand
+from satel_integra.const import FRAME_END, FRAME_START
 from satel_integra.exceptions import (
     SatelCommandRejectedError,
     SatelConnectFailedError,
@@ -31,6 +32,17 @@ from satel_integra.models import (
 )
 from satel_integra.satel_integra import AlarmState, AsyncSatel
 from satel_integra.state import SatelState
+from satel_integra.utils import checksum
+
+
+def _raw_frame(payload: bytearray) -> bytearray:
+    csum = checksum(payload)
+    return (
+        bytearray(FRAME_START)
+        + payload
+        + bytearray([csum >> 8, csum & 0xFF])
+        + bytearray(FRAME_END)
+    )
 
 
 def _typed_message(
@@ -334,6 +346,36 @@ def test_zone_violation_callbacks_preserve_order_and_isolate_errors(
     satel._message_handler_registry.dispatch(msg)
 
     assert events == [("legacy", {1: 1, 2: 0}, True), ("modern", True)]
+
+
+@pytest.mark.parametrize(
+    "command_byte, attribute",
+    [
+        # Protocol numbers from the SATEL integration protocol description:
+        # 0x02 zones alarm, 0x03 zones tamper alarm, 0x04 zones alarm memory.
+        (0x02, "alarm"),
+        (0x04, "alarm_memory"),
+    ],
+)
+def test_zone_alarm_states_decode_from_protocol_command_bytes(
+    satel, command_byte, attribute
+):
+    payload = bytearray([command_byte, 0b00000100]) + bytearray(15)
+    msg = SatelReadMessage.decode_frame(_raw_frame(payload))
+    assert msg is not None
+    satel._message_handler_registry.dispatch(msg)
+
+    assert getattr(satel.state.zones[3], attribute) is True
+    assert getattr(satel.state.zones[1], attribute) is False
+
+
+def test_zone_tamper_alarm_is_not_read_as_alarm_memory(satel):
+    payload = bytearray([0x03, 0b00000100]) + bytearray(15)
+    msg = SatelReadMessage.decode_frame(_raw_frame(payload))
+    if msg is not None:
+        satel._message_handler_registry.dispatch(msg)
+
+    assert satel.state.zones[3].alarm_memory is None
 
 
 def test_zone_states_are_initialized_unknown(satel):

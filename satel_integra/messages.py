@@ -408,6 +408,16 @@ READ_COMMAND_SPECS: dict[SatelReadCommand, ReadCommandSpec] = {
         data_type=SatelBitmaskData,
         expected_data_lengths=(16, 32),
     ),
+    SatelReadCommand.ZONES_ALARM: ReadCommandSpec(
+        command=SatelReadCommand.ZONES_ALARM,
+        data_type=SatelBitmaskData,
+        expected_data_lengths=(16, 32),
+    ),
+    SatelReadCommand.ZONES_ALARM_MEMORY: ReadCommandSpec(
+        command=SatelReadCommand.ZONES_ALARM_MEMORY,
+        data_type=SatelBitmaskData,
+        expected_data_lengths=(16, 32),
+    ),
     SatelReadCommand.ZONES_BYPASS: ReadCommandSpec(
         command=SatelReadCommand.ZONES_BYPASS,
         data_type=SatelBitmaskData,

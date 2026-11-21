@@ -73,7 +73,8 @@ Refer to the [licence file](LICENCE).
 - [x] Encrypted connections
 - [x] Auto reconnecting
 - [x] Zone temperature reading
-- [ ] Zone tamper/bypass states
+- [x] Zone tamper/bypass states
+- [x] Zone alarm and alarm memory states
 - [ ] System faults (bad battery, AC trouble, other errors)
 - [ ] System info (panel information, firmware version etc)
 - [ ] Event monitoring

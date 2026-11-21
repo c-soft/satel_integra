@@ -12,12 +12,16 @@ from .subscriptions import SatelSubscriptions
 
 _LOGGER = logging.getLogger(__name__)
 
-type ZoneStateAttribute = Literal["violated", "tampered", "bypassed"]
+type ZoneStateAttribute = Literal[
+    "violated", "tampered", "bypassed", "alarm", "alarm_memory"
+]
 
 ZONE_STATE_ATTRIBUTE_BY_COMMAND: dict[SatelReadCommand, ZoneStateAttribute] = {
     SatelReadCommand.ZONES_VIOLATED: "violated",
     SatelReadCommand.ZONES_TAMPER: "tampered",
     SatelReadCommand.ZONES_BYPASS: "bypassed",
+    SatelReadCommand.ZONES_ALARM: "alarm",
+    SatelReadCommand.ZONES_ALARM_MEMORY: "alarm_memory",
 }
 
 

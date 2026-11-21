@@ -281,6 +281,8 @@ def test_decode_frame_uses_read_command_specs(spec) -> None:
         SatelReadCommand.ZONES_VIOLATED: bytearray(16),
         SatelReadCommand.ZONES_TAMPER: bytearray(16),
         SatelReadCommand.ZONES_BYPASS: bytearray(16),
+        SatelReadCommand.ZONES_ALARM: bytearray(16),
+        SatelReadCommand.ZONES_ALARM_MEMORY: bytearray(16),
         SatelReadCommand.OUTPUTS_STATE: bytearray(16),
         SatelReadCommand.RESULT: bytearray([0x00]),
         SatelReadCommand.TROUBLES_PART_1: bytearray(47),

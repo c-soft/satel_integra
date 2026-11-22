@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime
 
 import pytest
 
@@ -16,6 +17,8 @@ from satel_integra.messages import (
 from satel_integra.models import (
     SatelCommandResult,
     SatelCommunicationModuleInfo,
+    SatelEventClass,
+    SatelEventRecord,
     SatelFirmwareVersion,
     SatelOutputInfo,
     SatelPanelInfo,
@@ -238,16 +241,20 @@ def test_decode_frame_returns_none_for_unknown_command_byte(caplog) -> None:
     assert "Ignoring unknown command byte: 0xab" in caplog.text
 
 
-def test_decode_frame_logs_event_messages_at_debug(caplog) -> None:
+def test_decode_frame_decodes_event_record(caplog) -> None:
     payload = bytearray.fromhex("8cbfc554c287fb0301035896035096")
 
     with caplog.at_level(logging.DEBUG):
         msg = SatelReadMessage.decode_frame(_frame_payload(payload))
 
-    assert type(msg) is SatelReadMessage
+    assert isinstance(msg, SatelTypedReadMessage)
     assert msg.cmd is SatelReadCommand.READ_EVENT
-    assert msg.msg_data == payload[1:]
-    assert "Received event message; event decoding is not implemented" in caplog.text
+    record = msg.data
+    assert isinstance(record, SatelEventRecord)
+    assert record.present
+    assert record.event_class is SatelEventClass.USER_FUNCTIONS
+    assert record.timestamp(datetime(2026, 11, 22)) == datetime(2026, 5, 5, 20, 18)
+    assert record.index == 0x035896
     assert "Ignoring unknown command byte" not in caplog.text
 
 
@@ -291,6 +298,9 @@ def test_decode_frame_uses_read_command_specs(spec) -> None:
         SatelReadCommand.MODULE_VERSION: bytearray(b"12320120527")
         + bytearray([0b0000_0111]),
         SatelReadCommand.ZONE_TEMPERATURE: bytearray([0x01, 0x00, 0x96]),
+        SatelReadCommand.READ_EVENT: bytearray(14),
+        SatelReadCommand.READ_EVENT_TEXT: bytearray([0x80, 0x01, 0x02, 0x00, 0x00])
+        + bytearray(46),
         SatelReadCommand.RTC_AND_STATUS: bytearray(
             [0x20, 0x24, 0x02, 0x29, 0x12, 0x34, 0x56, 0xC3, 0xF2]
         ),

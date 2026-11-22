@@ -4,6 +4,7 @@ import asyncio
 import logging
 import sys
 from collections.abc import Awaitable, Callable
+from datetime import datetime
 from typing import TypeVar, cast, overload
 from warnings import warn
 
@@ -42,6 +43,9 @@ from satel_integra.messages import (
 from satel_integra.models import (
     SatelCommandResult,
     SatelCommunicationModuleInfo,
+    SatelEvent,
+    SatelEventRecord,
+    SatelEventText,
     SatelOutputInfo,
     SatelPanelInfo,
     SatelPanelModel,
@@ -75,6 +79,11 @@ else:
 
 
 _LOGGER = logging.getLogger(__name__)
+
+# Upper bound for one read_events() call, so a long log cannot hold the
+# connection; control commands queue behind every event read.
+MAX_EVENTS_PER_READ = 100
+_NEWEST_EVENT = 0xFFFFFF
 
 
 def _validate_user_code(code: str) -> None:
@@ -152,6 +161,7 @@ class AsyncSatel:
         self._output_changed_callback: Callable[[dict[int, int]], None] | None = None
 
         self._subscriptions = SatelSubscriptions()
+        self._event_texts: dict[tuple[int, bool], SatelEventText] = {}
         self._subscriptions.partitions.add(self._notify_alarm_status_changed)
         self._subscriptions.zone_violations.add(self._notify_zone_changed)
         self._subscriptions.outputs.add(self._notify_output_changed)
@@ -655,6 +665,63 @@ class AsyncSatel:
         )
         msg = SatelWriteMessage(mode_command, code=code, zones_or_outputs=[output_id])
         return await self._send_control_message(msg, wait_for_result)
+
+    async def read_event(
+        self, index: int | None = None, *, now: datetime | None = None
+    ) -> SatelEvent | None:
+        """Read one event: the newest, or the one before the given event index."""
+        msg = SatelWriteMessage(
+            SatelReadCommand.READ_EVENT,
+            raw_data=bytearray((_NEWEST_EVENT if index is None else index).to_bytes(3)),
+        )
+        record = await self._send_data_and_wait(msg, SatelEventRecord)
+        if record is None or not record.present:
+            return None
+
+        text = await self._read_event_text(record.code, record.restore)
+        return SatelEvent(
+            record=record,
+            timestamp=record.timestamp(now or datetime.now()),
+            text=text.text if text else f"event {record.code}",
+            kind=text.kind if text else 0,
+        )
+
+    async def read_events(
+        self,
+        count: int,
+        *,
+        stop_at_index: int | None = None,
+        now: datetime | None = None,
+    ) -> list[SatelEvent]:
+        """Read up to count events, newest first, stopping before a known index."""
+        if not 1 <= count <= MAX_EVENTS_PER_READ:
+            raise ValueError(f"count must be between 1 and {MAX_EVENTS_PER_READ}")
+
+        events: list[SatelEvent] = []
+        index: int | None = None
+        while len(events) < count:
+            event = await self.read_event(index, now=now)
+            if event is None or event.index == stop_at_index:
+                break
+            events.append(event)
+            index = event.index
+        return events
+
+    async def _read_event_text(self, code: int, restore: bool) -> SatelEventText | None:
+        """Read the long event description once per code and restore flag."""
+        key = (code, restore)
+        if key not in self._event_texts:
+            # Bit 15: long description; bits 10..0: R, CC, cccccccc as in 0x8C.
+            request = 0x8000 | (0x0400 if restore else 0) | code
+            msg = SatelWriteMessage(
+                SatelReadCommand.READ_EVENT_TEXT,
+                raw_data=bytearray(request.to_bytes(2)),
+            )
+            text = await self._send_data_and_wait(msg, SatelEventText)
+            if text is None:
+                return None
+            self._event_texts[key] = text
+        return self._event_texts[key]
 
     async def read_temperature(self, zone_id: int) -> float | None:
         """Read the temperature for a single zone sensor."""

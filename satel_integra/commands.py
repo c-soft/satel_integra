@@ -44,6 +44,7 @@ class SatelReadCommand(SatelBaseCommand):
     ZONE_TEMPERATURE = 0x7D
     INTEGRA_VERSION = 0x7E
     READ_EVENT = 0x8C
+    READ_EVENT_TEXT = 0x8F
     READ_DEVICE_NAME = 0xEE
     RESULT = 0xEF
 

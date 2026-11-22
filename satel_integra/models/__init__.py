@@ -2,6 +2,7 @@
 
 from .bitmask import SatelBitmaskData
 from .device import SatelDeviceInfo, SatelDeviceType
+from .event import SatelEvent, SatelEventClass, SatelEventRecord, SatelEventText
 from .firmware import SatelFirmwareVersion
 from .module import SatelCommunicationModuleInfo
 from .output import SatelOutputInfo
@@ -19,6 +20,10 @@ __all__ = [
     "SatelCommunicationModuleInfo",
     "SatelDeviceInfo",
     "SatelDeviceType",
+    "SatelEvent",
+    "SatelEventClass",
+    "SatelEventRecord",
+    "SatelEventText",
     "SatelFirmwareVersion",
     "SatelOutputInfo",
     "SatelPanelInfo",

@@ -27,6 +27,8 @@ from satel_integra.models import (
     SatelBitmaskData,
     SatelCommandResult,
     SatelCommunicationModuleInfo,
+    SatelEventRecord,
+    SatelEventText,
     SatelOutputInfo,
     SatelPanelInfo,
     SatelPartitionInfo,
@@ -269,12 +271,6 @@ class SatelReadMessage(SatelBaseMessage[SatelReadCommand]):
         if spec is not None:
             return spec.construct(cmd, bytearray(data))
 
-        if cmd is SatelReadCommand.READ_EVENT:
-            _LOGGER.debug(
-                "Received event message; event decoding is not implemented: %s",
-                data.hex(),
-            )
-
         return SatelReadMessage(cmd, bytearray(data))
 
     def get_active_bits(self, expected_length: int) -> list[int]:
@@ -457,6 +453,16 @@ READ_COMMAND_SPECS: dict[SatelReadCommand, ReadCommandSpec] = {
         command=SatelReadCommand.MODULE_VERSION,
         data_type=SatelCommunicationModuleInfo,
         expected_data_lengths=(12,),
+    ),
+    SatelReadCommand.READ_EVENT: ReadCommandSpec(
+        command=SatelReadCommand.READ_EVENT,
+        data_type=SatelEventRecord,
+        expected_data_lengths=(14,),
+    ),
+    SatelReadCommand.READ_EVENT_TEXT: ReadCommandSpec(
+        command=SatelReadCommand.READ_EVENT_TEXT,
+        data_type=SatelEventText,
+        expected_data_lengths=(21, 51),
     ),
     SatelReadCommand.ZONE_TEMPERATURE: ReadCommandSpec(
         command=SatelReadCommand.ZONE_TEMPERATURE,

@@ -117,6 +117,11 @@ def _decode_device_read_message(
     return READ_DEVICE_NAME_SPECS[selector].construct(cmd, msg_data)
 
 
+def encode_user_code(code: str) -> bytearray:
+    """Encode a user code as the 8-byte, 0xF-padded protocol prefix."""
+    return bytearray.fromhex(code.strip().ljust(16, "F"))
+
+
 class SatelBaseMessage[TCommand: SatelBaseCommand]:
     """Base class shared by read/write message types."""
 
@@ -170,7 +175,7 @@ class SatelWriteMessage(SatelBaseMessage[SatelOutboundCommand]):
         """Encode code and device bitmasks into the message payload."""
         msg_data = bytearray()
         if self._code:
-            msg_data += bytearray.fromhex(self._code.strip().ljust(16, "F"))
+            msg_data += encode_user_code(self._code)
         if self._partitions:
             msg_data += encode_bitmask_le(sorted(self._partitions), 4)
         if self._zones_or_outputs:

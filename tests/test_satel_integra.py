@@ -159,7 +159,12 @@ async def test_start_monitoring_success(satel, mock_queue):
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "command",
-    [SatelReadCommand.ZONES_ALARM, SatelReadCommand.ZONES_ALARM_MEMORY],
+    [
+        SatelReadCommand.ZONES_ALARM,
+        SatelReadCommand.ZONES_ALARM_MEMORY,
+        SatelReadCommand.ZONES_TAMPER_ALARM,
+        SatelReadCommand.ZONES_TAMPER_ALARM_MEMORY,
+    ],
 )
 async def test_start_monitoring_includes_zone_alarms(satel, mock_queue, command):
     mock_queue.add_message.return_value = _make_result_message(
@@ -292,6 +297,8 @@ def test_legacy_zone_callback(satel):
         (SatelReadCommand.ZONES_BYPASS, "bypassed"),
         (SatelReadCommand.ZONES_ALARM, "alarm"),
         (SatelReadCommand.ZONES_ALARM_MEMORY, "alarm_memory"),
+        (SatelReadCommand.ZONES_TAMPER_ALARM, "tamper_alarm"),
+        (SatelReadCommand.ZONES_TAMPER_ALARM_MEMORY, "tamper_alarm_memory"),
     ],
 )
 @pytest.mark.parametrize("violation_received", [False, True])
@@ -352,9 +359,12 @@ def test_zone_violation_callbacks_preserve_order_and_isolate_errors(
     "command_byte, attribute",
     [
         # Protocol numbers from the SATEL integration protocol description:
-        # 0x02 zones alarm, 0x03 zones tamper alarm, 0x04 zones alarm memory.
+        # 0x02 zones alarm, 0x03 zones tamper alarm, 0x04 zones alarm memory,
+        # 0x05 zones tamper alarm memory.
         (0x02, "alarm"),
+        (0x03, "tamper_alarm"),
         (0x04, "alarm_memory"),
+        (0x05, "tamper_alarm_memory"),
     ],
 )
 def test_zone_alarm_states_decode_from_protocol_command_bytes(
@@ -369,13 +379,30 @@ def test_zone_alarm_states_decode_from_protocol_command_bytes(
     assert getattr(satel.state.zones[1], attribute) is False
 
 
-def test_zone_tamper_alarm_is_not_read_as_alarm_memory(satel):
-    payload = bytearray([0x03, 0b00000100]) + bytearray(15)
-    msg = SatelReadMessage.decode_frame(_raw_frame(payload))
-    if msg is not None:
-        satel._message_handler_registry.dispatch(msg)
+ZONE_STATE_ATTRIBUTES_BY_COMMAND_BYTE = {
+    0x00: "violated",
+    0x01: "tampered",
+    0x02: "alarm",
+    0x03: "tamper_alarm",
+    0x04: "alarm_memory",
+    0x05: "tamper_alarm_memory",
+    0x06: "bypassed",
+}
 
-    assert satel.state.zones[3].alarm_memory is None
+
+@pytest.mark.parametrize("command_byte", list(ZONE_STATE_ATTRIBUTES_BY_COMMAND_BYTE))
+def test_zone_state_command_byte_sets_only_its_own_state(satel, command_byte):
+    payload = bytearray([command_byte, 0b00000100]) + bytearray(15)
+    msg = SatelReadMessage.decode_frame(_raw_frame(payload))
+    assert msg is not None
+    satel._message_handler_registry.dispatch(msg)
+
+    changed = {
+        attribute
+        for attribute in ZONE_STATE_ATTRIBUTES_BY_COMMAND_BYTE.values()
+        if getattr(satel.state.zones[3], attribute) is not None
+    }
+    assert changed == {ZONE_STATE_ATTRIBUTES_BY_COMMAND_BYTE[command_byte]}
 
 
 def test_zone_states_are_initialized_unknown(satel):
@@ -386,6 +413,8 @@ def test_zone_states_are_initialized_unknown(satel):
         and state.bypassed is None
         and state.alarm is None
         and state.alarm_memory is None
+        and state.tamper_alarm is None
+        and state.tamper_alarm_memory is None
         for state in satel.state.zones.values()
     )
 

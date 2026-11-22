@@ -169,6 +169,8 @@ class AsyncSatel:
             SatelReadCommand.ZONES_BYPASS,
             SatelReadCommand.ZONES_ALARM,
             SatelReadCommand.ZONES_ALARM_MEMORY,
+            SatelReadCommand.ZONES_TAMPER_ALARM,
+            SatelReadCommand.ZONES_TAMPER_ALARM_MEMORY,
             SatelReadCommand.PARTITIONS_ARMED_MODE0,
             SatelReadCommand.PARTITIONS_ARMED_MODE1,
             SatelReadCommand.PARTITIONS_ARMED_MODE2,

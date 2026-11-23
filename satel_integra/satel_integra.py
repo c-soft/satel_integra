@@ -663,8 +663,14 @@ class AsyncSatel:
         *,
         wait_for_result: bool = False,
     ) -> SatelCommandResult | None:
-        """Set the panel clock to the wall-clock time of value, optionally returning the panel's 0xEF result."""
+        """Set the panel clock to the wall-clock time of value, optionally returning the panel's 0xEF result.
+
+        value is the panel's local time as a naive datetime; an aware datetime is
+        rejected, as the panel clock has no timezone to convert it to.
+        """
         _validate_user_code(code)
+        if value.utcoffset() is not None:
+            raise ValueError("value must be a naive datetime in the panel's local time")
 
         _LOGGER.info("Sending set panel time command.")
 

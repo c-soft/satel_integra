@@ -19,8 +19,9 @@ from satel_integra.messages import SatelReadMessage, SatelWriteMessage
 
 _LOGGER = logging.getLogger(__name__)
 
-# Commands that act on the premises. They must not be sent late: not after the
-# connection they were issued on is gone, and not after CONTROL_COMMAND_TTL.
+# Commands that act on the premises or carry the time they were created at. They
+# must not be sent late: not after the connection they were issued on is gone,
+# and not after CONTROL_COMMAND_TTL.
 CONTROL_COMMANDS = frozenset(
     {
         SatelWriteCommand.PARTITIONS_ARM_MODE_0,
@@ -31,6 +32,7 @@ CONTROL_COMMANDS = frozenset(
         SatelWriteCommand.PARTITIONS_CLEAR_ALARM,
         SatelWriteCommand.OUTPUTS_ON,
         SatelWriteCommand.OUTPUTS_OFF,
+        SatelWriteCommand.SET_RTC_CLOCK,
     }
 )
 

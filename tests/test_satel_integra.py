@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from datetime import datetime
+from datetime import UTC, datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -707,6 +707,17 @@ async def test_set_panel_time_sends_code_and_ascii_time(satel, mock_queue):
         + bytearray(b"20261122150405")
     )
     assert wait_for_result is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tz", [UTC, timezone(timedelta(hours=1))])
+async def test_set_panel_time_rejects_aware_datetime_without_sending(
+    satel, mock_queue, tz
+):
+    with pytest.raises(ValueError, match="naive"):
+        await satel.set_panel_time("1234", datetime(2026, 11, 22, 15, 4, 5, tzinfo=tz))
+
+    mock_queue.add_message.assert_not_awaited()
 
 
 @pytest.mark.asyncio

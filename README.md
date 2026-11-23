@@ -75,6 +75,7 @@ Refer to the [licence file](LICENCE).
 - [x] Zone temperature reading
 - [x] Zone tamper/bypass states
 - [x] Zone alarm and alarm memory states
+- [x] Zone tamper alarm and tamper alarm memory states
 - [ ] System faults (bad battery, AC trouble, other errors)
 - [ ] System info (panel information, firmware version etc)
 - [ ] Event monitoring

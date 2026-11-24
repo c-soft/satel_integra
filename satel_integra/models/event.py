@@ -7,6 +7,10 @@ from enum import IntEnum, unique
 # Event texts are in the panel's language; Polish panels use Windows-1250.
 EVENT_TEXT_ENCODING = "cp1250"
 
+# Description kinds (0x8F) whose PPPPP field is a partition. In other kinds the
+# same bits are e.g. a keypad (6, 30) or a telephone (14), or carry nothing (0).
+PARTITION_KINDS = frozenset({1, 2, 5, 11, 15, 32})
+
 
 @unique
 class SatelEventClass(IntEnum):
@@ -32,7 +36,7 @@ class SatelEventRecord:
     day: int
     month: int
     minutes: int
-    partition: int
+    partition_field: int
     restore: bool
     code: int
     source: int
@@ -51,8 +55,9 @@ class SatelEventRecord:
             day=payload[1] & 0x1F,
             month=payload[2] >> 4,
             minutes=((payload[2] & 0x0F) << 8) | payload[3],
-            # The record carries the partition 0-based.
-            partition=(payload[4] >> 3) + 1,
+            # PPPPP as stored (0-based); its meaning depends on the description
+            # kind, see SatelEvent.partition.
+            partition_field=payload[4] >> 3,
             restore=bool(payload[4] & 0x04),
             code=((payload[4] & 0x03) << 8) | payload[5],
             source=payload[6],
@@ -99,6 +104,13 @@ class SatelEvent:
     timestamp: datetime | None
     text: str
     kind: int
+
+    @property
+    def partition(self) -> int | None:
+        """Partition number (1-based), or None if this kind of event has none."""
+        if self.kind not in PARTITION_KINDS:
+            return None
+        return self.record.partition_field + 1
 
     @property
     def index(self) -> int:

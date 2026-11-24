@@ -7,6 +7,7 @@ from satel_integra.commands import SatelReadCommand
 from satel_integra.const import FRAME_END, FRAME_START
 from satel_integra.messages import SatelReadMessage, SatelTypedReadMessage
 from satel_integra.models import (
+    SatelEvent,
     SatelEventClass,
     SatelEventRecord,
     SatelEventText,
@@ -59,7 +60,8 @@ def test_event_record_decodes_protocol_fields():
     assert record.present
     assert record.event_class is SatelEventClass.ARMING
     assert record.timestamp(NOW) == datetime(2026, 11, 22, 17, 53)
-    assert record.partition == 1
+    # PPPPP as stored; whether it is a partition depends on the description kind.
+    assert record.partition_field == 0
     assert not record.restore
     assert record.code == 0x001
     assert record.source == 5
@@ -95,6 +97,29 @@ def test_event_text_decodes_long_description():
     assert isinstance(text, SatelEventText)
     assert text.kind == 2
     assert text.text == "Załączenie czuwania"
+
+
+def _event_with(partition_field: int, kind: int) -> SatelEvent:
+    # PPPPP sits in bits 7..3 of the fifth record byte.
+    answer = ARMING_ANSWER[:4] + bytes([partition_field << 3]) + ARMING_ANSWER[5:]
+    return SatelEvent(
+        record=_event_message(answer).data, timestamp=None, text="", kind=kind
+    )
+
+
+@pytest.mark.parametrize("kind", [1, 2, 5, 11, 15, 32])
+def test_event_partition_for_partition_kinds(kind):
+    assert _event_with(partition_field=3, kind=kind).partition == 4
+
+
+# 0: no details, 6 and 30: keypad, 7: user only, 14: telephone; on a
+# one-partition panel user-function and system events carried 2 and 17 here.
+@pytest.mark.parametrize("kind", [0, 6, 7, 14, 30])
+def test_event_has_no_partition_for_other_kinds(kind):
+    event = _event_with(partition_field=16, kind=kind)
+
+    assert event.partition is None
+    assert event.record.partition_field == 16
 
 
 @pytest.fixture
@@ -159,7 +184,9 @@ async def test_read_events_follows_the_chain_and_stops_at_known_index(satel):
     events = await satel.read_events(10, stop_at_index=0x000002, now=NOW)
 
     assert [event.index for event in events] == [0x000003]
-    requests = [call.args[0].msg_data for call in satel._send_data_and_wait.await_args_list]
+    requests = [
+        call.args[0].msg_data for call in satel._send_data_and_wait.await_args_list
+    ]
     assert requests[2] == bytearray([0x00, 0x00, 0x03])
 
 

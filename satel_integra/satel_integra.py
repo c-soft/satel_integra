@@ -4,6 +4,7 @@ import asyncio
 import logging
 import sys
 from collections.abc import Awaitable, Callable
+from datetime import datetime
 from typing import TypeVar, cast, overload
 from warnings import warn
 
@@ -38,6 +39,7 @@ from satel_integra.messages import (
     SatelReadMessageData,
     SatelTypedReadMessage,
     SatelWriteMessage,
+    encode_user_code,
 )
 from satel_integra.models import (
     SatelCommandResult,
@@ -655,6 +657,38 @@ class AsyncSatel:
         )
         msg = SatelWriteMessage(mode_command, code=code, zones_or_outputs=[output_id])
         return await self._send_control_message(msg, wait_for_result)
+
+    async def set_panel_time(
+        self,
+        code: str,
+        value: datetime,
+        *,
+        wait_for_result: bool = False,
+    ) -> SatelCommandResult | None:
+        """Set the panel clock to the wall-clock time of value, optionally returning the panel's 0xEF result.
+
+        value is the panel's local time as a naive datetime; an aware datetime is
+        rejected, as the panel clock has no timezone to convert it to.
+        """
+        _validate_user_code(code)
+        if value.utcoffset() is not None:
+            raise ValueError("value must be a naive datetime in the panel's local time")
+
+        _LOGGER.info("Sending set panel time command.")
+
+        msg = SatelWriteMessage(
+            SatelWriteCommand.SET_RTC_CLOCK,
+            raw_data=encode_user_code(code)
+            + f"{value.year:04}{value:%m%d%H%M%S}".encode("ascii"),
+        )
+
+        return await self._send_control_message(msg, wait_for_result)
+
+    async def read_panel_time(self) -> datetime | None:
+        """Read the panel clock as local wall-clock time."""
+        msg = SatelWriteMessage(SatelReadCommand.RTC_AND_STATUS)
+        status = await self._send_data_and_wait(msg, SatelRtcAndStatus)
+        return status.panel_time if status is not None else None
 
     async def read_temperature(self, zone_id: int) -> float | None:
         """Read the temperature for a single zone sensor."""

@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime
 from unittest.mock import MagicMock
 
 import pytest
@@ -268,6 +269,30 @@ def test_unchanged_system_status_does_not_notify(
     registry.dispatch(message)
 
     callback.assert_not_called()
+
+
+def test_system_status_keeps_latest_panel_time_without_notifying(
+    registry: MessageHandlerRegistry,
+    state: SatelState,
+    subscriptions: SatelSubscriptions,
+) -> None:
+    first = _typed_message(
+        SatelReadCommand.RTC_AND_STATUS,
+        bytearray.fromhex("20260906235849") + bytearray(2),
+    )
+    later = _typed_message(
+        SatelReadCommand.RTC_AND_STATUS,
+        bytearray.fromhex("20260906235904") + bytearray(2),
+    )
+    registry.dispatch(first)
+    callback = MagicMock()
+    subscriptions.system_status.add(callback)
+
+    registry.dispatch(later)
+
+    callback.assert_not_called()
+    assert state.system_status is not None
+    assert state.system_status.panel_time == datetime(2026, 9, 6, 23, 59, 4)
 
 
 def test_system_trouble_reports_notify(

@@ -780,6 +780,21 @@ async def test_expired_control_command_is_not_sent(bound_queue):
 
 
 @pytest.mark.asyncio
+async def test_clock_set_from_previous_connection_is_not_sent(bound_queue, link):
+    # The time is encoded when the message is created; sent late it would set a
+    # stale time.
+    clock_set = SatelWriteMessage(
+        SatelWriteCommand.SET_RTC_CLOCK, raw_data=bytearray(b"20261122150405")
+    )
+    queued = QueuedMessage(clock_set, False, generation=1)
+    link["generation"] = 2
+
+    await bound_queue._send_and_wait_response(queued)
+
+    bound_queue._send_func.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_fresh_control_command_is_sent(bound_queue, result_msg):
     queued = QueuedMessage(_output_on(), True, generation=1)
     queued.processed_future.set_result(result_msg)

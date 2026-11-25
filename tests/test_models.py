@@ -1,3 +1,5 @@
+from datetime import datetime
+
 import pytest
 
 from satel_integra.models import (
@@ -169,6 +171,34 @@ def test_rtc_and_status_diagnostic_flags():
 
     assert result.troubles_memory
     assert result.grade_2_or_3
+
+
+def test_rtc_and_status_panel_time():
+    result = SatelRtcAndStatus._from_payload(
+        bytes.fromhex("20 26 09 06 23 58 49 C6 C8")
+    )
+
+    assert result.panel_time == datetime(2026, 9, 6, 23, 58, 49)
+
+
+@pytest.mark.parametrize(
+    "time_bytes",
+    ["FF FF FF FF FF FF FF", "20 26 13 06 23 58 49", "00 00 00 00 00 00 00"],
+)
+def test_rtc_and_status_invalid_panel_time_is_none(time_bytes):
+    result = SatelRtcAndStatus._from_payload(bytes.fromhex(f"{time_bytes} 00 00"))
+
+    assert result.panel_time is None
+
+
+def test_rtc_and_status_equality_ignores_panel_time():
+    earlier = SatelRtcAndStatus._from_payload(
+        bytes.fromhex("20 26 09 06 23 58 49 00 00")
+    )
+    later = SatelRtcAndStatus._from_payload(bytes.fromhex("20 26 09 06 23 59 04 00 00"))
+
+    assert earlier == later
+    assert earlier.panel_time != later.panel_time
 
 
 def test_trouble_is_identified_by_type_and_source() -> None:

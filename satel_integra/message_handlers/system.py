@@ -18,10 +18,11 @@ def handle_system_status(
 ) -> None:
     """Handle RTC and status message."""
     status = message.data
-    if status == state.system_status:
+    changed = status != state.system_status
+    state.system_status = status
+    if not changed:
         return
 
-    state.system_status = status
     _LOGGER.debug("System status changed: %s", status)
     subscriptions.system_status.notify()
 

@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from datetime import UTC, datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -672,6 +673,7 @@ def test_system_troubles_callback(satel):
         ("disarm", ("1234", [1])),
         ("clear_alarm", ("1234", [1])),
         ("set_output", ("1234", 3, True)),
+        ("set_panel_time", ("1234", datetime(2026, 11, 22, 15, 4, 5))),
     ],
 )
 async def test_send_methods_call_queue_add(satel, mock_queue, method, args):
@@ -690,6 +692,7 @@ async def test_send_methods_call_queue_add(satel, mock_queue, method, args):
         ("disarm", ("9876", [1])),
         ("clear_alarm", ("9876", [1])),
         ("set_output", ("9876", 3, True)),
+        ("set_panel_time", ("9876", datetime(2026, 11, 22, 15, 4, 5))),
     ],
 )
 async def test_send_methods_do_not_log_user_code(
@@ -718,6 +721,82 @@ async def test_set_output_waits_for_result(satel, mock_queue, state, command):
     sent_msg, wait_for_result = mock_queue.add_message.await_args.args
     assert sent_msg.cmd is command
     assert wait_for_result is True
+
+
+@pytest.mark.asyncio
+async def test_set_panel_time_sends_code_and_ascii_time(satel, mock_queue):
+    await satel.set_panel_time("1234", datetime(2026, 11, 22, 15, 4, 5))
+
+    sent_msg, wait_for_result = mock_queue.add_message.await_args.args
+    # SATEL integration protocol, 0x8E set RTC clock: 8 bytes user code,
+    # then 14 ASCII characters yyyymmddhhmmss.
+    assert sent_msg.encode_frame() == _raw_frame(
+        bytearray([0x8E])
+        + bytearray.fromhex("1234FFFFFFFFFFFF")
+        + bytearray(b"20261122150405")
+    )
+    assert wait_for_result is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tz", [UTC, timezone(timedelta(hours=1))])
+async def test_set_panel_time_rejects_aware_datetime_without_sending(
+    satel, mock_queue, tz
+):
+    with pytest.raises(ValueError, match="naive"):
+        await satel.set_panel_time("1234", datetime(2026, 11, 22, 15, 4, 5, tzinfo=tz))
+
+    mock_queue.add_message.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_set_panel_time_waits_for_result(satel, mock_queue):
+    mock_queue.add_message.return_value = _make_result_message(
+        SatelResultCode.COMMAND_ACCEPTED
+    )
+
+    result = await satel.set_panel_time(
+        "1234", datetime(2026, 11, 22, 15, 4, 5), wait_for_result=True
+    )
+
+    assert isinstance(result, SatelCommandResult)
+    assert result.is_success
+    assert mock_queue.add_message.await_args.args[1] is True
+
+
+@pytest.mark.asyncio
+async def test_set_panel_time_wait_for_result_rejected(satel, mock_queue):
+    mock_queue.add_message.return_value = _make_result_message(
+        SatelResultCode.NO_ACCESS
+    )
+
+    with pytest.raises(SatelCommandRejectedError) as err:
+        await satel.set_panel_time(
+            "1234", datetime(2026, 11, 22, 15, 4, 5), wait_for_result=True
+        )
+
+    assert err.value.result.code == SatelResultCode.NO_ACCESS
+
+
+@pytest.mark.asyncio
+async def test_read_panel_time(satel, mock_queue):
+    mock_queue.add_message.return_value = _typed_message(
+        SatelReadCommand.RTC_AND_STATUS,
+        bytearray.fromhex("20261122150405") + bytearray(2),
+    )
+
+    assert await satel.read_panel_time() == datetime(2026, 11, 22, 15, 4, 5)
+
+    sent_msg, wait_for_result = mock_queue.add_message.await_args.args
+    assert sent_msg.cmd is SatelReadCommand.RTC_AND_STATUS
+    assert wait_for_result is True
+
+
+@pytest.mark.asyncio
+async def test_read_panel_time_no_response(satel, mock_queue):
+    mock_queue.add_message.return_value = None
+
+    assert await satel.read_panel_time() is None
 
 
 @pytest.mark.asyncio
@@ -834,6 +913,7 @@ async def test_partition_control_wait_for_result_no_response(
         ("disarm", ([1],)),
         ("clear_alarm", ([1],)),
         ("set_output", (1, True)),
+        ("set_panel_time", (datetime(2026, 11, 22, 15, 4, 5),)),
     ],
 )
 @pytest.mark.parametrize(

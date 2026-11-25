@@ -1,6 +1,7 @@
 """Structured basic panel status information."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime
 
 
 @dataclass(frozen=True)
@@ -13,6 +14,8 @@ class SatelRtcAndStatus:
     int_rx_present: bool
     troubles_memory: bool
     grade_2_or_3: bool
+    # The clock changes on every read; status changes are about the flags only.
+    panel_time: datetime | None = field(default=None, compare=False)
 
     @classmethod
     def _from_payload(cls, payload: bytes) -> "SatelRtcAndStatus":
@@ -24,4 +27,13 @@ class SatelRtcAndStatus:
             int_rx_present=bool(payload[8] & 0x40),
             troubles_memory=bool(payload[8] & 0x20),
             grade_2_or_3=bool(payload[8] & 0x10),
+            panel_time=_decode_panel_time(payload[:7]),
         )
+
+
+def _decode_panel_time(raw: bytes) -> datetime | None:
+    """Decode the BCD panel clock (YYYY-MM-DD hh:mm:ss), or None if invalid."""
+    try:
+        return datetime.strptime(raw.hex(), "%Y%m%d%H%M%S")
+    except ValueError:
+        return None

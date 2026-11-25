@@ -43,6 +43,8 @@ class SatelZoneState:
     bypassed: bool | None = None
     alarm: bool | None = None
     alarm_memory: bool | None = None
+    tamper_alarm: bool | None = None
+    tamper_alarm_memory: bool | None = None
 
 
 @dataclass

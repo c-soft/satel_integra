@@ -14,11 +14,13 @@ class SatelPartitionInfo(SatelDeviceInfo):
     object_assignment: int | None
 
     @classmethod
-    def _from_payload(cls, payload: bytes) -> "SatelPartitionInfo":
+    def _from_payload(
+        cls, payload: bytes, *, language_code: int | None = None
+    ) -> "SatelPartitionInfo":
         """Parse a 0xEE partition payload with object assignment."""
         return cls(
             device_number=payload[1],
-            name=cls._decode_name(payload),
+            name=cls._decode_name(payload, language_code),
             type_code=payload[2],
             object_assignment=payload[19] if payload[19] else None,
         )

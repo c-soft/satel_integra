@@ -15,10 +15,12 @@ class SatelOutputInfo(SatelDeviceInfo):
     type_code: int
 
     @classmethod
-    def _from_payload(cls, payload: bytes) -> "SatelOutputInfo":
+    def _from_payload(
+        cls, payload: bytes, *, language_code: int | None = None
+    ) -> "SatelOutputInfo":
         """Parse a 0xEE output payload."""
         return cls(
             device_number=decode_device_number(payload[1]),
-            name=cls._decode_name(payload),
+            name=cls._decode_name(payload, language_code),
             type_code=payload[2],
         )

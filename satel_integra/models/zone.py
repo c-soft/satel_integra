@@ -16,11 +16,13 @@ class SatelZoneInfo(SatelDeviceInfo):
     partition_assignment: int | None
 
     @classmethod
-    def _from_payload(cls, payload: bytes) -> "SatelZoneInfo":
+    def _from_payload(
+        cls, payload: bytes, *, language_code: int | None = None
+    ) -> "SatelZoneInfo":
         """Parse a 0xEE zone payload with partition assignment."""
         return cls(
             device_number=decode_device_number(payload[1]),
-            name=cls._decode_name(payload),
+            name=cls._decode_name(payload, language_code),
             type_code=payload[2],
             partition_assignment=payload[19] if payload[19] else None,
         )

@@ -29,8 +29,11 @@ class SatelDeviceInfo:
     name: str
 
     @staticmethod
-    def _decode_name(payload: bytes) -> str:
+    def _decode_name(payload: bytes, language_code: int | None) -> str:
         """Decode the shared 0xEE device name field."""
-        return (
-            payload[3:19].decode(DEFAULT_DEVICE_NAME_ENCODING).rstrip("\x00 ").strip()
-        )
+        encoding = DEFAULT_DEVICE_NAME_ENCODING
+        if language_code is not None:
+            encoding = DEVICE_NAME_ENCODING_BY_LANGUAGE_CODE.get(
+                language_code, encoding
+            )
+        return payload[3:19].decode(encoding).rstrip("\x00 ").strip()
